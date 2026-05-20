@@ -7,10 +7,10 @@ import FreeCADGui as Gui
 # FreeCAD 通过 exec() 加载 InitGui.py，此时 __file__ 不可用，Python 也不知道本插件
 # 的其他模块（AiDesignPanel 等）在哪里。必须手动定位插件目录并加入 sys.path，
 # 否则后续的 from AiDesignPanel import ... 会报 ModuleNotFoundError。
-_mod_dir = os.path.join(FreeCAD.getUserAppDataDir(), "Mod", "AiSonarDesign")
+_mod_dir = os.path.join(FreeCAD.getUserAppDataDir(), "Mod", "CadAgent")
 if not os.path.isdir(_mod_dir):
     # 用户目录下没有则回退到 FreeCAD 安装目录
-    _mod_dir = os.path.normpath(os.path.join(FreeCAD.getHomePath(), "Mod", "AiSonarDesign"))
+    _mod_dir = os.path.normpath(os.path.join(FreeCAD.getHomePath(), "Mod", "CadAgent"))
 if _mod_dir not in sys.path:
     sys.path.insert(0, _mod_dir)
 

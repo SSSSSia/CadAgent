@@ -1,6 +1,6 @@
 # AI CAD Agent 开发任务书
 
-> 项目路径：`D:\Download\FreeCAD\Mod\AiSonarDesign\`
+> 项目路径：`D:\Download\FreeCAD\Mod\CadAgent\`
 > 模型：GLM-5.1 on SiliconFlow（已验证支持 Tool Calling）
 > 框架：FreeCAD Mod 插件 + PySide6 + urllib（标准库）
 > 日期：2026-05-20
@@ -20,7 +20,7 @@
 ### 已有文件清单（12 个源文件）
 
 ```
-AiSonarDesign/
+CadAgent/
 ├── Init.py              (1行)   空文件，FreeCAD Mod 入口标识
 ├── InitGui.py           (75行)  Workbench 注册 + sys.path + Dock Panel 加载
 ├── AgentPanel.py        (514行) 聊天式 Dock Panel UI + 状态机 Agent 循环
@@ -506,13 +506,13 @@ def _tool_visual_inspect(args_json):
 
 ## 项目重命名（随时可做）
 
-**当前**：目录名 `AiSonarDesign`，类名 `AiCadAgentWorkbench`
+**当前**：目录名 `CadAgent`，类名 `AiCadAgentWorkbench`
 
-**目标**：目录名 `AiCadAgent`，统一命名
+**目标**：目录名 `CadAgent`，统一命名
 
 **需要修改的地方**：
-1. 重命名目录：`AiSonarDesign/` → `AiCadAgent/`
-2. `InitGui.py` 第 10-14 行：路径中的 `AiSonarDesign` → `AiCadAgent`
+1. 重命名目录：`CadAgent/`（已完成）
+2. `InitGui.py` 路径已更新为 `CadAgent`
 3. `config.json` 无需改（不含插件名）
 
 **注意**：必须在 FreeCAD 未运行时操作，否则文件被锁定。

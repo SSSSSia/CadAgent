@@ -1,6 +1,6 @@
-# AiSonarDesign — FreeCAD AI CAD Agent Workbench
+# CadAgent — FreeCAD AI CAD Agent Workbench
 
-An AI-powered FreeCAD workbench that uses an LLM agent (GLM-5.1) to generate and modify 3D mechanical models from natural language descriptions. Designed for sonar equipment and general mechanical parts.
+An AI-powered FreeCAD workbench that uses an LLM agent (GLM-5.1) to generate and modify 3D mechanical models from natural language descriptions.
 
 ## Features
 
@@ -24,7 +24,7 @@ Tools available to agent:
 
 ## Installation
 
-1. Copy the `AiSonarDesign` folder into your FreeCAD `Mod/` directory:
+1. Copy the `CadAgent` folder into your FreeCAD `Mod/` directory:
    - **Windows**: `%APPDATA%/FreeCAD/Mod/` or `<FreeCAD_install>/Mod/`
    - **Linux**: `~/.FreeCAD/Mod/`
    - **macOS**: `~/Library/Preferences/FreeCAD/Mod/`
@@ -57,7 +57,7 @@ Tools available to agent:
 ## File Structure
 
 ```
-AiSonarDesign/
+CadAgent/
 ├── Init.py              # FreeCAD module marker
 ├── InitGui.py           # Workbench registration & dock panel loading
 ├── AgentPanel.py        # Chat-style dock widget UI + state machine agent loop

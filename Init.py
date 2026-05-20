@@ -1,1 +1,1 @@
-# AiSonarDesign - FreeCAD AI-powered Sonar Design Workbench
+# CadAgent - FreeCAD AI-powered CAD Agent Workbench
