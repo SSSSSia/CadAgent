@@ -1,85 +1,85 @@
-# CadAgent — FreeCAD AI CAD Agent Workbench
+# CadAgent — FreeCAD AI CAD Agent 工作台
 
-An AI-powered FreeCAD workbench that uses an LLM agent (GLM-5.1) to generate and modify 3D mechanical models from natural language descriptions.
+基于 LLM Agent 的 FreeCAD 工作台，通过自然语言描述生成和修改 3D 机械模型。
 
-## Features
+## 功能特性
 
-- **Agent Mode** — Multi-turn ReAct agent loop with tool calling: the LLM reasons, writes FreeCAD Python code, executes it, analyzes the result, and self-corrects on errors
-- **Natural Language Design** — Describe a part in plain text, get a 3D model
-- **Geometry Analysis** — Agent inspects bounding box, volume, cylindrical features, and more
-- **Self-Correction** — If code fails, the agent sees the error traceback and automatically retries
-- **Session Management** — In-memory conversation history with context for multi-turn design
+- **Agent 模式** — 多轮 ReAct 智能体循环：LLM 推理 → 生成 FreeCAD Python 代码 → 执行 → 分析结果 → 自纠错
+- **自然语言设计** — 用文字描述零件，自动生成 3D 模型
+- **几何分析** — Agent 自动检测包围盒、体积、圆柱特征等几何信息
+- **错误自纠正** — 代码执行失败时，Agent 查看错误堆栈并自动修正重试
+- **会话管理** — 内存中的多轮对话历史，支持上下文连续设计
 
-## Architecture
+## 架构
 
 ```
-Agent Loop (ReAct):
-  User input → LLM reasons → calls tool → observes result → reasons again → ...
-  
-Tools available to agent:
-  - execute_code    — Run FreeCAD Python code to create/modify geometry
-  - analyze_geometry — Extract geometry info from current document
-  - validate_design  — Validate the current model
+Agent 循环 (ReAct):
+  用户输入 → LLM 推理 → 调用工具 → 观察结果 → 再次推理 → ...
+
+可用工具:
+  - execute_code     — 执行 FreeCAD Python 代码，创建/修改几何体
+  - analyze_geometry — 提取当前文档的几何信息
+  - validate_design  — 验证当前模型
 ```
 
-## Installation
+## 安装
 
-1. Copy the `CadAgent` folder into your FreeCAD `Mod/` directory:
-   - **Windows**: `%APPDATA%/FreeCAD/Mod/` or `<FreeCAD_install>/Mod/`
+1. 将 `CadAgent` 文件夹复制到 FreeCAD 的 `Mod/` 目录：
+   - **Windows**: `%APPDATA%/FreeCAD/Mod/` 或 `<FreeCAD安装目录>/Mod/`
    - **Linux**: `~/.FreeCAD/Mod/`
    - **macOS**: `~/Library/Preferences/FreeCAD/Mod/`
 
-2. Copy `.env.example` to `.env` and fill in your API key:
+2. 复制 `.env.example` 为 `.env` 并填写你的 API 密钥：
    ```bash
    cp .env.example .env
    ```
-   Edit `.env`:
+   编辑 `.env`：
    ```env
    API_BASE_URL=https://api.siliconflow.cn/v1
    API_KEY=sk-your-api-key-here
    MODEL_NAME=Pro/zai-org/GLM-5.1
    ```
 
-3. Restart FreeCAD and select the **AI CAD Agent** workbench from the workbench dropdown.
+3. 重启 FreeCAD，从工作台下拉菜单选择 **AI CAD Agent** 工作台。
 
-## Usage
+## 使用方法
 
-1. Switch to the **AI CAD Agent** workbench — the dock panel opens on the right
-2. Type a description of the part you want (e.g. "设计一个法兰筒体 OD 200mm，法兰 R=125")
-3. Click **Send** — the agent will reason, generate code, and execute it iteratively
-4. The 3D model appears in the viewport; the agent may do multiple rounds of refinement
+1. 切换到 **AI CAD Agent** 工作台 — 右侧自动打开对话面板
+2. 输入零件描述（如 "设计一个法兰筒体 OD 200mm，法兰 R=125"）
+3. 点击 **发送** — Agent 将自动推理、生成代码并迭代执行
+4. 3D 模型在视口中生成；Agent 可能进行多轮优化
 
-## Requirements
+## 环境要求
 
-- FreeCAD >= 1.0 (with PySide6)
-- A valid API key for the configured LLM service (default: SiliconFlow with GLM-5.1)
+- FreeCAD >= 1.0（含 PySide6）
+- 配置的 LLM 服务的有效 API 密钥（默认：SiliconFlow GLM-5.1）
 
-## File Structure
+## 文件结构
 
 ```
 CadAgent/
-├── Init.py              # FreeCAD module marker
-├── InitGui.py           # Workbench registration & dock panel loading
-├── AgentPanel.py        # Chat-style dock widget UI + state machine agent loop
-├── agent_controller.py  # Agent core logic: system prompt, ReAct parsing, tool dispatch
-├── agent_tools.py       # Tool implementations (execute_code / analyze_geometry / validate_design)
-├── tool_definitions.py  # Tool JSON Schema definitions for LLM function calling
-├── llm_engine.py        # LLM API integration (OpenAI-compatible API with tool calling)
-├── session_manager.py   # ChatSession class for in-memory conversation management
-├── doc_analyzer.py      # Document geometry analysis (bounding box, volume, cylindrical features)
-├── .env.example          # API config template
-├── .env                  # User config (gitignored, create from example)
-├── log.md               # Key development notes and solved problems
-├── DEVELOPMENT_PLAN.md  # Development roadmap (Phase 1–4)
+├── Init.py              # FreeCAD 模块入口标识
+├── InitGui.py           # 工作台注册与面板加载
+├── AgentPanel.py        # 聊天式 Dock 面板 UI + 状态机 Agent 循环
+├── agent_controller.py  # Agent 核心逻辑：系统提示词、ReAct 解析、工具调度
+├── agent_tools.py       # 工具实现（execute_code / analyze_geometry / validate_design）
+├── tool_definitions.py  # 工具 JSON Schema 定义（LLM function calling）
+├── llm_engine.py        # LLM API 集成（OpenAI 兼容接口 + tool calling）
+├── session_manager.py   # ChatSession 会话管理类
+├── doc_analyzer.py      # 文档几何分析（包围盒、体积、圆柱特征）
+├── .env.example         # API 配置模板
+├── .env                 # 用户配置（已 gitignore，从模板复制）
+├── log.md               # 关键开发笔记与已解决问题
+├── DEVELOPMENT_PLAN.md  # 开发路线图（Phase 1–4）
 ├── .gitignore
 ├── LICENSE
 └── README.md
 ```
 
-## Development
+## 开发
 
-See [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) for the full development roadmap and task breakdown.
+详见 [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) 了解完整的开发路线图和任务规划。
 
-## License
+## 许可证
 
-MIT License — see [LICENSE](LICENSE).
+MIT License — 详见 [LICENSE](LICENSE)。
