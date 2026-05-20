@@ -30,8 +30,8 @@ AiSonarDesign/
 ├── llm_engine.py        (273行) LLM API 调用（含旧版单次 generate_freecad_code）
 ├── session_manager.py   (110行) ChatSession 类（内存中的对话管理）
 ├── doc_analyzer.py      (85行)  文档几何分析（包围盒/体积/圆柱特征）
-├── config.json          (5行)   API 配置（api_base_url / api_key / model_name）
-├── config.example.json  (5行)   配置模板
+├── .env                 (3行)   API 配置（API_BASE_URL / API_KEY / MODEL_NAME）
+├── .env.example         (3行)   配置模板
 └── log.md               (33行)  关键问题日志（4 个已解决问题）
 ```
 

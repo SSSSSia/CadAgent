@@ -29,17 +29,15 @@ Tools available to agent:
    - **Linux**: `~/.FreeCAD/Mod/`
    - **macOS**: `~/Library/Preferences/FreeCAD/Mod/`
 
-2. Copy `config.example.json` to `config.json` and fill in your API key:
+2. Copy `.env.example` to `.env` and fill in your API key:
    ```bash
-   cp config.example.json config.json
+   cp .env.example .env
    ```
-   Edit `config.json`:
-   ```json
-   {
-       "api_base_url": "https://api.siliconflow.cn/v1",
-       "api_key": "sk-your-api-key-here",
-       "model_name": "Pro/zai-org/GLM-5.1"
-   }
+   Edit `.env`:
+   ```env
+   API_BASE_URL=https://api.siliconflow.cn/v1
+   API_KEY=sk-your-api-key-here
+   MODEL_NAME=Pro/zai-org/GLM-5.1
    ```
 
 3. Restart FreeCAD and select the **AI CAD Agent** workbench from the workbench dropdown.
@@ -69,8 +67,8 @@ AiSonarDesign/
 ├── llm_engine.py        # LLM API integration (OpenAI-compatible API with tool calling)
 ├── session_manager.py   # ChatSession class for in-memory conversation management
 ├── doc_analyzer.py      # Document geometry analysis (bounding box, volume, cylindrical features)
-├── config.example.json  # API config template
-├── config.json          # User config (gitignored, create from example)
+├── .env.example          # API config template
+├── .env                  # User config (gitignored, create from example)
 ├── log.md               # Key development notes and solved problems
 ├── DEVELOPMENT_PLAN.md  # Development roadmap (Phase 1–4)
 ├── .gitignore

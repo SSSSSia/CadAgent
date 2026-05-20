@@ -10,30 +10,32 @@ import re
 import urllib.request
 
 
-def _load_config() -> dict:
-    """从 config.json 加载 API 配置，没有配置文件时使用内置默认值。
-
-    config.json 被添加到 .gitignore 中，不会上传到 GitHub（含 API 密钥）。
-    用户从 config.example.json 复制并填写自己的密钥。
-    """
+def _load_env() -> dict:
+    """从 .env 文件加载配置到环境变量（不覆盖已有值），然后返回配置字典。"""
     defaults = {
-        "api_base_url": "https://api.siliconflow.cn/v1",
-        "api_key": "",
-        "model_name": "Pro/zai-org/GLM-5.1",
+        "API_BASE_URL": "https://api.siliconflow.cn/v1",
+        "API_KEY": "",
+        "MODEL_NAME": "Pro/zai-org/GLM-5.1",
     }
-    config_path = os.path.join(os.path.dirname(__file__), "config.json")
-    if os.path.isfile(config_path):
-        with open(config_path, encoding="utf-8") as f:
-            user_cfg = json.load(f)
-        defaults.update(user_cfg)
-    return defaults
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if os.path.isfile(env_path):
+        with open(env_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    key, _, value = line.partition("=")
+                    key, value = key.strip(), value.strip()
+                    if key and key not in os.environ:
+                        os.environ[key] = value
+    return {k: os.environ.get(k, v) for k, v in defaults.items()}
 
 
-# 模块加载时立即读取配置并缓存为模块级变量，后续调用不再重复读文件
-_cfg = _load_config()
-API_BASE_URL = _cfg["api_base_url"]
-API_KEY = _cfg["api_key"]
-MODEL_NAME = _cfg["model_name"]
+_cfg = _load_env()
+API_BASE_URL = _cfg["API_BASE_URL"]
+API_KEY = _cfg["API_KEY"]
+MODEL_NAME = _cfg["MODEL_NAME"]
 
 # ---------------------------------------------------------------------------
 # System prompt: teach LLM to write FreeCAD Part API code

@@ -4,8 +4,8 @@ __pycache__/
 *.pyo
 *.pyd
 
-# Config with API key — users copy config.example.json
-config.json
+# Environment with API key — users copy .env.example
+.env
 
 # IDE
 .vscode/
