@@ -8,19 +8,31 @@ Thread safety model:
 """
 from __future__ import annotations
 
+import json
+
 import FreeCAD
 import FreeCADGui as Gui
 
 from PySide6 import QtCore, QtWidgets
 
-from agent_controller import AgentController
-from session_manager import ChatSession
-from doc_analyzer import analyze_document
+from agent.controller import AgentController
+from core.session import ChatSession
+from core.doc_analyzer import analyze_document
+from core.token_budget import trim_messages
+from core.session_store import SessionStore
+from agent.prompts import AGENT_SYSTEM_PROMPT, REACT_SYSTEM_PROMPT
+from agent.react_parser import parse_react_tool_calls
+from agent.tools import dispatch_tool
+from agent.tool_defs import TOOL_DEFINITIONS
+from core.llm_client import call_llm_streaming
+from PySide6.QtGui import QTextCursor
+from ui.chat_renderer import esc, markdown_to_html
 
 
 class _LlmCallThread(QtCore.QThread):
-    """Background thread: ONLY calls the LLM API. No FreeCAD operations."""
-    responseReady = QtCore.Signal(dict)
+    """Background thread: streams LLM API response, emits incremental chunks."""
+    chunkReady = QtCore.Signal(str)
+    streamDone = QtCore.Signal(dict)
     error = QtCore.Signal(str)
 
     def __init__(self, messages, tools, parent=None):
@@ -30,9 +42,56 @@ class _LlmCallThread(QtCore.QThread):
 
     def run(self):
         try:
-            from agent_controller import call_llm_with_tools
-            data = call_llm_with_tools(self.messages, tools=self.tools)
-            self.responseReady.emit(data)
+            content = ""
+            tc_map = {}  # index -> {id, function: {name, arguments}}
+            finish_reason = None
+
+            for chunk in call_llm_streaming(self.messages, tools=self.tools):
+                if self.isInterruptionRequested():
+                    break
+
+                choice = chunk.get("choices", [{}])[0]
+                delta = choice.get("delta", {})
+                fr = choice.get("finish_reason")
+                if fr:
+                    finish_reason = fr
+
+                # Text streaming
+                c = delta.get("content")
+                if c:
+                    content += c
+                    self.chunkReady.emit(c)
+
+                # Tool calls accumulation
+                for tc in (delta.get("tool_calls") or []):
+                    idx = tc.get("index", 0)
+                    if idx not in tc_map:
+                        tc_map[idx] = {
+                            "id": "",
+                            "type": "function",
+                            "function": {"name": "", "arguments": ""},
+                        }
+                    entry = tc_map[idx]
+                    if tc.get("id"):
+                        entry["id"] = tc["id"]
+                    fn = tc.get("function", {})
+                    if fn.get("name"):
+                        entry["function"]["name"] += fn["name"]
+                    if fn.get("arguments"):
+                        entry["function"]["arguments"] += fn["arguments"]
+
+            # Assemble final message (same format as non-streaming response)
+            tool_calls = [tc_map[i] for i in sorted(tc_map)] if tc_map else []
+            msg: dict = {"content": content or ""}
+            if tool_calls:
+                msg["tool_calls"] = tool_calls
+            if finish_reason is None:
+                finish_reason = "tool_calls" if tool_calls else "stop"
+
+            self.streamDone.emit({
+                "choices": [{"message": msg, "finish_reason": finish_reason}]
+            })
+
         except Exception as e:
             self.error.emit(f"{type(e).__name__}: {e}")
 
@@ -45,10 +104,15 @@ class AgentPanel(QtWidgets.QDockWidget):
     def __init__(self, parent=None):
         super().__init__("AI CAD Agent", parent)
         self._session = ChatSession()
+        self._current_session_id = self._session.session_id
         self._controller = None
         self._iteration = 0
         self._stopped = False
         self._llm_thread = None
+        self._streaming_text = ""
+        self._stream_replace_start = 0
+        self._stream_timer = None
+        self._store = SessionStore()
         self._setup_ui()
 
     # ---- UI construction ----
@@ -66,6 +130,29 @@ class AgentPanel(QtWidgets.QDockWidget):
         main_layout = QtWidgets.QVBoxLayout(container)
         main_layout.setContentsMargins(6, 6, 6, 6)
         main_layout.setSpacing(4)
+
+        # --- Session selector ---
+        self.session_combo = QtWidgets.QComboBox()
+        self.session_combo.setStyleSheet(
+            "QComboBox {"
+            "  font-family: 'Segoe UI', sans-serif;"
+            "  font-size: 12px;"
+            "  padding: 4px 8px;"
+            "  border: 1px solid #ddd;"
+            "  border-radius: 3px;"
+            "  background: #fafafa;"
+            "}"
+            "QComboBox::drop-down { border: none; }"
+            "QComboBox QAbstractItemView {"
+            "  font-size: 12px;"
+            "  border: 1px solid #ddd;"
+            "  selection-background-color: #4a90d9;"
+            "  selection-color: white;"
+            "}"
+        )
+        self.session_combo.addItem("当前会话")
+        self.session_combo.currentIndexChanged.connect(self._on_session_selected)
+        main_layout.addWidget(self.session_combo)
 
         # --- Chat history ---
         self.chat_display = QtWidgets.QTextBrowser()
@@ -103,6 +190,13 @@ class AgentPanel(QtWidgets.QDockWidget):
         # --- Control buttons ---
         ctrl_row = QtWidgets.QHBoxLayout()
 
+        self.btn_undo = QtWidgets.QPushButton("Undo")
+        self.btn_undo.setStyleSheet("padding:5px 12px")
+        self.btn_undo.setEnabled(False)
+        self.btn_undo.setToolTip("Undo last agent operation (restore document snapshot)")
+        self.btn_undo.clicked.connect(self._on_undo)
+        ctrl_row.addWidget(self.btn_undo)
+
         self.btn_stop = QtWidgets.QPushButton("Stop")
         self.btn_stop.setStyleSheet("padding:5px 12px")
         self.btn_stop.setEnabled(False)
@@ -125,9 +219,67 @@ class AgentPanel(QtWidgets.QDockWidget):
         self._append_system_msg(
             "AI CAD Agent ready. Describe a part and I'll create it in FreeCAD."
         )
+        self._refresh_session_list()
 
         container.setLayout(main_layout)
         self.setWidget(container)
+
+    # ---- Session history management ----
+
+    def _refresh_session_list(self):
+        sessions = self._store.list_sessions()
+        self.session_combo.blockSignals(True)
+        self.session_combo.clear()
+        self.session_combo.addItem("当前会话")
+        for s in sessions:
+            summary_text = s.get("summary", "") or "No summary"
+            display = f"{summary_text[:30]} | {s.get('created_at', '')[:10]}"
+            self.session_combo.addItem(display, s["session_id"])
+        idx = 0
+        for i in range(1, self.session_combo.count()):
+            if self.session_combo.itemData(i) == self._current_session_id:
+                idx = i
+                break
+        self.session_combo.setCurrentIndex(idx)
+        self.session_combo.blockSignals(False)
+
+    def _on_session_selected(self, index):
+        if index <= 0:
+            return
+        session_id = self.session_combo.itemData(index)
+        if not session_id or session_id == self._current_session_id:
+            return
+        if self._llm_thread and self._llm_thread.isRunning():
+            self._append_system_msg("Agent 运行中，无法切换会话。")
+            self._refresh_session_list()
+            return
+        self._store.save(self._session)
+        loaded = self._store.load(session_id)
+        if loaded is None:
+            self._append_system_msg("加载会话失败。")
+            self._refresh_session_list()
+            return
+        self._session = loaded
+        self._current_session_id = loaded.session_id
+        self._controller = None
+        self._restore_chat_display(loaded)
+        turns = loaded.user_turn_count()
+        msgs = loaded.message_count()
+        self.status_label.setText(f"Session loaded | {turns} turns | {msgs} messages")
+        self.status_label.setStyleSheet("color:#666; font-size:11px;")
+        self._refresh_session_list()
+
+    def _restore_chat_display(self, session):
+        self.chat_display.clear()
+        for msg in session.messages:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            if role == "user":
+                self._append_user_msg(content)
+            elif role == "assistant" and content:
+                self._append_agent_msg(content)
+        if self.chat_display.document().isEmpty():
+            self._append_system_msg("Session loaded. History restored.")
 
     # ---- Chat display helpers ----
 
@@ -135,13 +287,13 @@ class AgentPanel(QtWidgets.QDockWidget):
         self.chat_display.append(
             f'<table width="100%" cellspacing="0" cellpadding="0"><tr>'
             f'<td style="background-color:#e8f0fe; padding:8px 12px;">'
-            f'<b style="color:#1a5276;">You:</b> {self._esc(text)}'
+            f'<b style="color:#1a5276;">You:</b> {esc(text)}'
             f'</td></tr></table>'
         )
         self._scroll_bottom()
 
     def _append_agent_msg(self, text):
-        html = self._markdown_to_html(text)
+        html = markdown_to_html(text)
         self.chat_display.append(
             f'<table width="100%" cellspacing="0" cellpadding="0"><tr>'
             f'<td style="background-color:#f0faf4; padding:10px 12px; border-left:3px solid #0d904f;">'
@@ -158,14 +310,14 @@ class AgentPanel(QtWidgets.QDockWidget):
             label += f" — {desc}"
         self.chat_display.append(
             f'<div style="margin:2px 0 2px 20px;font-size:12px;color:#888;">'
-            f'{icon} {self._esc(label)}</div>'
+            f'{icon} {esc(label)}</div>'
         )
         self._scroll_bottom()
 
     def _append_system_msg(self, text):
         self.chat_display.append(
             f'<div style="margin:4px 0; color:#888; font-style:italic; '
-            f'font-size:12px; text-align:center;">{self._esc(text)}</div>'
+            f'font-size:12px; text-align:center;">{esc(text)}</div>'
         )
         self._scroll_bottom()
 
@@ -173,112 +325,66 @@ class AgentPanel(QtWidgets.QDockWidget):
         sb = self.chat_display.verticalScrollBar()
         sb.setValue(sb.maximum())
 
-    @staticmethod
-    def _esc(t):
-        return t.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace("\n","<br>")
+    # ---- Streaming display helpers ----
 
-    @staticmethod
-    def _markdown_to_html(md_text):
-        import re
-        ph = []
+    def _start_streaming_bubble(self):
+        """Create an empty agent bubble and record cursor position for replacement."""
+        self._streaming_text = ""
+        cursor = self.chat_display.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        self._stream_replace_start = cursor.position()
+        # Insert empty bubble shell
+        self._append_agent_msg("")
 
-        # 1. Extract code blocks → placeholders
-        def _code(m):
-            c = m.group(1).replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
-            ph.append(
-                '<pre style="background-color:#f4f4f4; padding:6px;'
-                f'font-size:12px; margin:4px 0;">{c}</pre>')
-            return f'\x01PH{len(ph)-1}\x01'
-        text = re.sub(r'```[\w]*\n?(.*?)```', _code, md_text, flags=re.DOTALL)
+    def _on_stream_chunk(self, delta_text):
+        """Accumulate streaming text and schedule a batched UI update."""
+        if self._mode == "react":
+            return
+        self._streaming_text += delta_text
+        if self._stream_timer is None:
+            self._stream_timer = QtCore.QTimer(self)
+            self._stream_timer.setSingleShot(True)
+            self._stream_timer.setInterval(80)
+            self._stream_timer.timeout.connect(self._update_streaming_display)
+        if not self._stream_timer.isActive():
+            self._stream_timer.start()
 
-        # 2. Extract tables → placeholders
-        def _tbl(m):
-            rows = []
-            for ln in m.group(0).strip().split('\n'):
-                ln = ln.strip()
-                if not ln.startswith('|') or not ln.endswith('|'):
-                    continue
-                cells = [c.strip() for c in ln.split('|')[1:-1]]
-                if all(set(c) <= {'-', ':', ' '} for c in cells):
-                    continue
-                rows.append([re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', c) for c in cells])
-            if not rows:
-                return ''
-            h = '<table border="1" cellpadding="4" cellspacing="0" style="margin:4px 0; font-size:13px;">'
-            for i, cells in enumerate(rows):
-                tag = 'th' if i == 0 else 'td'
-                h += '<tr>'
-                for c in cells:
-                    bg = 'background-color:#f0f4f8; font-weight:bold;' if tag == 'th' else ''
-                    h += f'<{tag} style="padding:4px 8px; text-align:left; {bg}">{c}</{tag}>'
-                h += '</tr>'
-            ph.append(h + '</table>')
-            return f'\x01PH{len(ph)-1}\x01'
-        text = re.sub(r'(?:^\|.+\|[ \t]*$\n?)+', _tbl, text, flags=re.MULTILINE)
+    def _update_streaming_display(self):
+        """Replace the streaming bubble with current accumulated text."""
+        if not self._streaming_text:
+            return
+        html = markdown_to_html(self._streaming_text)
+        bubble = (
+            '<table width="100%" cellspacing="0" cellpadding="0"><tr>'
+            '<td style="background-color:#f0faf4; padding:10px 12px; '
+            'border-left:3px solid #0d904f;">'
+            '<b style="color:#0d904f;">Agent:</b><br>'
+            f'{html}'
+            '</td></tr></table>'
+        )
+        cursor = QTextCursor(self.chat_display.document())
+        cursor.setPosition(self._stream_replace_start)
+        cursor.movePosition(cursor.MoveOperation.End, cursor.MoveMode.KeepAnchor)
+        cursor.removeSelectedText()
+        cursor.insertHtml(bubble)
+        self._scroll_bottom()
 
-        # 3. Escape remaining HTML
-        text = text.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
+    def _finalize_streaming_bubble(self):
+        """Final re-render of the streaming bubble after stream ends."""
+        if self._stream_timer and self._stream_timer.isActive():
+            self._stream_timer.stop()
+        if self._streaming_text:
+            self._update_streaming_display()
 
-        # 4. Headers, lists, hr — line by line
-        lines = text.split('\n')
-        out, in_list, ltag = [], False, None
-        for line in lines:
-            s = line.strip()
-            hm = re.match(r'^(#{1,3}) (.+)$', s)
-            if hm:
-                if in_list:
-                    out.append(f'</{ltag}>')
-                    in_list = False
-                lv = min(len(hm.group(1)) + 1, 4)
-                out.append(f'<h{lv} style="margin:8px 0 4px;">{hm.group(2)}</h{lv}>')
-                continue
-            if re.match(r'^---+$', s):
-                if in_list:
-                    out.append(f'</{ltag}>')
-                    in_list = False
-                out.append('<hr>')
-                continue
-            ol = re.match(r'^(\d+)\.\s+(.+)$', s)
-            if ol:
-                if not in_list or ltag != 'ol':
-                    if in_list:
-                        out.append(f'</{ltag}>')
-                    out.append('<ol style="margin:4px 0 4px 20px;">')
-                    in_list = True; ltag = 'ol'
-                out.append(f'<li>{ol.group(2)}</li>')
-                continue
-            ul = re.match(r'^[-*]\s+(.+)$', s)
-            if ul:
-                if not in_list or ltag != 'ul':
-                    if in_list:
-                        out.append(f'</{ltag}>')
-                    out.append('<ul style="margin:4px 0 4px 20px;">')
-                    in_list = True; ltag = 'ul'
-                out.append(f'<li>{ul.group(1)}</li>')
-                continue
-            if in_list:
-                out.append(f'</{ltag}>')
-                in_list = False
-            out.append(line)
-        if in_list:
-            out.append(f'</{ltag}>')
-        text = '\n'.join(out)
-
-        # 5. Bold, inline code
-        text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
-        text = re.sub(r'`([^`]+)`', r'<code style="background-color:#f0f0f0; padding:1px 4px;">\1</code>', text)
-
-        # 6. Newlines → <br>
-        text = text.replace("\n", "<br>")
-
-        # 6b. Remove spurious <br> around block elements (from step 4 line joins)
-        for blk in ('ul', '/ul', 'ol', '/ol', 'li', '/li', 'hr', 'pre', 'table', '/table'):
-            text = text.replace(f'<br><{blk}>', f'<{blk}>')
-
-        # 7. Restore placeholders
-        for i, blk in enumerate(ph):
-            text = text.replace(f'\x01PH{i}\x01', blk)
-        return text
+    def _remove_streaming_bubble(self):
+        """Remove the streaming placeholder bubble (for tool_calls with no text)."""
+        if self._stream_timer and self._stream_timer.isActive():
+            self._stream_timer.stop()
+        cursor = QTextCursor(self.chat_display.document())
+        cursor.setPosition(self._stream_replace_start)
+        cursor.movePosition(cursor.MoveOperation.End, cursor.MoveMode.KeepAnchor)
+        cursor.removeSelectedText()
+        self._streaming_text = ""
 
     # ---- State machine: send -> call LLM (bg) -> execute tools (main) -> repeat ----
 
@@ -286,8 +392,10 @@ class AgentPanel(QtWidgets.QDockWidget):
         self.btn_send.setEnabled(not running)
         self.text_input.setEnabled(not running)
         self.btn_stop.setEnabled(running)
+        self.session_combo.setEnabled(not running)
         if not running:
             self.text_input.setFocus()
+            self._update_undo_button_state()
 
     def _on_send(self):
         text = self.text_input.text().strip()
@@ -318,11 +426,12 @@ class AgentPanel(QtWidgets.QDockWidget):
         self._controller.session.add_user_message(text)
 
         # Set system prompt — start with tool calling version
-        from agent_controller import AGENT_SYSTEM_PROMPT
         system_content = AGENT_SYSTEM_PROMPT.format(
             context=f"\nCURRENT DOCUMENT CONTEXT:\n{context}" if context else ""
         )
         self._controller.session.set_system_prompt(system_content)
+
+        self._store.save(self._session)
 
         self.status_label.setText("Agent thinking...")
         self.status_label.setStyleSheet("color:#d4a017; font-size:11px;")
@@ -331,7 +440,7 @@ class AgentPanel(QtWidgets.QDockWidget):
         self._call_llm()
 
     def _call_llm(self):
-        """Kick off a background LLM API call."""
+        """Kick off a background streaming LLM API call."""
         if self._stopped or self._iteration >= self.MAX_ITERATIONS:
             self._finish("Agent stopped." if self._stopped else "Max iterations reached.", False)
             return
@@ -339,25 +448,35 @@ class AgentPanel(QtWidgets.QDockWidget):
         self._iteration += 1
 
         # In react mode, don't send tools parameter (model doesn't support it)
-        tools = self._get_tools() if self._mode != "react" else None
+        tools = TOOL_DEFINITIONS if self._mode != "react" else None
 
-        self._llm_thread = _LlmCallThread(
-            self._controller.session.get_messages(),
-            tools,
-        )
-        self._llm_thread.responseReady.connect(self._on_llm_response)
+        # Start streaming bubble (skip for react — needs full text before display)
+        if self._mode != "react":
+            self._start_streaming_bubble()
+
+        messages = trim_messages(self._controller.session.get_messages())
+        self._llm_thread = _LlmCallThread(messages, tools)
+        self._llm_thread.chunkReady.connect(self._on_stream_chunk)
+        self._llm_thread.streamDone.connect(self._on_stream_done)
         self._llm_thread.error.connect(self._on_llm_error)
         self._llm_thread.start()
 
-    @staticmethod
-    def _get_tools():
-        from tool_definitions import TOOL_DEFINITIONS
-        return TOOL_DEFINITIONS
+    def _on_stream_done(self, data):
+        """Streaming complete — finalize display, then route response."""
+        choice = data["choices"][0]
+        finish_reason = choice.get("finish_reason", "")
+        content = choice.get("message", {}).get("content", "")
 
-    def _on_llm_response(self, data):
-        """Handle LLM response — runs in main thread via signal."""
-        from agent_controller import parse_react_tool_calls, REACT_SYSTEM_PROMPT
+        # Finalize or remove streaming bubble based on content
+        if self._streaming_text and self._streaming_text.strip():
+            self._finalize_streaming_bubble()
+        else:
+            self._remove_streaming_bubble()
 
+        self._handle_llm_response(data, _streamed=bool(self._streaming_text))
+
+    def _handle_llm_response(self, data, _streamed=False):
+        """Route LLM response to the appropriate handler."""
         choice = data["choices"][0]
         assistant_msg = choice.get("message", {})
         finish_reason = choice.get("finish_reason", "")
@@ -372,18 +491,16 @@ class AgentPanel(QtWidgets.QDockWidget):
                 # Model doesn't support tool calling, switch to ReAct
                 self._mode = "react"
                 self._append_system_msg("Model does not support tool calling, switched to ReAct mode.")
-                # Switch system prompt
                 react_prompt = REACT_SYSTEM_PROMPT.format(
                     context=f"\nCURRENT DOCUMENT CONTEXT:\n{self._context}" if self._context else ""
                 )
                 self._controller.session.set_system_prompt(react_prompt)
-                # Execute the parsed tool calls
                 self._execute_tools(parsed)
                 return
             else:
                 # Model returned a final answer directly
                 self._mode = "tool_calling"
-                self._finish(content, True)
+                self._finish(content, True, _from_stream=_streamed)
                 return
 
         # --- Tool calling mode (native API) ---
@@ -399,21 +516,18 @@ class AgentPanel(QtWidgets.QDockWidget):
             if parsed:
                 self._execute_tools(parsed)
                 return
-            # No tool tags — model is done
             self._finish(content, True)
             return
 
         # --- finish_reason == "stop" with no tool tags — agent done ---
-        self._finish(content, True)
+        self._finish(content, True, _from_stream=_streamed)
 
     def _on_llm_error(self, msg):
+        self._remove_streaming_bubble()
         self._finish(f"API error: {msg}", False)
 
     def _execute_tools(self, tool_calls):
         """Execute tools in the MAIN thread (safe for FreeCAD)."""
-        import json
-        from agent_tools import dispatch_tool
-
         for tc in tool_calls:
             if self._stopped:
                 break
@@ -432,6 +546,9 @@ class AgentPanel(QtWidgets.QDockWidget):
 
             # Execute tool in main thread (FreeCAD safe)
             tool_result = dispatch_tool(tool_name, tool_args)
+
+            # Update undo button state (snapshot was taken if execute_code)
+            self._update_undo_button_state()
 
             # ReAct mode: use user message for tool results (model doesn't understand role="tool")
             if self._mode == "react":
@@ -462,9 +579,10 @@ class AgentPanel(QtWidgets.QDockWidget):
         self.status_label.setText(f"Agent thinking... (iteration {self._iteration + 1}/{self.MAX_ITERATIONS})")
         self._call_llm()
 
-    def _finish(self, summary, success):
+    def _finish(self, summary, success, _from_stream=False):
         """Agent loop complete — show results."""
-        self._append_agent_msg(summary)
+        if not _from_stream:
+            self._append_agent_msg(summary)
 
         if success:
             self._controller.result.success = True
@@ -485,6 +603,8 @@ class AgentPanel(QtWidgets.QDockWidget):
             except Exception:
                 pass
 
+        self._store.save(self._session)
+
         turns = self._controller.session.user_turn_count()
         iters = self._iteration
         if success:
@@ -495,20 +615,65 @@ class AgentPanel(QtWidgets.QDockWidget):
             self.status_label.setStyleSheet("color:#d32f2f; font-size:11px;")
 
         self._set_running(False)
+        self._refresh_session_list()
 
     def _on_stop(self):
         self._stopped = True
+        if self._llm_thread and self._llm_thread.isRunning():
+            self._llm_thread.requestInterruption()
         self.status_label.setText("Stopping...")
 
     def _on_new_session(self):
         self._stopped = True
         if self._llm_thread and self._llm_thread.isRunning():
+            self._llm_thread.requestInterruption()
             self._llm_thread.quit()
             self._llm_thread.wait(1000)
+        self._store.save(self._session)
+        from core.snapshot import cleanup_all_snapshots
+        cleanup_all_snapshots()
         self._session = ChatSession()
+        self._current_session_id = self._session.session_id
         self._controller = None
         self.chat_display.clear()
         self._append_system_msg("New session started. Describe a part to begin.")
         self.status_label.setText("Ready")
         self.status_label.setStyleSheet("color:#666; font-size:11px;")
         self._set_running(False)
+        self._refresh_session_list()
+
+    def _on_undo(self):
+        """User clicked Undo — restore document from most recent snapshot."""
+        from core.snapshot import restore_latest_snapshot, snapshot_count, has_snapshot
+
+        if not has_snapshot():
+            self._append_system_msg("Nothing to undo — no snapshots available.")
+            return
+
+        if self._llm_thread and self._llm_thread.isRunning():
+            self._append_system_msg("Cannot undo while agent is running.")
+            return
+
+        result = restore_latest_snapshot()
+        is_error = result.startswith("ERROR")
+
+        self._append_tool_msg(
+            self._iteration, "undo_last (user)", "",
+            result[:200], is_error,
+        )
+
+        if not is_error:
+            self._append_system_msg(f"Undo successful. {snapshot_count()} snapshot(s) remaining.")
+        else:
+            self._append_system_msg(f"Undo failed: {result}")
+
+        self._update_undo_button_state()
+
+    def _update_undo_button_state(self):
+        """Enable/disable undo button based on snapshot availability."""
+        from core.snapshot import has_snapshot
+        self.btn_undo.setEnabled(has_snapshot())
+
+    def closeEvent(self, event):
+        self._store.save_current_on_close(self._session)
+        super().closeEvent(event)

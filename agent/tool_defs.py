@@ -73,4 +73,21 @@ TOOL_DEFINITIONS = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "undo_last",
+            "description": (
+                "Undo the last execute_code operation by restoring the FreeCAD "
+                "document to its state before that code ran. Use when code produces "
+                "incorrect geometry or causes errors. Can be called multiple times "
+                "for multi-step undo."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    },
 ]

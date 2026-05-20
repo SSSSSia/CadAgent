@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import re
 import traceback
 
 import FreeCAD
@@ -16,7 +17,7 @@ import FreeCADGui as Gui
 import Part
 import math
 
-from doc_analyzer import analyze_document
+from core.doc_analyzer import analyze_document
 
 
 # ---------------------------------------------------------------------------
@@ -30,7 +31,6 @@ def _tool_execute_code(args_json: str) -> str:
     description = args.get("description", "")
 
     # Strip markdown fences if present
-    import re
     code = re.sub(r"^```(?:python)?\s*\n?", "", code)
     code = re.sub(r"\n?```\s*$", "", code)
     code = code.strip()
@@ -49,6 +49,13 @@ def _tool_execute_code(args_json: str) -> str:
     }
 
     try:
+        # Snapshot before execution (so user can undo)
+        try:
+            from core.snapshot import take_snapshot
+            take_snapshot()
+        except Exception:
+            pass
+
         with contextlib.redirect_stdout(stdout_capture):
             exec(code, namespace)
 
@@ -143,6 +150,16 @@ def _tool_validate_design(args_json: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Tool: undo_last
+# ---------------------------------------------------------------------------
+
+def _tool_undo_last(args_json: str) -> str:
+    """Undo the last execute_code by restoring document snapshot."""
+    from core.snapshot import restore_latest_snapshot
+    return restore_latest_snapshot()
+
+
+# ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
 
@@ -150,6 +167,7 @@ _TOOL_MAP = {
     "execute_code": _tool_execute_code,
     "analyze_geometry": _tool_analyze_geometry,
     "validate_design": _tool_validate_design,
+    "undo_last": _tool_undo_last,
 }
 
 

@@ -33,7 +33,7 @@ class AiCadAgentWorkbench(Workbench):
     def Activated(self):
         """每次切换到此工作台时调用，创建并显示 Agent panel。"""
         from PySide6 import QtCore
-        from AgentPanel import AgentPanel
+        from ui.panel import AgentPanel
         if not hasattr(Gui, '_ai_panel') or Gui._ai_panel is None:
             Gui._ai_panel = AgentPanel()
             Gui.getMainWindow().addDockWidget(QtCore.Qt.RightDockWidgetArea, Gui._ai_panel)
@@ -56,7 +56,7 @@ class _ShowPanelCmd:
 
     def Activated(self):
         from PySide6 import QtCore
-        from AgentPanel import AgentPanel
+        from ui.panel import AgentPanel
         if not hasattr(Gui, '_ai_panel') or Gui._ai_panel is None:
             Gui._ai_panel = AgentPanel()
             Gui.getMainWindow().addDockWidget(QtCore.Qt.RightDockWidgetArea, Gui._ai_panel)
