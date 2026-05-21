@@ -9,9 +9,10 @@ import os
 import time
 import tempfile
 
+from core.config import MAX_SNAPSHOTS
+
 _snapshot_counter = 0
 _snapshot_stack: list[dict] = []
-MAX_SNAPSHOTS = 10
 
 
 def _get_snapshot_dir() -> str:

@@ -34,6 +34,22 @@ API_KEY = _cfg["API_KEY"]
 MODEL_NAME = _cfg["MODEL_NAME"]
 MAX_TOKENS = int(_cfg["MAX_TOKENS"])
 
+# --- Agent behavior ---
+MAX_ITERATIONS = int(os.environ.get("MAX_ITERATIONS", "8"))
+
+# --- Snapshots ---
+MAX_SNAPSHOTS = int(os.environ.get("MAX_SNAPSHOTS", "10"))
+
+# --- Token budget ---
+MAX_CONTEXT_TOKENS = int(os.environ.get("MAX_CONTEXT_TOKENS", "24000"))
+
+# --- Network ---
+LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", "180"))
+
+# --- Validation thresholds ---
+VALIDATE_VOLUME_THRESHOLD = 0.01
+VALIDATE_DIMENSION_THRESHOLD = 0.001
+
 
 def strip_markdown(text: str) -> str:
     """去掉 LLM 输出中可能包裹的 markdown 代码块标记。"""

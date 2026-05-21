@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import re
 
-MAX_CONTEXT_TOKENS = 24000  # leave 8K for output and system prompt
+from core.config import MAX_CONTEXT_TOKENS
 
 
 def estimate_tokens(text: str) -> int:

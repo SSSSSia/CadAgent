@@ -24,6 +24,7 @@ from agent.prompts import AGENT_SYSTEM_PROMPT, REACT_SYSTEM_PROMPT
 from agent.react_parser import parse_react_tool_calls
 from agent.tools import dispatch_tool
 from agent.tool_defs import TOOL_DEFINITIONS
+from core.config import MAX_ITERATIONS
 from core.llm_client import call_llm_streaming
 from PySide6.QtGui import QTextCursor
 from ui.chat_renderer import esc, markdown_to_html
@@ -98,8 +99,6 @@ class _LlmCallThread(QtCore.QThread):
 
 class AgentPanel(QtWidgets.QDockWidget):
     """Chat-style dock panel for AI CAD Agent."""
-
-    MAX_ITERATIONS = 8
 
     def __init__(self, parent=None):
         super().__init__("AI CAD Agent", parent)
@@ -441,7 +440,7 @@ class AgentPanel(QtWidgets.QDockWidget):
 
     def _call_llm(self):
         """Kick off a background streaming LLM API call."""
-        if self._stopped or self._iteration >= self.MAX_ITERATIONS:
+        if self._stopped or self._iteration >= MAX_ITERATIONS:
             self._finish("Agent stopped." if self._stopped else "Max iterations reached.", False)
             return
 
@@ -576,7 +575,7 @@ class AgentPanel(QtWidgets.QDockWidget):
             })
 
         # Tools done — next iteration
-        self.status_label.setText(f"Agent thinking... (iteration {self._iteration + 1}/{self.MAX_ITERATIONS})")
+        self.status_label.setText(f"Agent thinking... (iteration {self._iteration + 1}/{MAX_ITERATIONS})")
         self._call_llm()
 
     def _finish(self, summary, success, _from_stream=False):

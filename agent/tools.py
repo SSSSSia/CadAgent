@@ -17,6 +17,7 @@ import FreeCADGui as Gui
 import Part
 import math
 
+from core.config import VALIDATE_VOLUME_THRESHOLD, VALIDATE_DIMENSION_THRESHOLD
 from core.doc_analyzer import analyze_document
 
 
@@ -123,7 +124,7 @@ def _tool_validate_design(args_json: str) -> str:
 
     for obj in shape_objs:
         # Check: non-zero volume
-        if abs(obj.Shape.Volume) < 0.01:
+        if abs(obj.Shape.Volume) < VALIDATE_VOLUME_THRESHOLD:
             issues.append(f"Object '{obj.Label}' has zero volume (empty shape).")
 
         # Check: valid shape
@@ -132,7 +133,7 @@ def _tool_validate_design(args_json: str) -> str:
 
         # Check: reasonable bounding box (not degenerate)
         bb = obj.Shape.BoundBox
-        if bb.XLength < 0.001 or bb.YLength < 0.001 or bb.ZLength < 0.001:
+        if bb.XLength < VALIDATE_DIMENSION_THRESHOLD or bb.YLength < VALIDATE_DIMENSION_THRESHOLD or bb.ZLength < VALIDATE_DIMENSION_THRESHOLD:
             issues.append(
                 f"Object '{obj.Label}' has degenerate bounding box: "
                 f"{bb.XLength:.1f} x {bb.YLength:.1f} x {bb.ZLength:.1f}"

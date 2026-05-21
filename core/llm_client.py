@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import urllib.request
 
-from core.config import API_BASE_URL, API_KEY, MAX_TOKENS, MODEL_NAME, strip_markdown
+from core.config import API_BASE_URL, API_KEY, LLM_TIMEOUT, MAX_TOKENS, MODEL_NAME, strip_markdown
 from agent.prompts import (
     SYSTEM_PROMPT_NEW, SYSTEM_PROMPT_MODIFY,
     SYSTEM_PROMPT_DERIVE, SYSTEM_PROMPT_VARIANT,
@@ -33,7 +33,7 @@ def call_llm_with_tools(messages: list[dict],
         },
     )
 
-    with urllib.request.urlopen(req, timeout=180) as resp:
+    with urllib.request.urlopen(req, timeout=LLM_TIMEOUT) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -79,7 +79,7 @@ def generate_freecad_code(user_description: str,
         },
     )
 
-    with urllib.request.urlopen(req, timeout=120) as resp:
+    with urllib.request.urlopen(req, timeout=LLM_TIMEOUT) as resp:
         data = json.loads(resp.read().decode("utf-8"))
 
     content = data["choices"][0]["message"]["content"]
@@ -116,7 +116,7 @@ def call_llm_streaming(messages: list[dict],
         },
     )
 
-    with urllib.request.urlopen(req, timeout=180) as resp:
+    with urllib.request.urlopen(req, timeout=LLM_TIMEOUT) as resp:
         for raw_line in resp:
             line = raw_line.decode("utf-8", errors="replace").strip()
             if not line:
