@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import urllib.request
 
-from core.config import API_BASE_URL, API_KEY, MODEL_NAME, strip_markdown
+from core.config import API_BASE_URL, API_KEY, MAX_TOKENS, MODEL_NAME, strip_markdown
 from agent.prompts import (
     SYSTEM_PROMPT_NEW, SYSTEM_PROMPT_MODIFY,
     SYSTEM_PROMPT_DERIVE, SYSTEM_PROMPT_VARIANT,
@@ -14,12 +14,12 @@ from agent.prompts import (
 def call_llm_with_tools(messages: list[dict],
                         tools: list[dict] | None = None,
                         temperature: float = 0.1) -> dict:
-    """Call SiliconFlow API with optional tool definitions. Returns raw JSON."""
+    """Call LLM API with optional tool definitions. Returns raw JSON."""
     payload = {
         "model": MODEL_NAME,
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": 4096,
+        "max_tokens": MAX_TOKENS,
     }
     if tools:
         payload["tools"] = tools
@@ -66,7 +66,7 @@ def generate_freecad_code(user_description: str,
             {"role": "user", "content": user_description},
         ],
         "temperature": 0.1,
-        "max_tokens": 4096,
+        "max_tokens": MAX_TOKENS,
     }).encode("utf-8")
 
     # 使用 urllib（标准库）而非 requests，因为 FreeCAD 内置 Python 不保证安装了第三方包
@@ -101,7 +101,7 @@ def call_llm_streaming(messages: list[dict],
         "model": MODEL_NAME,
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": 4096,
+        "max_tokens": MAX_TOKENS,
         "stream": True,
     }
     if tools:

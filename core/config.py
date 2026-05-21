@@ -11,6 +11,7 @@ def _load_env() -> dict:
         "API_BASE_URL": "https://api.siliconflow.cn/v1",
         "API_KEY": "",
         "MODEL_NAME": "Pro/zai-org/GLM-5.1",
+        "MAX_TOKENS": "4096",
     }
     env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env")
     if os.path.isfile(env_path):
@@ -31,6 +32,7 @@ _cfg = _load_env()
 API_BASE_URL = _cfg["API_BASE_URL"]
 API_KEY = _cfg["API_KEY"]
 MODEL_NAME = _cfg["MODEL_NAME"]
+MAX_TOKENS = int(_cfg["MAX_TOKENS"])
 
 
 def strip_markdown(text: str) -> str:

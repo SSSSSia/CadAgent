@@ -39,16 +39,17 @@ Agent 循环 (ReAct):
 
    最终路径示例：`.../Mod/CadAgent/InitGui.py`
 
-2. 复制 `.env.example` 为 `.env` 并填写你的 API 密钥：
+2. 复制 `.env.example` 为 `.env` 并填写 API 配置：
    ```bash
    cp .env.example .env
    ```
-   编辑 `.env`：
+   编辑 `.env`，填入你使用的模型厂商信息（详见 `.env.example` 中的示例）：
    ```env
    API_BASE_URL=https://api.siliconflow.cn/v1
    API_KEY=sk-your-api-key-here
    MODEL_NAME=Pro/zai-org/GLM-5.1
    ```
+   支持所有兼容 OpenAI 接口格式的模型服务，包括但不限于：SiliconFlow、OpenAI、DeepSeek、智谱 AI、本地 Ollama 等。
 
 3. 重启 FreeCAD，从工作台下拉菜单选择 **AI CAD Agent**。
 
@@ -65,7 +66,7 @@ Agent 循环 (ReAct):
 ## 环境要求
 
 - FreeCAD >= 1.0（含 PySide6）
-- 配置的 LLM 服务的有效 API 密钥（兼容 OpenAI 接口格式，默认：SiliconFlow GLM-5.1）
+- 任何兼容 OpenAI Chat Completions API 的 LLM 服务（需支持 function calling 以获得最佳体验）
 
 ## 文件结构
 

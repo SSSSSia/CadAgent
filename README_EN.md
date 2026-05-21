@@ -39,16 +39,17 @@ Available Tools:
 
    Example final path: `.../Mod/CadAgent/InitGui.py`
 
-2. Copy `.env.example` to `.env` and fill in your API key:
+2. Copy `.env.example` to `.env` and fill in your API configuration:
    ```bash
    cp .env.example .env
    ```
-   Edit `.env`:
+   Edit `.env` with your provider's details (see `.env.example` for more examples):
    ```env
    API_BASE_URL=https://api.siliconflow.cn/v1
    API_KEY=sk-your-api-key-here
    MODEL_NAME=Pro/zai-org/GLM-5.1
    ```
+   Any OpenAI-compatible API provider works: SiliconFlow, OpenAI, DeepSeek, ZhipuAI, local Ollama, etc.
 
 3. Restart FreeCAD and select the **AI CAD Agent** workbench from the dropdown menu.
 
@@ -65,7 +66,7 @@ Available Tools:
 ## Requirements
 
 - FreeCAD >= 1.0 (with PySide6)
-- A valid API key for a configured LLM service (OpenAI-compatible API format; default: SiliconFlow GLM-5.1)
+- Any LLM service with an OpenAI-compatible Chat Completions API (function calling support recommended for best results)
 
 ## File Structure
 
