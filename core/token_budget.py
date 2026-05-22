@@ -5,9 +5,18 @@ leaving ~24K for conversation history.
 """
 from __future__ import annotations
 
-import re
+import json
 
 from core.config import MAX_CONTEXT_TOKENS
+
+
+def _is_cjk(cp: int) -> bool:
+    """Check if a Unicode code point belongs to a CJK range."""
+    return (0x4E00 <= cp <= 0x9FFF   # CJK Unified Ideographs
+            or 0x3400 <= cp <= 0x4DBF   # CJK Extension A
+            or 0xF900 <= cp <= 0xFAFF   # CJK Compatibility Ideographs
+            or 0x3000 <= cp <= 0x303F   # CJK Symbols and Punctuation
+            or 0xFF00 <= cp <= 0xFFEF)  # Halfwidth and Fullwidth Forms
 
 
 def estimate_tokens(text: str) -> int:
@@ -19,26 +28,24 @@ def estimate_tokens(text: str) -> int:
     if not text:
         return 0
 
-    cjk_chars = 0
-    other_chars = 0
+    cjk = 0
+    other = 0
     for ch in text:
-        if '一' <= ch <= '鿿' or '㐀' <= ch <= '䶿' or '豈' <= ch <= '﫿':
-            cjk_chars += 1
+        if _is_cjk(ord(ch)):
+            cjk += 1
         else:
-            other_chars += 1
+            other += 1
 
-    return max(1, int(cjk_chars / 1.5) + int(other_chars / 4))
+    return max(1, int(cjk / 1.5) + int(other / 4))
 
 
 def _estimate_message_tokens(msg: dict) -> int:
     """Estimate tokens for a single message dict."""
     total = 4  # overhead for role, delimiters
-    for key, value in msg.items():
+    for value in msg.values():
         if isinstance(value, str):
             total += estimate_tokens(value)
         elif isinstance(value, list):
-            # tool_calls etc.
-            import json
             total += estimate_tokens(json.dumps(value, ensure_ascii=False))
     return total
 
@@ -46,13 +53,13 @@ def _estimate_message_tokens(msg: dict) -> int:
 def trim_messages(messages: list[dict], max_tokens: int = MAX_CONTEXT_TOKENS) -> list[dict]:
     """Trim message list to fit within token budget.
 
-    Strategy (oldest first):
+    Strategy:
     1. Always keep first message (system prompt)
-    2. Always keep last 6 messages (recent interaction)
-    3. Truncate middle tool_result messages to 200 chars
-    4. Truncate middle assistant messages content to 300 chars
-    5. If still over budget: delete middle tool + tool_result pairs
-    6. Never delete user messages
+    2. Protect last N messages (N = min(6, len-2))
+    3. Phase 1 — truncate middle tool/assistant content
+    4. Phase 2 — delete assistant(tool_calls) + consecutive tool results as
+       atomic units (never leaves orphaned tool_calls or tool results)
+    5. Phase 3 — replace remaining middle history with a summary
 
     Returns a new list; does not modify the original.
     """
@@ -63,20 +70,17 @@ def trim_messages(messages: list[dict], max_tokens: int = MAX_CONTEXT_TOKENS) ->
     if total <= max_tokens:
         return list(messages)
 
-    result = [dict(m) for m in messages]  # deep-copy each message
+    result = [dict(m) for m in messages]
 
-    # If we have <= 7 messages, nothing to trim between first and last 6
-    if len(result) <= 7:
-        return result
+    def _tail_size():
+        return min(6, max(1, len(result) - 2))
 
     # Phase 1: truncate middle tool_result and assistant content
-    first_idx = 1  # keep system prompt
-    last_idx = len(result) - 6
-
-    for i in range(first_idx, last_idx):
+    tail = _tail_size()
+    end = len(result) - tail
+    for i in range(1, end):
         msg = result[i]
         role = msg.get("role", "")
-
         if role == "tool":
             content = msg.get("content", "")
             if len(content) > 200:
@@ -90,30 +94,46 @@ def trim_messages(messages: list[dict], max_tokens: int = MAX_CONTEXT_TOKENS) ->
     if total <= max_tokens:
         return result
 
-    # Phase 2: delete middle tool + tool_result pairs, oldest first
+    # Phase 2: delete assistant(tool_calls) + all consecutive tool results
+    # as atomic units — prevents orphaned tool_calls or tool results
+    tail = _tail_size()
     i = 1
-    while i < len(result) - 6 and total > max_tokens:
-        if result[i].get("role") == "tool":
-            removed_tokens = _estimate_message_tokens(result[i])
-            result.pop(i)
-            total -= removed_tokens
-            continue
-        # Also remove the assistant message that triggered the tool call
-        # if it's in the middle zone and has tool_calls
-        if (result[i].get("role") == "assistant"
-                and result[i].get("tool_calls")
-                and i < len(result) - 6):
-            # Check if next message is a tool result (pair)
-            if i + 1 < len(result) and result[i + 1].get("role") == "tool":
-                removed_tokens = (_estimate_message_tokens(result[i])
-                                  + _estimate_message_tokens(result[i + 1]))
-                result.pop(i)      # assistant with tool_calls
-                result.pop(i)      # tool result
-                total -= removed_tokens
+    while i < len(result) - tail and total > max_tokens:
+        msg = result[i]
+        if msg.get("role") == "assistant" and msg.get("tool_calls"):
+            # Find extent of consecutive tool results
+            pair_end = i + 1
+            while pair_end < len(result) and result[pair_end].get("role") == "tool":
+                pair_end += 1
+            # Only remove if entire group is in the trim zone
+            if pair_end <= len(result) - tail:
+                removed = sum(_estimate_message_tokens(result[j])
+                              for j in range(i, pair_end))
+                del result[i:pair_end]
+                total -= removed
                 continue
         i += 1
 
+    if total <= max_tokens:
+        return result
+
+    # Phase 3: replace middle history with a summary
+    tail = _tail_size()
+    mid_end = len(result) - tail
+    if mid_end > 1:
+        middle = result[1:mid_end]
+        summary_msg = {"role": "user", "content": summarize_old_messages(middle)}
+        if _estimate_message_tokens(summary_msg) < sum(
+                _estimate_message_tokens(m) for m in middle):
+            result = [result[0], summary_msg] + result[mid_end:]
+
     return result
+
+
+def token_summary(messages: list[dict]) -> tuple[int, int]:
+    """Return (used_tokens, max_tokens) for display purposes."""
+    used = sum(_estimate_message_tokens(m) for m in messages)
+    return used, MAX_CONTEXT_TOKENS
 
 
 def summarize_old_messages(messages: list[dict]) -> str:
@@ -140,10 +160,8 @@ def summarize_old_messages(messages: list[dict]) -> str:
 
     parts = []
     if user_actions:
-        last_action = user_actions[-1]
-        parts.append(f"用户指令：{last_action}")
+        parts.append(f"用户指令：{user_actions[-1]}")
     if tool_count:
         parts.append(f"执行了 {tool_count} 次工具调用")
 
-    summary = "之前的设计历史：" + "，".join(parts) if parts else "之前的设计历史：无关键操作"
-    return summary
+    return ("之前的设计历史：" + "，".join(parts)) if parts else "之前的设计历史：无关键操作"

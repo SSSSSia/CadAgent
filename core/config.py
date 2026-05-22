@@ -35,7 +35,7 @@ MODEL_NAME = _cfg["MODEL_NAME"]
 MAX_TOKENS = int(_cfg["MAX_TOKENS"])
 
 # --- Agent behavior ---
-MAX_ITERATIONS = int(os.environ.get("MAX_ITERATIONS", "8"))
+MAX_ITERATIONS = int(os.environ.get("MAX_ITERATIONS", "10"))
 
 # --- Snapshots ---
 MAX_SNAPSHOTS = int(os.environ.get("MAX_SNAPSHOTS", "10"))

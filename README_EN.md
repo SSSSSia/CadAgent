@@ -1,4 +1,4 @@
-# CadAgent — FreeCAD AI CAD Agent Workbench
+# CadAgent — FreeCAD CAD Agent Workbench
 
 [中文](README.md)
 
@@ -51,11 +51,11 @@ Available Tools:
    ```
    Any OpenAI-compatible API provider works: SiliconFlow, OpenAI, DeepSeek, ZhipuAI, local Ollama, etc.
 
-3. Restart FreeCAD and select the **AI CAD Agent** workbench from the dropdown menu.
+3. Restart FreeCAD and select the **CadAgent** workbench from the dropdown menu.
 
 ## Usage
 
-1. Switch to the **AI CAD Agent** workbench — the chat panel opens automatically on the right
+1. Switch to the **CadAgent** workbench — the chat panel opens automatically on the right
 2. Describe the part you want to design, for example:
    - "Design a flanged cylinder, OD 200mm, flange radius 125mm, height 400mm, with 12 bolt holes"
    - "Create an L-bracket 100x50x30"

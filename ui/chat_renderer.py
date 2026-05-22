@@ -4,12 +4,16 @@ from __future__ import annotations
 import re
 
 
-def esc(t: str) -> str:
-    """Escape text for safe HTML embedding."""
+def _esc_html(t: str) -> str:
+    """Escape &, <, > for safe HTML embedding (no newline conversion)."""
     return (t.replace("&", "&amp;")
              .replace("<", "&lt;")
-             .replace(">", "&gt;")
-             .replace("\n", "<br>"))
+             .replace(">", "&gt;"))
+
+
+def esc(t: str) -> str:
+    """Escape text for safe HTML embedding, including newlines."""
+    return _esc_html(t).replace("\n", "<br>")
 
 
 def markdown_to_html(md_text: str) -> str:
@@ -18,7 +22,7 @@ def markdown_to_html(md_text: str) -> str:
 
     # 1. Extract code blocks → placeholders
     def _code(m):
-        c = m.group(1).replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
+        c = _esc_html(m.group(1))
         ph.append(
             '<pre style="background-color:#f4f4f4; padding:6px;'
             f'font-size:12px; margin:4px 0;">{c}</pre>')
@@ -51,7 +55,7 @@ def markdown_to_html(md_text: str) -> str:
     text = re.sub(r'(?:^\|.+\|[ \t]*$\n?)+', _tbl, text, flags=re.MULTILINE)
 
     # 3. Escape remaining HTML
-    text = text.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
+    text = _esc_html(text)
 
     # 4. Headers, lists, hr — line by line
     lines = text.split('\n')

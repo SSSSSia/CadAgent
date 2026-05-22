@@ -9,7 +9,6 @@ from __future__ import annotations
 import contextlib
 import io
 import json
-import re
 import traceback
 
 import FreeCAD
@@ -17,8 +16,9 @@ import FreeCADGui as Gui
 import Part
 import math
 
-from core.config import VALIDATE_VOLUME_THRESHOLD, VALIDATE_DIMENSION_THRESHOLD
+from core.config import VALIDATE_VOLUME_THRESHOLD, VALIDATE_DIMENSION_THRESHOLD, strip_markdown
 from core.doc_analyzer import analyze_document
+from core.logger import log_info, log_warning, log_error
 
 
 # ---------------------------------------------------------------------------
@@ -31,10 +31,7 @@ def _tool_execute_code(args_json: str) -> str:
     code = args["code"].strip()
     description = args.get("description", "")
 
-    # Strip markdown fences if present
-    code = re.sub(r"^```(?:python)?\s*\n?", "", code)
-    code = re.sub(r"\n?```\s*$", "", code)
-    code = code.strip()
+    code = strip_markdown(code)
 
     if not code:
         return "ERROR: Empty code block."
@@ -54,8 +51,8 @@ def _tool_execute_code(args_json: str) -> str:
         try:
             from core.snapshot import take_snapshot
             take_snapshot()
-        except Exception:
-            pass
+        except Exception as e:
+            log_warning(f"Snapshot failed, undo unavailable: {e}")
 
         with contextlib.redirect_stdout(stdout_capture):
             exec(code, namespace)
@@ -178,8 +175,17 @@ def dispatch_tool(name: str, args_json: str) -> str:
     if handler is None:
         return f"ERROR: Unknown tool '{name}'. Available: {list(_TOOL_MAP.keys())}"
     try:
-        return handler(args_json)
+        log_info(f"Tool call: {name}({args_json[:200]})")
+        result = handler(args_json)
+        if result.startswith("ERROR") or result.startswith("FAIL"):
+            log_error(f"Tool '{name}' returned failure: {result[:500]}")
+        else:
+            log_info(f"Tool '{name}' succeeded: {result[:200]}")
+        return result
     except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        log_error(f"Tool '{name}' threw exception: {type(e).__name__}: {e}\n{tb}")
         return f"ERROR in tool '{name}': {type(e).__name__}: {e}"
 
 

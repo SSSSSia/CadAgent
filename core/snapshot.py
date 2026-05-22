@@ -10,6 +10,7 @@ import time
 import tempfile
 
 from core.config import MAX_SNAPSHOTS
+from core.logger import log_warning
 
 _snapshot_counter = 0
 _snapshot_stack: list[dict] = []
@@ -21,8 +22,15 @@ def _get_snapshot_dir() -> str:
         base = FreeCAD.getUserAppDataDir()
     except (ImportError, AttributeError):
         base = tempfile.gettempdir()
-    snap_dir = os.path.join(base, "AiCadAgent", "snapshots")
+    snap_dir = os.path.join(base, "CadAgent", "snapshots")
     os.makedirs(snap_dir, exist_ok=True)
+    # Migrate from old AiCadAgent directory if it exists
+    old_dir = os.path.join(base, "AiCadAgent", "snapshots")
+    if os.path.isdir(old_dir) and not os.listdir(snap_dir):
+        try:
+            os.rename(old_dir, snap_dir)
+        except OSError:
+            pass
     return snap_dir
 
 
@@ -112,11 +120,14 @@ def restore_latest_snapshot() -> str:
             restored_doc.FileName = original_path
 
         try:
-            view = Gui.activeDocument().activeView()
-            view.viewIsometric()
-            view.fitAll()
-        except Exception:
-            pass
+            gui_doc = Gui.activeDocument()
+            if gui_doc:
+                view = gui_doc.activeView()
+                if view:
+                    view.viewIsometric()
+                    view.fitAll()
+        except Exception as e:
+            log_warning(f"Failed to restore camera view: {e}")
 
         return (
             f"SUCCESS: Document restored from snapshot.\n"
@@ -134,8 +145,8 @@ def _cleanup_old_snapshots():
         try:
             if os.path.isfile(oldest["path"]):
                 os.remove(oldest["path"])
-        except OSError:
-            pass
+        except OSError as e:
+            log_warning(f"Failed to delete old snapshot {oldest['path']}: {e}")
 
 
 def cleanup_all_snapshots():
@@ -145,7 +156,7 @@ def cleanup_all_snapshots():
         try:
             if os.path.isfile(entry["path"]):
                 os.remove(entry["path"])
-        except OSError:
-            pass
+        except OSError as e:
+            log_warning(f"Failed to delete snapshot {entry['path']}: {e}")
     _snapshot_stack.clear()
     _snapshot_counter = 0

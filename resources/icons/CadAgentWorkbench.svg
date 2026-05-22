@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Background: rounded rectangle, FreeCAD workbench blue -->
+  <rect x="2" y="2" width="60" height="60" rx="10" ry="10" fill="#2b5ea7"/>
+  <rect x="2" y="2" width="60" height="60" rx="10" ry="10" fill="none" stroke="#1a3d6e" stroke-width="2"/>
+
+  <!-- 3D Cube wireframe (CAD element) - isometric projection -->
+  <g stroke="white" stroke-width="2.2" fill="none" stroke-linejoin="round" stroke-linecap="round">
+    <!-- Front face -->
+    <polygon points="22,40 22,24 34,18 34,34" fill="rgba(255,255,255,0.12)"/>
+    <!-- Top face -->
+    <polygon points="22,24 34,18 46,24 34,30" fill="rgba(255,255,255,0.22)"/>
+    <!-- Right face -->
+    <polygon points="34,34 34,18 46,24 46,40" fill="rgba(255,255,255,0.06)"/>
+    <!-- Edges -->
+    <line x1="22" y1="40" x2="34" y2="34"/>
+    <line x1="22" y1="40" x2="34" y2="46"/>
+    <line x1="34" y1="46" x2="46" y2="40"/>
+    <line x1="34" y1="34" x2="46" y2="40"/>
+    <line x1="34" y1="34" x2="34" y2="46"/>
+    <line x1="46" y1="24" x2="46" y2="40"/>
+    <line x1="34" y1="18" x2="46" y2="24"/>
+    <line x1="22" y1="24" x2="34" y2="30"/>
+    <line x1="34" y1="30" x2="46" y2="24"/>
+    <line x1="34" y1="30" x2="34" y2="18"/>
+  </g>
+
+  <!-- AI sparkle/stars - top-right area -->
+  <g fill="#ffd54f" stroke="none">
+    <!-- Main 4-point star -->
+    <path d="M50,10 L51.2,13.8 L55,15 L51.2,16.2 L50,20 L48.8,16.2 L45,15 L48.8,13.8 Z"/>
+    <!-- Small dot sparkles -->
+    <circle cx="42" cy="9" r="1.2"/>
+    <circle cx="56" cy="12" r="1"/>
+    <circle cx="53" cy="21" r="0.9"/>
+    <circle cx="44" cy="19" r="0.7"/>
+  </g>
+</svg>

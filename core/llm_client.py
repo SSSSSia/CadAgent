@@ -11,6 +11,18 @@ from agent.prompts import (
 )
 
 
+def _make_request(payload: dict) -> urllib.request.Request:
+    """Build a standard POST request for the LLM chat/completions endpoint."""
+    return urllib.request.Request(
+        API_BASE_URL.rstrip("/") + "/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {API_KEY}",
+        },
+    )
+
+
 def call_llm_with_tools(messages: list[dict],
                         tools: list[dict] | None = None,
                         temperature: float = 0.1) -> dict:
@@ -24,16 +36,7 @@ def call_llm_with_tools(messages: list[dict],
     if tools:
         payload["tools"] = tools
 
-    req = urllib.request.Request(
-        API_BASE_URL.rstrip("/") + "/chat/completions",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {API_KEY}",
-        },
-    )
-
-    with urllib.request.urlopen(req, timeout=LLM_TIMEOUT) as resp:
+    with urllib.request.urlopen(_make_request(payload), timeout=LLM_TIMEOUT) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -59,7 +62,7 @@ def generate_freecad_code(user_description: str,
         system_prompt = system_prompt.format(context=context or "(No document context)")
 
     # temperature 设为 0.1：代码生成需要确定性输出，高 temperature 会导致 API 名称拼写错误
-    payload = json.dumps({
+    payload = {
         "model": MODEL_NAME,
         "messages": [
             {"role": "system", "content": system_prompt},
@@ -67,19 +70,9 @@ def generate_freecad_code(user_description: str,
         ],
         "temperature": 0.1,
         "max_tokens": MAX_TOKENS,
-    }).encode("utf-8")
+    }
 
-    # 使用 urllib（标准库）而非 requests，因为 FreeCAD 内置 Python 不保证安装了第三方包
-    req = urllib.request.Request(
-        API_BASE_URL.rstrip("/") + "/chat/completions",
-        data=payload,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {API_KEY}",
-        },
-    )
-
-    with urllib.request.urlopen(req, timeout=LLM_TIMEOUT) as resp:
+    with urllib.request.urlopen(_make_request(payload), timeout=LLM_TIMEOUT) as resp:
         data = json.loads(resp.read().decode("utf-8"))
 
     content = data["choices"][0]["message"]["content"]
@@ -107,16 +100,7 @@ def call_llm_streaming(messages: list[dict],
     if tools:
         payload["tools"] = tools
 
-    req = urllib.request.Request(
-        API_BASE_URL.rstrip("/") + "/chat/completions",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {API_KEY}",
-        },
-    )
-
-    with urllib.request.urlopen(req, timeout=LLM_TIMEOUT) as resp:
+    with urllib.request.urlopen(_make_request(payload), timeout=LLM_TIMEOUT) as resp:
         for raw_line in resp:
             line = raw_line.decode("utf-8", errors="replace").strip()
             if not line:

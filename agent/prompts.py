@@ -1,4 +1,4 @@
-"""All system prompts for the AI CAD Agent.
+"""All system prompts for the CadAgent.
 
 Agent prompts (AGENT_*, REACT_*) are used in the multi-turn agent loop.
 Legacy prompts (SYSTEM_PROMPT_NEW/MODIFY/DERIVE/VARIANT) are used in single-shot mode.

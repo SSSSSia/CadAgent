@@ -1,8 +1,8 @@
 """
 Session store -- disk persistence for ChatSession objects.
 
-Saves sessions as JSON files under <FreeCAD user data>/AiCadAgent/sessions/.
-Falls back to <temp>/AiCadAgent/sessions/ when FreeCAD is not available (testing).
+Saves sessions as JSON files under <FreeCAD user data>/CadAgent/sessions/.
+Falls back to <temp>/CadAgent/sessions/ when FreeCAD is not available (testing).
 """
 from __future__ import annotations
 
@@ -17,8 +17,15 @@ def _get_storage_dir() -> str:
         base = FreeCAD.getUserAppDataDir()
     except (ImportError, AttributeError):
         base = tempfile.gettempdir()
-    session_dir = os.path.join(base, "AiCadAgent", "sessions")
+    session_dir = os.path.join(base, "CadAgent", "sessions")
     os.makedirs(session_dir, exist_ok=True)
+    # Migrate from old AiCadAgent directory if it exists
+    old_dir = os.path.join(base, "AiCadAgent", "sessions")
+    if os.path.isdir(old_dir) and not os.listdir(session_dir):
+        try:
+            os.rename(old_dir, session_dir)
+        except OSError:
+            pass
     return session_dir
 
 

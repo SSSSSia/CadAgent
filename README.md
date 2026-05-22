@@ -1,4 +1,4 @@
-# CadAgent — FreeCAD AI CAD Agent 工作台
+# CadAgent — FreeCAD CAD Agent 工作台
 
 [English](README_EN.md)
 
@@ -51,11 +51,11 @@ Agent 循环 (ReAct):
    ```
    支持所有兼容 OpenAI 接口格式的模型服务，包括但不限于：SiliconFlow、OpenAI、DeepSeek、智谱 AI、本地 Ollama 等。
 
-3. 重启 FreeCAD，从工作台下拉菜单选择 **AI CAD Agent**。
+3. 重启 FreeCAD，从工作台下拉菜单选择 **CadAgent**。
 
 ## 使用方法
 
-1. 切换到 **AI CAD Agent** 工作台 — 右侧自动打开对话面板
+1. 切换到 **CadAgent** 工作台 — 右侧自动打开对话面板
 2. 在输入框中描述你要设计的零件，例如：
    - "设计一个法兰筒体，外径 200mm，法兰半径 125mm，高度 400mm，带 12 个螺栓孔"
    - "创建一个 100x50x30 的 L 型支架"

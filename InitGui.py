@@ -5,8 +5,8 @@ import FreeCAD
 import FreeCADGui as Gui
 
 # FreeCAD 通过 exec() 加载 InitGui.py，此时 __file__ 不可用，Python 也不知道本插件
-# 的其他模块（AiDesignPanel 等）在哪里。必须手动定位插件目录并加入 sys.path，
-# 否则后续的 from AiDesignPanel import ... 会报 ModuleNotFoundError。
+# 的其他模块在哪里。必须手动定位插件目录并加入 sys.path，
+# 否则后续的 import 会报 ModuleNotFoundError。
 _mod_dir = os.path.join(FreeCAD.getUserAppDataDir(), "Mod", "CadAgent")
 if not os.path.isdir(_mod_dir):
     # 用户目录下没有则回退到 FreeCAD 安装目录
@@ -21,24 +21,44 @@ if _mod_dir not in sys.path:
 #   2. self 及其属性
 #   3. 方法体内局部 import 的模块
 # 因此下方所有方法体内部都使用局部 import 来引入依赖。
-class AiCadAgentWorkbench(Workbench):
-    MenuText = "AI CAD Agent"
-    ToolTip = "AI-powered CAD design agent"
+class CadAgentWorkbench(Workbench):
+    MenuText = "CadAgent"
+    ToolTip = "AI-powered CAD Agent"
     Icon = ""
+
+    def __init__(self):
+        import os
+        icon_path = os.path.join(
+            os.path.join(FreeCAD.getUserAppDataDir(), "Mod", "CadAgent")
+            if os.path.isdir(os.path.join(FreeCAD.getUserAppDataDir(), "Mod", "CadAgent"))
+            else os.path.normpath(os.path.join(FreeCAD.getHomePath(), "Mod", "CadAgent")),
+            "resources", "icons", "CadAgentWorkbench.svg",
+        )
+        if os.path.isfile(icon_path):
+            self.__class__.Icon = icon_path
 
     def Initialize(self):
         """首次切换到此工作台时调用，注册工具栏按钮。"""
-        self.appendToolbar("AI Agent", ["AiCad_ShowPanel"])
+        import os
+        icon_dir = os.path.join(
+            os.path.join(FreeCAD.getUserAppDataDir(), "Mod", "CadAgent")
+            if os.path.isdir(os.path.join(FreeCAD.getUserAppDataDir(), "Mod", "CadAgent"))
+            else os.path.normpath(os.path.join(FreeCAD.getHomePath(), "Mod", "CadAgent")),
+            "resources", "icons",
+        )
+        if os.path.isdir(icon_dir):
+            Gui.addIconPath(icon_dir)
+        self.appendToolbar("CadAgent", ["CadAgent_ShowPanel"])
 
     def Activated(self):
         """每次切换到此工作台时调用，创建并显示 Agent panel。"""
         from PySide6 import QtCore
         from ui.panel import AgentPanel
-        if not hasattr(Gui, '_ai_panel') or Gui._ai_panel is None:
-            Gui._ai_panel = AgentPanel()
-            Gui.getMainWindow().addDockWidget(QtCore.Qt.RightDockWidgetArea, Gui._ai_panel)
-        Gui._ai_panel.show()
-        Gui._ai_panel.raise_()
+        if not hasattr(Gui, '_cadagent_panel') or Gui._cadagent_panel is None:
+            Gui._cadagent_panel = AgentPanel()
+            Gui.getMainWindow().addDockWidget(QtCore.Qt.RightDockWidgetArea, Gui._cadagent_panel)
+        Gui._cadagent_panel.show()
+        Gui._cadagent_panel.raise_()
 
     def Deactivated(self):
         """切换离开此工作台时调用。"""
@@ -50,18 +70,18 @@ class AiCadAgentWorkbench(Workbench):
 class _ShowPanelCmd:
     def GetResources(self):
         return {
-            "MenuText": "AI CAD Agent",
-            "ToolTip": "Open the AI CAD agent panel",
+            "MenuText": "CadAgent",
+            "ToolTip": "Open the CadAgent panel",
         }
 
     def Activated(self):
         from PySide6 import QtCore
         from ui.panel import AgentPanel
-        if not hasattr(Gui, '_ai_panel') or Gui._ai_panel is None:
-            Gui._ai_panel = AgentPanel()
-            Gui.getMainWindow().addDockWidget(QtCore.Qt.RightDockWidgetArea, Gui._ai_panel)
-        Gui._ai_panel.show()
-        Gui._ai_panel.raise_()
+        if not hasattr(Gui, '_cadagent_panel') or Gui._cadagent_panel is None:
+            Gui._cadagent_panel = AgentPanel()
+            Gui.getMainWindow().addDockWidget(QtCore.Qt.RightDockWidgetArea, Gui._cadagent_panel)
+        Gui._cadagent_panel.show()
+        Gui._cadagent_panel.raise_()
 
     def IsActive(self):
         return True
@@ -69,7 +89,7 @@ class _ShowPanelCmd:
 
 # 注册命令和工作台到 FreeCAD GUI 系统，必须在文件末尾执行。
 # addCommand 的第一个参数是命令 ID，与工作台 Initialize 中引用的一致。
-Gui.addCommand("AiCad_ShowPanel", _ShowPanelCmd())
-Gui.addWorkbench(AiCadAgentWorkbench())
+Gui.addCommand("CadAgent_ShowPanel", _ShowPanelCmd())
+Gui.addWorkbench(CadAgentWorkbench())
 
-FreeCAD.Console.PrintMessage("AiCadAgent workbench loaded.\n")
+FreeCAD.Console.PrintMessage("CadAgent workbench loaded.\n")
