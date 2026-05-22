@@ -4,7 +4,8 @@ from __future__ import annotations
 import json
 import urllib.request
 
-from core.config import API_BASE_URL, API_KEY, LLM_TIMEOUT, MAX_TOKENS, MODEL_NAME, strip_markdown
+import core.config as _config
+from core.config import strip_markdown
 from agent.prompts import (
     SYSTEM_PROMPT_NEW, SYSTEM_PROMPT_MODIFY,
     SYSTEM_PROMPT_DERIVE, SYSTEM_PROMPT_VARIANT,
@@ -14,11 +15,11 @@ from agent.prompts import (
 def _make_request(payload: dict) -> urllib.request.Request:
     """Build a standard POST request for the LLM chat/completions endpoint."""
     return urllib.request.Request(
-        API_BASE_URL.rstrip("/") + "/chat/completions",
+        _config.API_BASE_URL.rstrip("/") + "/chat/completions",
         data=json.dumps(payload).encode("utf-8"),
         headers={
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {API_KEY}",
+            "Authorization": f"Bearer {_config.API_KEY}",
         },
     )
 
@@ -28,15 +29,15 @@ def call_llm_with_tools(messages: list[dict],
                         temperature: float = 0.1) -> dict:
     """Call LLM API with optional tool definitions. Returns raw JSON."""
     payload = {
-        "model": MODEL_NAME,
+        "model": _config.MODEL_NAME,
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": MAX_TOKENS,
+        "max_tokens": _config.MAX_TOKENS,
     }
     if tools:
         payload["tools"] = tools
 
-    with urllib.request.urlopen(_make_request(payload), timeout=LLM_TIMEOUT) as resp:
+    with urllib.request.urlopen(_make_request(payload), timeout=_config.LLM_TIMEOUT) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -63,16 +64,16 @@ def generate_freecad_code(user_description: str,
 
     # temperature 设为 0.1：代码生成需要确定性输出，高 temperature 会导致 API 名称拼写错误
     payload = {
-        "model": MODEL_NAME,
+        "model": _config.MODEL_NAME,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_description},
         ],
         "temperature": 0.1,
-        "max_tokens": MAX_TOKENS,
+        "max_tokens": _config.MAX_TOKENS,
     }
 
-    with urllib.request.urlopen(_make_request(payload), timeout=LLM_TIMEOUT) as resp:
+    with urllib.request.urlopen(_make_request(payload), timeout=_config.LLM_TIMEOUT) as resp:
         data = json.loads(resp.read().decode("utf-8"))
 
     content = data["choices"][0]["message"]["content"]
@@ -91,10 +92,10 @@ def call_llm_streaming(messages: list[dict],
     The generator ends when ``data: [DONE]`` is received or the connection closes.
     """
     payload: dict = {
-        "model": MODEL_NAME,
+        "model": _config.MODEL_NAME,
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": MAX_TOKENS,
+        "max_tokens": _config.MAX_TOKENS,
         "stream": True,
     }
     if tools:

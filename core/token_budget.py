@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 
-from core.config import MAX_CONTEXT_TOKENS
+import core.config as _config
 
 
 def _is_cjk(cp: int) -> bool:
@@ -50,7 +50,7 @@ def _estimate_message_tokens(msg: dict) -> int:
     return total
 
 
-def trim_messages(messages: list[dict], max_tokens: int = MAX_CONTEXT_TOKENS) -> list[dict]:
+def trim_messages(messages: list[dict], max_tokens: int = None) -> list[dict]:
     """Trim message list to fit within token budget.
 
     Strategy:
@@ -63,6 +63,8 @@ def trim_messages(messages: list[dict], max_tokens: int = MAX_CONTEXT_TOKENS) ->
 
     Returns a new list; does not modify the original.
     """
+    if max_tokens is None:
+        max_tokens = _config.MAX_CONTEXT_TOKENS
     if not messages:
         return []
 
@@ -133,7 +135,7 @@ def trim_messages(messages: list[dict], max_tokens: int = MAX_CONTEXT_TOKENS) ->
 def token_summary(messages: list[dict]) -> tuple[int, int]:
     """Return (used_tokens, max_tokens) for display purposes."""
     used = sum(_estimate_message_tokens(m) for m in messages)
-    return used, MAX_CONTEXT_TOKENS
+    return used, _config.MAX_CONTEXT_TOKENS
 
 
 def summarize_old_messages(messages: list[dict]) -> str:

@@ -9,7 +9,7 @@ import os
 import time
 import tempfile
 
-from core.config import MAX_SNAPSHOTS
+import core.config as _config
 from core.logger import log_warning
 
 _snapshot_counter = 0
@@ -140,7 +140,7 @@ def restore_latest_snapshot() -> str:
 
 
 def _cleanup_old_snapshots():
-    while len(_snapshot_stack) > MAX_SNAPSHOTS:
+    while len(_snapshot_stack) > _config.MAX_SNAPSHOTS:
         oldest = _snapshot_stack.pop(0)
         try:
             if os.path.isfile(oldest["path"]):

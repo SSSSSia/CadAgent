@@ -48,7 +48,8 @@ class CadAgentWorkbench(Workbench):
         )
         if os.path.isdir(icon_dir):
             Gui.addIconPath(icon_dir)
-        self.appendToolbar("CadAgent", ["CadAgent_ShowPanel"])
+        self.appendToolbar("CadAgent", ["CadAgent_ShowPanel", "CadAgent_Settings"])
+        self.appendMenu("CadAgent", ["CadAgent_ShowPanel", "CadAgent_Settings"])
 
     def Activated(self):
         """每次切换到此工作台时调用，创建并显示 Agent panel。"""
@@ -87,9 +88,26 @@ class _ShowPanelCmd:
         return True
 
 
+class _SettingsCmd:
+    def GetResources(self):
+        return {
+            "MenuText": "CadAgent Settings",
+            "ToolTip": "Configure CadAgent API and agent parameters",
+        }
+
+    def Activated(self):
+        from ui.settings_dialog import SettingsDialog
+        import FreeCADGui as _Gui
+        SettingsDialog(parent=_Gui.getMainWindow()).exec()
+
+    def IsActive(self):
+        return True
+
+
 # 注册命令和工作台到 FreeCAD GUI 系统，必须在文件末尾执行。
 # addCommand 的第一个参数是命令 ID，与工作台 Initialize 中引用的一致。
 Gui.addCommand("CadAgent_ShowPanel", _ShowPanelCmd())
+Gui.addCommand("CadAgent_Settings", _SettingsCmd())
 Gui.addWorkbench(CadAgentWorkbench())
 
 FreeCAD.Console.PrintMessage("CadAgent workbench loaded.\n")

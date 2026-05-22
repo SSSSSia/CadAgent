@@ -1,2 +1,2 @@
-from core.config import API_BASE_URL, API_KEY, MODEL_NAME
+import core.config as _config
 from core.session import ChatSession

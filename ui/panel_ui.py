@@ -98,6 +98,12 @@ class _PanelUIMixin:
         self.btn_new_session.clicked.connect(self._on_new_session)
         ctrl_row.addWidget(self.btn_new_session)
 
+        self.btn_settings = QtWidgets.QPushButton("Settings")
+        self.btn_settings.setStyleSheet("padding:5px 12px")
+        self.btn_settings.setToolTip("Configure CadAgent API and parameters")
+        self.btn_settings.clicked.connect(self._on_settings)
+        ctrl_row.addWidget(self.btn_settings)
+
         ctrl_row.addStretch()
         main_layout.addLayout(ctrl_row)
 

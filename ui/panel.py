@@ -24,7 +24,7 @@ from agent.prompts import AGENT_SYSTEM_PROMPT, REACT_SYSTEM_PROMPT
 from agent.react_parser import parse_react_tool_calls
 from agent.tools import dispatch_tool
 from agent.tool_defs import TOOL_DEFINITIONS
-from core.config import MAX_ITERATIONS
+import core.config as _config
 from core.llm_client import call_llm_streaming
 from core.logger import log_info, log_warning, log_error
 
@@ -191,7 +191,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
 
     def _call_llm(self):
         """Kick off a background streaming LLM API call."""
-        if self._stopped or self._iteration >= MAX_ITERATIONS:
+        if self._stopped or self._iteration >= _config.MAX_ITERATIONS:
             self._finish("Agent stopped." if self._stopped else "Max iterations reached.", False)
             return
 
@@ -208,7 +208,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         messages = trim_messages(self._controller.session.get_messages())
         used, budget = token_summary(messages)
         self._update_token_label(used, budget, trimmed=(len(messages) < original_count))
-        log_info(f"LLM call iteration {self._iteration}/{MAX_ITERATIONS}, mode={self._mode}, {len(messages)} messages")
+        log_info(f"LLM call iteration {self._iteration}/{_config.MAX_ITERATIONS}, mode={self._mode}, {len(messages)} messages")
         self._llm_thread = _LlmCallThread(messages, tools)
         self._llm_thread.chunkReady.connect(self._on_stream_chunk)
         self._llm_thread.streamDone.connect(self._on_stream_done)
@@ -339,7 +339,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             })
 
         # Tools done — next iteration
-        self.status_label.setText(f"Agent thinking... (iteration {self._iteration + 1}/{MAX_ITERATIONS})")
+        self.status_label.setText(f"Agent thinking... (iteration {self._iteration + 1}/{_config.MAX_ITERATIONS})")
         self._call_llm()
 
     def _finish(self, summary, success, _from_stream=False):
@@ -442,6 +442,10 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         """Enable/disable undo button based on snapshot availability."""
         from core.snapshot import has_snapshot
         self.btn_undo.setEnabled(has_snapshot())
+
+    def _on_settings(self):
+        from ui.settings_dialog import SettingsDialog
+        SettingsDialog(parent=self).exec()
 
     def closeEvent(self, event):
         self._store.save_current_on_close(self._session)
