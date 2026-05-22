@@ -101,7 +101,7 @@ def call_llm_streaming(messages: list[dict],
     if tools:
         payload["tools"] = tools
 
-    with urllib.request.urlopen(_make_request(payload), timeout=LLM_TIMEOUT) as resp:
+    with urllib.request.urlopen(_make_request(payload), timeout=_config.LLM_TIMEOUT) as resp:
         for raw_line in resp:
             line = raw_line.decode("utf-8", errors="replace").strip()
             if not line:

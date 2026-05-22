@@ -1,5 +1,7 @@
-"""Session management mixin for AgentPanel — load, switch, save."""
+"""Session management mixin for AgentPanel — load, switch, save, delete."""
 from __future__ import annotations
+
+from PySide6 import QtWidgets
 
 from core.token_budget import token_summary
 
@@ -22,10 +24,31 @@ class _PanelSessionMixin:
                 idx = i
                 break
         self.session_combo.setCurrentIndex(idx)
+        self.btn_delete_session.setEnabled(idx > 0)
         self.session_combo.blockSignals(False)
 
     def _on_session_selected(self, index):
+        self.btn_delete_session.setEnabled(index > 0)
         if index <= 0:
+            if self._llm_thread and self._llm_thread.isRunning():
+                self._refresh_session_list()
+                return
+            self._store.save_if_not_empty(self._session)
+            from core.session import ChatSession
+            self._session = ChatSession()
+            self._current_session_id = self._session.session_id
+            self._controller = None
+            self._iteration = 0
+            self._stopped = False
+            self._streaming_text = ""
+            self._stream_replace_start = 0
+            if self._stream_timer and self._stream_timer.isActive():
+                self._stream_timer.stop()
+            self.chat_display.clear()
+            self._append_system_msg("New session started. Describe a part to begin.")
+            self.status_label.setText("Ready")
+            self.status_label.setStyleSheet("color:#666; font-size:11px;")
+            self._update_token_label(0, 0)
             return
         session_id = self.session_combo.itemData(index)
         if not session_id or session_id == self._current_session_id:
@@ -34,7 +57,7 @@ class _PanelSessionMixin:
             self._append_system_msg("Agent 运行中，无法切换会话。")
             self._refresh_session_list()
             return
-        self._store.save(self._session)
+        self._store.save_if_not_empty(self._session)
         loaded = self._store.load(session_id)
         if loaded is None:
             self._append_system_msg("加载会话失败。")
@@ -69,3 +92,48 @@ class _PanelSessionMixin:
                 self._append_agent_msg(content)
         if self.chat_display.document().isEmpty():
             self._append_system_msg("Session loaded. History restored.")
+
+    def _on_delete_session(self):
+        index = self.session_combo.currentIndex()
+        if index <= 0:
+            return
+
+        session_id = self.session_combo.itemData(index)
+        if not session_id:
+            return
+
+        if self._llm_thread and self._llm_thread.isRunning():
+            self._append_system_msg("Agent is running. Cannot delete session.")
+            return
+
+        display_text = self.session_combo.itemText(index)
+        reply = QtWidgets.QMessageBox.question(
+            self, "Delete Session",
+            f"Permanently delete this session?\n\n{display_text}",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No,
+        )
+        if reply != QtWidgets.QMessageBox.Yes:
+            return
+
+        is_active = session_id == self._current_session_id
+        success = self._store.delete(session_id)
+        if not success:
+            self._append_system_msg("Failed to delete session.")
+            return
+
+        if is_active:
+            from core.session import ChatSession
+            self._session = ChatSession()
+            self._current_session_id = self._session.session_id
+            self._controller = None
+            self._iteration = 0
+            self._stopped = False
+            self._streaming_text = ""
+            self._stream_replace_start = 0
+            if self._stream_timer and self._stream_timer.isActive():
+                self._stream_timer.stop()
+            self.chat_display.clear()
+            self._append_system_msg("Session deleted. New session started.")
+
+        self._refresh_session_list()

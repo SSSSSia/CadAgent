@@ -24,7 +24,7 @@ def _infer_shape_type(shape) -> str | None:
             if hasattr(surf, "Radius"):
                 has_cylinder = True
                 all_planar = False
-            elif face.Surface.geomType not in ("Plane",):
+            elif hasattr(surf, "geomType") and surf.geomType not in ("Plane",):
                 has_other_curved = True
                 all_planar = False
         if has_other_curved:
@@ -47,7 +47,7 @@ def _detect_planar_faces(shape, min_area: float = 100.0) -> list[str]:
     plane_groups: list[tuple[tuple, list[float]]] = []
     for solid in shape.Solids:
         for face in solid.Faces:
-            if face.Surface.geomType != "Plane":
+            if not hasattr(face.Surface, "geomType") or face.Surface.geomType != "Plane":
                 continue
             area = face.Area
             if area < min_area:
@@ -107,8 +107,9 @@ def _describe_shape(shape) -> str:
     )
 
     # 质心
-    com = shape.CenterOfMass
-    lines.append(f"  Center of mass: ({com.x:.1f}, {com.y:.1f}, {com.z:.1f})")
+    if hasattr(shape, "CenterOfMass"):
+        com = shape.CenterOfMass
+        lines.append(f"  Center of mass: ({com.x:.1f}, {com.y:.1f}, {com.z:.1f})")
 
     # 形状类型推断
     shape_type = _infer_shape_type(shape)

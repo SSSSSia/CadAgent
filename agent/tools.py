@@ -178,14 +178,14 @@ def dispatch_tool(name: str, args_json: str) -> str:
         log_info(f"Tool call: {name}({args_json[:200]})")
         result = handler(args_json)
         if result.startswith("ERROR") or result.startswith("FAIL"):
-            log_error(f"Tool '{name}' returned failure: {result[:500]}")
+            log_warning(f"Tool '{name}' returned failure: {result[:500]}")
         else:
             log_info(f"Tool '{name}' succeeded: {result[:200]}")
         return result
     except Exception as e:
         import traceback
         tb = traceback.format_exc()
-        log_error(f"Tool '{name}' threw exception: {type(e).__name__}: {e}\n{tb}")
+        log_warning(f"Tool '{name}' threw exception: {type(e).__name__}: {e}\n{tb}")
         return f"ERROR in tool '{name}': {type(e).__name__}: {e}"
 
 

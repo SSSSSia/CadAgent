@@ -124,6 +124,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         self.text_input.setEnabled(not running)
         self.btn_stop.setEnabled(running)
         self.session_combo.setEnabled(not running)
+        self.btn_delete_session.setEnabled(not running and self.session_combo.currentIndex() > 0)
         if not running:
             self.text_input.setFocus()
             self._update_undo_button_state()
@@ -163,7 +164,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         )
         self._controller.session.set_system_prompt(system_content)
 
-        self._store.save(self._session)
+        self._store.save_if_not_empty(self._session)
 
         self.status_label.setText("Agent thinking...")
         self.status_label.setStyleSheet("color:#d4a017; font-size:11px;")
@@ -229,7 +230,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
 
             self._handle_llm_response(data, _streamed=bool(self._streaming_text))
         except Exception as e:
-            log_error(f"Error in stream handler: {e}")
+            log_warning(f"Error in stream handler: {e}")
             self._remove_streaming_bubble()
             self._finish(f"Internal error: {e}", False)
 
@@ -258,9 +259,15 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
                 self._execute_tools(parsed)
                 return
             else:
-                # Model returned a final answer directly
+                # Model returned plain text — check if design plan or final answer
                 self._mode = "tool_calling"
-                self._finish(content, True, _from_stream=_streamed)
+                if content and "Phase" in content:
+                    # Design plan — continue to execute
+                    self._finalize_streaming_bubble()
+                    self.status_label.setText(f"Agent thinking... (iteration {self._iteration + 1}/{_config.MAX_ITERATIONS})")
+                    self._call_llm()
+                else:
+                    self._finish(content, True, _from_stream=_streamed)
                 return
 
         # --- Tool calling mode (native API) ---
@@ -279,11 +286,19 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             self._finish(content, True)
             return
 
-        # --- finish_reason == "stop" with no tool tags — agent done ---
-        self._finish(content, True, _from_stream=_streamed)
+        # --- finish_reason == "stop" with no tool tags ---
+        has_executed = bool(self._controller and self._controller.result.tool_calls_log)
+        is_plan = bool(content and "Phase" in content)
+        if has_executed or not is_plan:
+            self._finish(content, True, _from_stream=_streamed)
+        else:
+            # Agent output a design plan but hasn't executed any tools yet — continue
+            self._finalize_streaming_bubble()
+            self.status_label.setText(f"Agent thinking... (iteration {self._iteration + 1}/{_config.MAX_ITERATIONS})")
+            self._call_llm()
 
     def _on_llm_error(self, msg):
-        log_error(f"LLM API error: {msg}")
+        log_warning(f"LLM API error: {msg}")
         self._remove_streaming_bubble()
         self._finish(f"API error: {msg}", False)
 
@@ -309,7 +324,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             tool_result = dispatch_tool(tool_name, tool_args)
             is_error = tool_result.startswith("ERROR") or tool_result.startswith("FAIL")
             if is_error:
-                log_error(f"Tool '{tool_name}' failed at iteration {self._iteration}: {tool_result[:300]}")
+                log_warning(f"Tool '{tool_name}' failed at iteration {self._iteration}: {tool_result[:300]}")
 
             # Update undo button state (snapshot was taken if execute_code)
             self._update_undo_button_state()
@@ -370,7 +385,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             except Exception as e:
                 log_warning(f"Failed to adjust 3D view: {e}")
 
-        self._store.save(self._session)
+        self._store.save_if_not_empty(self._session)
 
         turns = self._controller.session.user_turn_count()
         iters = self._iteration
@@ -398,7 +413,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             self._llm_thread.requestInterruption()
             self._llm_thread.quit()
             self._llm_thread.wait(1000)
-        self._store.save(self._session)
+        self._store.save_if_not_empty(self._session)
         from core.snapshot import cleanup_all_snapshots
         cleanup_all_snapshots()
         self._session = ChatSession()

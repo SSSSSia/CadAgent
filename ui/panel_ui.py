@@ -98,6 +98,13 @@ class _PanelUIMixin:
         self.btn_new_session.clicked.connect(self._on_new_session)
         ctrl_row.addWidget(self.btn_new_session)
 
+        self.btn_delete_session = QtWidgets.QPushButton("Delete")
+        self.btn_delete_session.setStyleSheet("padding:5px 12px")
+        self.btn_delete_session.setToolTip("Delete selected session")
+        self.btn_delete_session.setEnabled(False)
+        self.btn_delete_session.clicked.connect(self._on_delete_session)
+        ctrl_row.addWidget(self.btn_delete_session)
+
         self.btn_settings = QtWidgets.QPushButton("Settings")
         self.btn_settings.setStyleSheet("padding:5px 12px")
         self.btn_settings.setToolTip("Configure CadAgent API and parameters")

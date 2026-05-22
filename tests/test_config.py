@@ -59,7 +59,7 @@ class TestConstants:
     def test_max_iterations_default(self, monkeypatch):
         monkeypatch.delenv("MAX_ITERATIONS", raising=False)
         config = _reload_config()
-        assert config.MAX_ITERATIONS == 10
+        assert config.MAX_ITERATIONS == 20
         assert isinstance(config.MAX_ITERATIONS, int)
 
     def test_max_snapshots_default(self):

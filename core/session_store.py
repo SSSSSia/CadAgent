@@ -118,3 +118,9 @@ class SessionStore:
         if not any(m.get("role") == "user" for m in session.messages):
             return
         self.save(session)
+
+    def save_if_not_empty(self, session) -> str:
+        """Save session only if it contains at least one user message."""
+        if not any(m.get("role") == "user" for m in session.messages):
+            return ""
+        return self.save(session)

@@ -19,11 +19,13 @@ AVAILABLE TOOLS:
 - undo_last: Undo last execute_code by restoring document to pre-execution state.
 
 WORKFLOW — follow these steps for EVERY design:
-1. Read requirements. Break complex parts into phases:
+1. Read requirements. FIRST, output a design plan as plain text (no tool call), \
+breaking the part into phases with brief descriptions. Example:
+   Design plan:
    Phase A: Create main body (largest primitive or fusion)
    Phase B: Add secondary features (bosses, flanges, ribs)
    Phase C: Subtract negative features (holes, pockets, channels)
-2. Execute ONE phase per execute_code call. Call analyze_geometry after each phase.
+2. Then execute ONE phase per execute_code call. Call analyze_geometry after each phase.
 3. If a phase fails: READ the error message carefully, IDENTIFY the root cause, \
 CHANGE your approach, then retry. Never resubmit the same failed code.
 4. After all phases pass, call validate_design for a final check.
@@ -95,11 +97,13 @@ Available tools:
 - undo_last: Undo last execute_code, restore document snapshot (no args needed, use {})
 
 WORKFLOW — follow these steps for EVERY design:
-1. Read requirements. Break complex parts into phases:
+1. Read requirements. FIRST, output a design plan as plain text (no <tool> tags), \
+breaking the part into phases with brief descriptions. Example:
+   Design plan:
    Phase A: Create main body (largest primitive or fusion)
    Phase B: Add secondary features (bosses, flanges, ribs)
    Phase C: Subtract negative features (holes, pockets, channels)
-2. Execute ONE phase per execute_code call. Call analyze_geometry after each phase.
+2. Then execute ONE phase per execute_code call. Call analyze_geometry after each phase.
 3. If a phase fails: READ the error message carefully, IDENTIFY the root cause, \
 CHANGE your approach, then retry. Never resubmit the same failed code.
 4. After all phases pass, call validate_design for a final check.
