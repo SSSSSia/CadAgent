@@ -16,6 +16,7 @@ An LLM Agent-powered FreeCAD workbench that generates and modifies 3D mechanical
 - **Session Management** — Multi-turn conversation history persists across FreeCAD sessions
 - **Dual-Mode Support** — Automatically adapts to both Tool Calling and ReAct XML LLM calling modes
 - **Token Budget Management** — Automatically trims history messages to prevent exceeding API context length limits
+- **Settings Dialog** — GUI for configuring API, model, and Agent parameters with provider presets and connection testing — no manual config file editing required
 
 ## Architecture
 
@@ -51,6 +52,8 @@ Available Tools:
    ```
    Any OpenAI-compatible API provider works: SiliconFlow, OpenAI, DeepSeek, ZhipuAI, local Ollama, etc.
 
+   Alternatively, use **CadAgent Settings** from the FreeCAD menu or the **Settings** button in the panel to configure via GUI with provider presets and connection testing.
+
 3. Restart FreeCAD and select the **CadAgent** workbench from the dropdown menu.
 
 ## Usage
@@ -62,6 +65,7 @@ Available Tools:
 3. Click **Send** — the Agent will automatically reason, generate code, and iterate
 4. The 3D model appears in the viewport in real-time; the Agent may perform multiple rounds of optimization
 5. Click **Stop** at any time to interrupt the Agent loop
+6. Click **Settings** or use the menu **CadAgent Settings** to change API configuration and Agent parameters at any time
 
 ## Requirements
 
@@ -83,8 +87,9 @@ CadAgent/
 │   └── tools.py          # Tool implementations (execute_code / analyze_geometry / validate_design / undo_last)
 ├── core/
 │   ├── __init__.py
-│   ├── config.py         # Environment config and .env loading
+│   ├── config.py         # Environment config, .env loading, runtime reload
 │   ├── llm_client.py     # LLM API client (OpenAI-compatible + streaming)
+│   ├── logger.py         # Dual logging (FreeCAD Console + file)
 │   ├── session.py        # ChatSession management
 │   ├── session_store.py  # Session disk persistence
 │   ├── doc_analyzer.py   # Document geometry analysis (bounding box, volume, cylinder features)
@@ -93,7 +98,11 @@ CadAgent/
 ├── ui/
 │   ├── __init__.py
 │   ├── panel.py          # Chat-style dock panel + state machine Agent loop
-│   └── chat_renderer.py  # Markdown → HTML rendering
+│   ├── panel_ui.py       # Panel UI construction (layouts, widgets, styling)
+│   ├── panel_stream.py   # Streaming output rendering (chat bubbles, 80ms batched updates)
+│   ├── panel_session.py  # Session list management (switching, history restore)
+│   ├── chat_renderer.py  # Markdown → HTML rendering
+│   └── settings_dialog.py # Settings dialog (API config, model presets, connection test)
 ├── .env.example          # API config template
 ├── .gitignore
 ├── LICENSE

@@ -16,6 +16,7 @@
 - **会话管理** — 多轮对话历史持久化，支持跨 FreeCAD 会话恢复
 - **双模式支持** — 自动适配 Tool Calling 和 ReAct XML 两种 LLM 调用模式
 - **Token 预算管理** — 自动裁剪历史消息，防止超出 API 上下文长度限制
+- **设置面板** — GUI 配置 API、模型和 Agent 参数，支持提供商预设和连接测试，无需手动编辑配置文件
 
 ## 架构
 
@@ -51,6 +52,8 @@ Agent 循环 (ReAct):
    ```
    支持所有兼容 OpenAI 接口格式的模型服务，包括但不限于：SiliconFlow、OpenAI、DeepSeek、智谱 AI、本地 Ollama 等。
 
+   也可以在 FreeCAD 中通过 **CadAgent Settings** 菜单或面板中的 **Settings** 按钮进行 GUI 配置，支持提供商预设一键切换和连接测试。
+
 3. 重启 FreeCAD，从工作台下拉菜单选择 **CadAgent**。
 
 ## 使用方法
@@ -62,6 +65,7 @@ Agent 循环 (ReAct):
 3. 点击 **发送** — Agent 将自动推理、生成代码并迭代执行
 4. 3D 模型在视口中实时生成；Agent 可能进行多轮优化和修正
 5. 可随时点击 **停止** 中断 Agent 循环
+6. 点击 **Settings** 按钮或菜单栏 **CadAgent Settings** 可随时修改 API 配置和 Agent 参数
 
 ## 环境要求
 
@@ -83,8 +87,9 @@ CadAgent/
 │   └── tools.py          # 工具实现（execute_code / analyze_geometry / validate_design / undo_last）
 ├── core/
 │   ├── __init__.py
-│   ├── config.py         # 环境配置与 .env 加载
+│   ├── config.py         # 环境配置与 .env 加载、运行时 reload
 │   ├── llm_client.py     # LLM API 客户端（OpenAI 兼容 + 流式输出）
+│   ├── logger.py         # 双通道日志（FreeCAD Console + 文件）
 │   ├── session.py        # ChatSession 会话管理
 │   ├── session_store.py  # 会话磁盘持久化
 │   ├── doc_analyzer.py   # 文档几何分析（包围盒、体积、圆柱特征）
@@ -93,7 +98,11 @@ CadAgent/
 ├── ui/
 │   ├── __init__.py
 │   ├── panel.py          # 聊天式 Dock 面板 + 状态机 Agent 循环
-│   └── chat_renderer.py  # Markdown → HTML 渲染
+│   ├── panel_ui.py       # 面板 UI 构建（布局、控件、样式）
+│   ├── panel_stream.py   # 流式输出渲染（聊天气泡、80ms 批量更新）
+│   ├── panel_session.py  # 会话列表管理（切换、历史恢复）
+│   ├── chat_renderer.py  # Markdown → HTML 渲染
+│   └── settings_dialog.py # 设置对话框（API 配置、模型预设、连接测试）
 ├── .env.example          # API 配置模板
 ├── .gitignore
 ├── LICENSE
