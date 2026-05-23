@@ -3,6 +3,14 @@ from __future__ import annotations
 
 import re
 
+try:
+    from pygments import highlight
+    from pygments.lexers import PythonLexer, get_lexer_by_name
+    from pygments.formatters import HtmlFormatter
+    _HAS_PYGMENTS = True
+except ImportError:
+    _HAS_PYGMENTS = False
+
 
 def _esc_html(t: str) -> str:
     """Escape &, <, > for safe HTML embedding (no newline conversion)."""
@@ -21,13 +29,31 @@ def markdown_to_html(md_text: str) -> str:
     ph = []
 
     # 1. Extract code blocks → placeholders
+    _pygments_fmt = None
+
     def _code(m):
-        c = _esc_html(m.group(1))
-        ph.append(
-            '<pre style="background-color:#f4f4f4; padding:6px;'
-            f'font-size:12px; margin:4px 0;">{c}</pre>')
+        lang = m.group(1) or "python"
+        code = m.group(2)
+        if _HAS_PYGMENTS:
+            nonlocal _pygments_fmt
+            if _pygments_fmt is None:
+                _pygments_fmt = HtmlFormatter(noclasses=True, style="default")
+            try:
+                lexer = get_lexer_by_name(lang)
+            except Exception:
+                lexer = PythonLexer()
+            html = highlight(code, lexer, _pygments_fmt)
+            ph.append(
+                f'<div style="background-color:#f8f8f8; padding:6px;'
+                f'font-size:12px; margin:4px 0; border-radius:3px;'
+                f'overflow:auto;">{html}</div>')
+        else:
+            c = _esc_html(code)
+            ph.append(
+                '<pre style="background-color:#f4f4f4; padding:6px;'
+                f'font-size:12px; margin:4px 0;">{c}</pre>')
         return f'\x01PH{len(ph)-1}\x01'
-    text = re.sub(r'```[\w]*\n?(.*?)```', _code, md_text, flags=re.DOTALL)
+    text = re.sub(r'```(\w*)\n?(.*?)```', _code, md_text, flags=re.DOTALL)
 
     # 2. Extract tables → placeholders
     def _tbl(m):
