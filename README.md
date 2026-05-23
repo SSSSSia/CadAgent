@@ -81,10 +81,13 @@ CadAgent/
 ├── agent/
 │   ├── __init__.py
 │   ├── controller.py     # Agent 控制器（会话状态、运行结果）
+│   ├── loop.py           # Agent 循环（推理 → 工具调用 → 观察 → 迭代）
 │   ├── prompts.py        # 系统提示词（Agent 模式 + 单次模式）
 │   ├── react_parser.py   # ReAct XML 标签解析器
 │   ├── tool_defs.py      # 工具 JSON Schema 定义（LLM function calling）
-│   └── tools.py          # 工具实现（execute_code / analyze_geometry / validate_design / undo_last）
+│   ├── tool_dispatch.py  # 工具路由分发
+│   ├── tools.py          # 工具实现（execute_code / analyze_geometry / validate_design / undo_last）
+│   └── code_fixes.py     # 弱模型兼容：代码预检、自动修复、错误提示
 ├── core/
 │   ├── __init__.py
 │   ├── config.py         # 环境配置与 .env 加载、运行时 reload
@@ -93,16 +96,21 @@ CadAgent/
 │   ├── session.py        # ChatSession 会话管理
 │   ├── session_store.py  # 会话磁盘持久化
 │   ├── doc_analyzer.py   # 文档几何分析（包围盒、体积、圆柱特征）
+│   ├── geometry_analyzer.py # 几何信息格式化输出
+│   ├── text_utils.py     # 文本处理工具
 │   ├── snapshot.py       # 文档快照系统（撤销/回滚）
 │   └── token_budget.py   # Token 预算管理
 ├── ui/
 │   ├── __init__.py
-│   ├── panel.py          # 聊天式 Dock 面板 + 状态机 Agent 循环
+│   ├── panel.py          # 聊天式 Dock 面板（mixin 组合）
 │   ├── panel_ui.py       # 面板 UI 构建（布局、控件、样式）
 │   ├── panel_stream.py   # 流式输出渲染（聊天气泡、80ms 批量更新）
 │   ├── panel_session.py  # 会话列表管理（切换、历史恢复）
+│   ├── panel_status.py   # 响应式状态栏（耗时、迭代计数、工具名显示）
 │   ├── chat_renderer.py  # Markdown → HTML 渲染
+│   ├── theme.py          # 亮/暗模式主题配色
 │   └── settings_dialog.py # 设置对话框（API 配置、模型预设、连接测试）
+├── tests/                # 单元测试（不依赖 FreeCAD）
 ├── .env.example          # API 配置模板
 ├── .gitignore
 ├── LICENSE

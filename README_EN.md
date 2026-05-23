@@ -81,10 +81,13 @@ CadAgent/
 ├── agent/
 │   ├── __init__.py
 │   ├── controller.py     # Agent controller (session state, run results)
+│   ├── loop.py           # Agent loop (reason → tool call → observe → iterate)
 │   ├── prompts.py        # System prompts (Agent mode + single-shot mode)
 │   ├── react_parser.py   # ReAct XML tag parser
 │   ├── tool_defs.py      # Tool JSON Schema definitions (LLM function calling)
-│   └── tools.py          # Tool implementations (execute_code / analyze_geometry / validate_design / undo_last)
+│   ├── tool_dispatch.py  # Tool routing and dispatch
+│   ├── tools.py          # Tool implementations (execute_code / analyze_geometry / validate_design / undo_last)
+│   └── code_fixes.py     # Weak model compat: code pre-check, auto-fix, error hints
 ├── core/
 │   ├── __init__.py
 │   ├── config.py         # Environment config, .env loading, runtime reload
@@ -93,16 +96,21 @@ CadAgent/
 │   ├── session.py        # ChatSession management
 │   ├── session_store.py  # Session disk persistence
 │   ├── doc_analyzer.py   # Document geometry analysis (bounding box, volume, cylinder features)
+│   ├── geometry_analyzer.py # Geometry info formatting output
+│   ├── text_utils.py     # Text processing utilities
 │   ├── snapshot.py       # Document snapshot system (undo/rollback)
 │   └── token_budget.py   # Token budget management
 ├── ui/
 │   ├── __init__.py
-│   ├── panel.py          # Chat-style dock panel + state machine Agent loop
+│   ├── panel.py          # Chat-style dock panel (mixin composition)
 │   ├── panel_ui.py       # Panel UI construction (layouts, widgets, styling)
 │   ├── panel_stream.py   # Streaming output rendering (chat bubbles, 80ms batched updates)
 │   ├── panel_session.py  # Session list management (switching, history restore)
+│   ├── panel_status.py   # Reactive status bar (elapsed time, iteration count, tool name display)
 │   ├── chat_renderer.py  # Markdown → HTML rendering
+│   ├── theme.py          # Light/dark mode theme colors
 │   └── settings_dialog.py # Settings dialog (API config, model presets, connection test)
+├── tests/                # Unit tests (no FreeCAD dependency)
 ├── .env.example          # API config template
 ├── .gitignore
 ├── LICENSE
