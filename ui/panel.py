@@ -9,6 +9,7 @@ Thread safety model:
 from __future__ import annotations
 
 import json
+import time
 
 import FreeCAD
 import FreeCADGui as Gui
@@ -31,6 +32,7 @@ from core.logger import log_info, log_warning, log_error
 from ui.panel_ui import _PanelUIMixin
 from ui.panel_stream import _PanelStreamMixin
 from ui.panel_session import _PanelSessionMixin
+from ui.panel_status import _PanelStatusMixin
 
 
 class _LlmCallThread(QtCore.QThread):
@@ -100,7 +102,7 @@ class _LlmCallThread(QtCore.QThread):
             self.error.emit(f"{type(e).__name__}: {e}")
 
 
-class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _PanelSessionMixin):
+class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _PanelSessionMixin, _PanelStatusMixin):
     """Chat-style dock panel for CadAgent."""
 
     def __init__(self, parent=None):
@@ -152,6 +154,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         self._controller = AgentController(self._session)
         self._iteration = 0
         self._stopped = False
+        self._agent_start_time = time.time()
         self._mode = "auto"  # "auto" | "tool_calling" | "react"
         self._context = context
 
@@ -166,8 +169,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
 
         self._store.save_if_not_empty(self._session)
 
-        self.status_label.setText("Agent thinking...")
-        self.status_label.setStyleSheet("color:#d4a017; font-size:11px;")
+        self._status_set("thinking")
 
         # Show token usage after adding user message
         used, budget = token_summary(self._controller.session.get_messages())
@@ -197,6 +199,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             return
 
         self._iteration += 1
+        self._status_set("thinking")
 
         # In react mode, don't send tools parameter (model doesn't support it)
         tools = TOOL_DEFINITIONS if self._mode != "react" else None
@@ -259,15 +262,9 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
                 self._execute_tools(parsed)
                 return
             else:
-                # Model returned plain text — check if design plan or final answer
+                # Model returned a final answer directly
                 self._mode = "tool_calling"
-                if content and "Phase" in content:
-                    # Design plan — continue to execute
-                    self._finalize_streaming_bubble()
-                    self.status_label.setText(f"Agent thinking... (iteration {self._iteration + 1}/{_config.MAX_ITERATIONS})")
-                    self._call_llm()
-                else:
-                    self._finish(content, True, _from_stream=_streamed)
+                self._finish(content, True, _from_stream=_streamed)
                 return
 
         # --- Tool calling mode (native API) ---
@@ -286,16 +283,8 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             self._finish(content, True)
             return
 
-        # --- finish_reason == "stop" with no tool tags ---
-        has_executed = bool(self._controller and self._controller.result.tool_calls_log)
-        is_plan = bool(content and "Phase" in content)
-        if has_executed or not is_plan:
-            self._finish(content, True, _from_stream=_streamed)
-        else:
-            # Agent output a design plan but hasn't executed any tools yet — continue
-            self._finalize_streaming_bubble()
-            self.status_label.setText(f"Agent thinking... (iteration {self._iteration + 1}/{_config.MAX_ITERATIONS})")
-            self._call_llm()
+        # --- finish_reason == "stop" with no tool tags — agent done ---
+        self._finish(content, True, _from_stream=_streamed)
 
     def _on_llm_error(self, msg):
         log_warning(f"LLM API error: {msg}")
@@ -313,12 +302,18 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             tool_args = fn.get("arguments", "{}")
             tool_id = tc.get("id", "")
 
+            self._status_set("executing_tool", tool_name)
+
             desc = ""
             if tool_name == "execute_code":
                 try:
                     desc = json.loads(tool_args).get("description", "")
                 except json.JSONDecodeError as e:
                     log_warning(f"Failed to parse tool args JSON: {e}")
+
+            if desc:
+                self._status_tool_desc = desc
+                self._status_tick()
 
             # Execute tool in main thread (FreeCAD safe)
             tool_result = dispatch_tool(tool_name, tool_args)
@@ -354,7 +349,6 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             })
 
         # Tools done — next iteration
-        self.status_label.setText(f"Agent thinking... (iteration {self._iteration + 1}/{_config.MAX_ITERATIONS})")
         self._call_llm()
 
     def _finish(self, summary, success, _from_stream=False):
@@ -387,14 +381,17 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
 
         self._store.save_if_not_empty(self._session)
 
+        self._status_timer.stop()
+        total_elapsed = time.time() - self._agent_start_time if self._agent_start_time else 0
+        elapsed_str = self._format_elapsed(total_elapsed)
         turns = self._controller.session.user_turn_count()
         iters = self._iteration
         if success:
-            self.status_label.setText(f"Done | {iters} iterations | Turn {turns}")
-            self.status_label.setStyleSheet("color:#0d904f; font-size:11px;")
+            self.status_label.setText(f"Done  {elapsed_str}  {iters} iters  Turn {turns}")
+            self.status_label.setStyleSheet("color:#0d904f; font-size:11px; font-family:'Segoe UI', sans-serif;")
         else:
-            self.status_label.setText(f"Failed | {iters} iterations | Turn {turns}")
-            self.status_label.setStyleSheet("color:#d32f2f; font-size:11px;")
+            self.status_label.setText(f"Failed  {elapsed_str}  {iters} iters  Turn {turns}")
+            self.status_label.setStyleSheet("color:#d32f2f; font-size:11px; font-family:'Segoe UI', sans-serif;")
 
         self._set_running(False)
         self._refresh_session_list()
@@ -405,7 +402,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         self._stopped = True
         if self._llm_thread and self._llm_thread.isRunning():
             self._llm_thread.requestInterruption()
-        self.status_label.setText("Stopping...")
+        self._status_set("stopping")
 
     def _on_new_session(self):
         self._stopped = True
@@ -421,8 +418,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         self._controller = None
         self.chat_display.clear()
         self._append_system_msg("New session started. Describe a part to begin.")
-        self.status_label.setText("Ready")
-        self.status_label.setStyleSheet("color:#666; font-size:11px;")
+        self._status_reset()
         self._set_running(False)
         self._refresh_session_list()
 

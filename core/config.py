@@ -52,7 +52,7 @@ def _refresh_constants():
     API_KEY = _cfg["API_KEY"]
     MODEL_NAME = _cfg["MODEL_NAME"]
     MAX_TOKENS = int(_cfg["MAX_TOKENS"])
-    MAX_ITERATIONS = int(os.environ.get("MAX_ITERATIONS", "10"))
+    MAX_ITERATIONS = int(os.environ.get("MAX_ITERATIONS", "20"))
     MAX_SNAPSHOTS = int(os.environ.get("MAX_SNAPSHOTS", "10"))
     MAX_CONTEXT_TOKENS = int(os.environ.get("MAX_CONTEXT_TOKENS", "24000"))
     LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", "180"))

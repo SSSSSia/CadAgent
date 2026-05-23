@@ -46,8 +46,7 @@ class _PanelSessionMixin:
                 self._stream_timer.stop()
             self.chat_display.clear()
             self._append_system_msg("New session started. Describe a part to begin.")
-            self.status_label.setText("Ready")
-            self.status_label.setStyleSheet("color:#666; font-size:11px;")
+            self._status_reset()
             self._update_token_label(0, 0)
             return
         session_id = self.session_combo.itemData(index)
@@ -76,7 +75,9 @@ class _PanelSessionMixin:
         turns = loaded.user_turn_count()
         msgs = loaded.message_count()
         self.status_label.setText(f"Session loaded | {turns} turns | {msgs} messages")
-        self.status_label.setStyleSheet("color:#666; font-size:11px;")
+        self.status_label.setStyleSheet(
+            "color:#666; font-size:11px; font-family:'Segoe UI', sans-serif;"
+        )
         used, budget = token_summary(loaded.get_messages())
         self._update_token_label(used, budget)
         self._refresh_session_list()

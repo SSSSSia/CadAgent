@@ -128,6 +128,7 @@ class _PanelUIMixin:
             "CadAgent ready. Describe a part and I'll create it in FreeCAD."
         )
         self._refresh_session_list()
+        self._setup_status()
 
         container.setLayout(main_layout)
         self.setWidget(container)
