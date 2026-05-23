@@ -207,6 +207,10 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         # In react mode, don't send tools parameter (model doesn't support it)
         tools = TOOL_DEFINITIONS if self._mode != "react" else None
 
+        # Start streaming bubble (skip for react — needs full text before display)
+        if self._mode != "react":
+            self._start_streaming_bubble()
+
         original_count = len(self._controller.session.get_messages())
         messages = trim_messages(self._controller.session.get_messages())
         used, budget = token_summary(messages)
@@ -219,18 +223,29 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         self._llm_thread.start()
 
     def _on_stream_done(self, data):
-        """Streaming complete — route response (no intermediate bubble display)."""
+        """Streaming complete — finalize display, then route response."""
         try:
             choices = data.get("choices", [])
             if not choices:
+                self._remove_streaming_bubble()
                 self._finish("API returned empty response.", False)
                 return
-            self._handle_llm_response(data)
+            choice = choices[0]
+            content = choice.get("message", {}).get("content", "")
+
+            # Finalize or remove streaming bubble based on content
+            if self._streaming_text and self._streaming_text.strip():
+                self._finalize_streaming_bubble()
+            else:
+                self._remove_streaming_bubble()
+
+            self._handle_llm_response(data, _streamed=bool(self._streaming_text))
         except Exception as e:
             log_warning(f"Error in stream handler: {e}")
+            self._remove_streaming_bubble()
             self._finish(f"Internal error: {e}", False)
 
-    def _handle_llm_response(self, data):
+    def _handle_llm_response(self, data, _streamed=False):
         """Route LLM response to the appropriate handler."""
         choice = data["choices"][0]
         assistant_msg = choice.get("message", {})
@@ -257,7 +272,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             else:
                 # Model returned a final answer directly
                 self._mode = "tool_calling"
-                self._finish(content, True)
+                self._finish(content, True, _from_stream=_streamed)
                 return
 
         # --- Tool calling mode (native API) ---
@@ -277,10 +292,11 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             return
 
         # --- finish_reason == "stop" with no tool tags — agent done ---
-        self._finish(content, True)
+        self._finish(content, True, _from_stream=_streamed)
 
     def _on_llm_error(self, msg):
         log_warning(f"LLM API error: {msg}")
+        self._remove_streaming_bubble()
         self._finish(f"API error: {msg}", False)
 
     def _execute_tools(self, tool_calls):
@@ -343,10 +359,11 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         # Tools done — next iteration
         self._call_llm()
 
-    def _finish(self, summary, success):
+    def _finish(self, summary, success, _from_stream=False):
         """Agent loop complete — show results."""
         log_info(f"Agent finished: success={success}, iterations={self._iteration}, summary={summary[:100]}")
-        self._append_agent_msg(summary)
+        if not _from_stream:
+            self._append_agent_msg(summary)
 
         if success:
             self._controller.result.success = True

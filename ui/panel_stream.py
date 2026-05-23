@@ -65,8 +65,17 @@ class _PanelStreamMixin:
         self._append_agent_msg("")
 
     def _on_stream_chunk(self, delta_text):
-        """Receive streaming chunk — no intermediate display during agent loop."""
-        pass
+        """Accumulate streaming text and schedule a batched UI update."""
+        if self._mode == "react":
+            return
+        self._streaming_text += delta_text
+        if self._stream_timer is None:
+            self._stream_timer = QtCore.QTimer(self)
+            self._stream_timer.setSingleShot(True)
+            self._stream_timer.setInterval(80)
+            self._stream_timer.timeout.connect(self._update_streaming_display)
+        if not self._stream_timer.isActive():
+            self._stream_timer.start()
 
     def _update_streaming_display(self):
         """Replace the streaming bubble with current accumulated text."""
