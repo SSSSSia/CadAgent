@@ -288,15 +288,19 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             choice = choices[0]
             content = choice.get("message", {}).get("content", "")
 
-            # Render reasoning block before finalizing agent bubble
-            self._render_reasoning_block()
-            self._reasoning_text = ""
+            # Save position so reasoning can be inserted before the bubble
+            bubble_start = self._stream_replace_start
 
-            # Finalize or remove streaming bubble based on content
+            # Finalize or remove streaming bubble first
             if self._streaming_text and self._streaming_text.strip():
                 self._finalize_streaming_bubble()
             else:
                 self._remove_streaming_bubble()
+                bubble_start = None  # no bubble to insert before
+
+            # Render reasoning block before the finalized agent bubble
+            self._render_reasoning_block(insert_before_pos=bubble_start)
+            self._reasoning_text = ""
 
             self._handle_llm_response(data, _streamed=bool(self._streaming_text))
         except Exception as e:

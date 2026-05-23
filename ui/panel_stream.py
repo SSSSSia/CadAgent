@@ -79,8 +79,12 @@ class _PanelStreamMixin:
         )
         self._scroll_bottom()
 
-    def _render_reasoning_block(self):
-        """Render accumulated reasoning content as a gray block."""
+    def _render_reasoning_block(self, insert_before_pos=None):
+        """Render accumulated reasoning content as a gray block.
+
+        If insert_before_pos is given, insert at that position (before the
+        agent bubble). Otherwise append at end.
+        """
         if not self._reasoning_text:
             return
         c = self._get_colors()
@@ -98,7 +102,7 @@ class _PanelStreamMixin:
                 f'Show all</a>'
             )
 
-        self.chat_display.append(
+        html = (
             f'<div style="margin:4px 0 2px 0; padding:6px 10px;'
             f' background-color:{c.reasoning_bg};'
             f' border-left:2px solid {c.reasoning_border};'
@@ -109,6 +113,15 @@ class _PanelStreamMixin:
             f'{toggle_link}'
             f'</div>'
         )
+        if insert_before_pos is not None:
+            doc = self.chat_display.document()
+            max_pos = doc.characterCount() - 1
+            pos = min(insert_before_pos, max(0, max_pos))
+            cursor = QTextCursor(doc)
+            cursor.setPosition(pos)
+            cursor.insertHtml(html)
+        else:
+            self.chat_display.append(html)
         self._scroll_bottom()
 
     def _scroll_bottom(self):
@@ -142,6 +155,9 @@ class _PanelStreamMixin:
         """Replace the streaming bubble with current accumulated text."""
         if not self._streaming_text:
             return
+        doc = self.chat_display.document()
+        max_pos = doc.characterCount() - 1
+        start = min(self._stream_replace_start, max(0, max_pos))
         c = self._get_colors()
         html = markdown_to_html(
             self._streaming_text,
@@ -155,8 +171,8 @@ class _PanelStreamMixin:
             f'{html}'
             f'</td></tr></table>'
         )
-        cursor = QTextCursor(self.chat_display.document())
-        cursor.setPosition(self._stream_replace_start)
+        cursor = QTextCursor(doc)
+        cursor.setPosition(start)
         cursor.movePosition(cursor.MoveOperation.End, cursor.MoveMode.KeepAnchor)
         cursor.removeSelectedText()
         cursor.insertHtml(bubble)
@@ -173,8 +189,11 @@ class _PanelStreamMixin:
         """Remove the streaming placeholder bubble (for tool_calls with no text)."""
         if self._stream_timer and self._stream_timer.isActive():
             self._stream_timer.stop()
-        cursor = QTextCursor(self.chat_display.document())
-        cursor.setPosition(self._stream_replace_start)
+        doc = self.chat_display.document()
+        max_pos = doc.characterCount() - 1
+        start = min(self._stream_replace_start, max(0, max_pos))
+        cursor = QTextCursor(doc)
+        cursor.setPosition(start)
         cursor.movePosition(cursor.MoveOperation.End, cursor.MoveMode.KeepAnchor)
         cursor.removeSelectedText()
         self._streaming_text = ""
