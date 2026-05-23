@@ -20,6 +20,7 @@ desktop.ini
 
 # Dev logs
 log.txt
+log.md
 
 # Test cache
 .pytest_cache/

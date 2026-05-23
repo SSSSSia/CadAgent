@@ -89,13 +89,42 @@ class _PanelSessionMixin:
 
     def _restore_chat_display(self, session):
         self.chat_display.clear()
+        iteration = 0
         for msg in session.messages:
             role = msg.get("role", "")
             content = msg.get("content", "")
             if role == "user":
                 self._append_user_msg(content)
-            elif role == "assistant" and content:
-                self._append_agent_msg(content)
+            elif role == "assistant":
+                tool_calls = msg.get("tool_calls")
+                if tool_calls:
+                    iteration += 1
+                    for tc in tool_calls:
+                        fn = tc.get("function", {})
+                        name = fn.get("name", "")
+                        desc = ""
+                        if name == "execute_code":
+                            try:
+                                import json
+                                desc = json.loads(fn.get("arguments", "{}")).get("description", "")
+                            except (json.JSONDecodeError, KeyError):
+                                pass
+                        self._append_tool_msg(iteration, name, desc, "", False)
+                if content:
+                    self._append_agent_msg(content)
+            elif role == "tool":
+                is_error = content.startswith("ERROR") or content.startswith("FAIL")
+                tool_id = msg.get("tool_call_id", "")
+                label = "tool_result"
+                # Find tool name from the preceding assistant message
+                for prev in reversed(session.messages):
+                    if prev.get("role") == "assistant" and prev.get("tool_calls"):
+                        for tc in prev["tool_calls"]:
+                            if tc.get("id") == tool_id:
+                                label = tc["function"].get("name", "tool_result")
+                                break
+                        break
+                self._append_tool_msg(iteration, label, "", content, is_error)
         if self.chat_display.document().isEmpty():
             self._append_system_msg("Session loaded. History restored.")
 
