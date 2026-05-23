@@ -35,8 +35,9 @@ MANDATORY — EVERY execute_code block MUST end with this exact line:
   doc.recompute()
 
 CRITICAL RULES:
-- Pre-imported: FreeCAD, Part, math, FreeCADGui (as Gui)
-- Create doc: doc = FreeCAD.newDocument("Design")
+- Pre-imported: FreeCAD, Part, math, FreeCADGui (as Gui), doc (FreeCAD.ActiveDocument)
+- For new documents: doc = FreeCAD.newDocument("Design")
+- For existing documents: doc is already set to FreeCAD.ActiveDocument
 - Add shapes: obj = doc.addObject("Part::Feature", "Name"); obj.Shape = shape
 - All dimensions in mm. No fillet or chamfer.
 
@@ -113,8 +114,9 @@ MANDATORY — EVERY execute_code block MUST end with this exact line:
   doc.recompute()
 
 CRITICAL RULES:
-- Pre-imported: FreeCAD, Part, math, FreeCADGui (as Gui)
-- Create doc: doc = FreeCAD.newDocument("Design")
+- Pre-imported: FreeCAD, Part, math, FreeCADGui (as Gui), doc (FreeCAD.ActiveDocument)
+- For new documents: doc = FreeCAD.newDocument("Design")
+- For existing documents: doc is already set to FreeCAD.ActiveDocument
 - Add shapes: obj = doc.addObject("Part::Feature", "Name"); obj.Shape = shape
 - All dimensions in mm. No fillet or chamfer.
 

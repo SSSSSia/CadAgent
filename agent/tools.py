@@ -43,6 +43,7 @@ def _tool_execute_code(args_json: str) -> str:
         "Part": Part,
         "math": math,
         "Gui": Gui,
+        "doc": FreeCAD.ActiveDocument,
         "__builtins__": __builtins__,
     }
 
