@@ -32,7 +32,6 @@ class _PanelUIMixin:
         self.chat_display.document().setDefaultStyleSheet(
             "p { margin: 0; }"
         )
-        self.chat_display.anchorClicked.connect(self._on_chat_link_clicked)
         main_layout.addWidget(self.chat_display, 1)
 
         # --- Input area ---

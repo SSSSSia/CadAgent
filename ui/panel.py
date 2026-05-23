@@ -138,7 +138,6 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         self._stream_replace_start = 0
         self._stream_timer = None
         self._reasoning_text = ""
-        self._pending_tool_results = {}
         self._theme_colors = None
         self._store = SessionStore()
         self._setup_ui()
@@ -507,7 +506,6 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         self._streaming_text = ""
         self._stream_replace_start = 0
         self._reasoning_text = ""
-        self._pending_tool_results = {}
         if self._stream_timer and self._stream_timer.isActive():
             self._stream_timer.stop()
         self.chat_display.clear()
@@ -551,26 +549,6 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
     def _on_settings(self):
         from ui.settings_dialog import SettingsDialog
         SettingsDialog(parent=self).exec()
-
-    def _on_chat_link_clicked(self, url):
-        """Handle expand/collapse clicks in chat display."""
-        url_str = url.toString()
-        if url_str.startswith("expand:"):
-            result_key = url_str[7:]
-            full_text = self._pending_tool_results.pop(result_key, None)
-            if full_text:
-                c = self._get_colors()
-                from ui.chat_renderer import esc
-                self.chat_display.append(
-                    f'<div style="margin:2px 0 2px 40px; padding:6px 8px;'
-                    f' background-color:{c.reasoning_bg};'
-                    f' border:1px solid {c.code_border};'
-                    f' border-radius:3px; font-size:11px;'
-                    f' color:{c.tool_text}; white-space:pre-wrap;'
-                    f' max-height:400px; overflow:auto;">'
-                    f'{esc(full_text)}</div>'
-                )
-                self._scroll_bottom()
 
     def closeEvent(self, event):
         self._store.save_current_on_close(self._session)

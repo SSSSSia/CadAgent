@@ -16,7 +16,8 @@ class _PanelStreamMixin:
 
     def _append_user_msg(self, text):
         c = self._get_colors()
-        self.chat_display.append(
+        text = text.strip()
+        self._insert_html(
             f'<table width="100%" cellspacing="0" cellpadding="0"><tr>'
             f'<td style="background-color:{c.user_bubble_bg}; padding:8px 12px;">'
             f'<b style="color:{c.user_bubble_text};">You:</b> {esc(text)}'
@@ -27,7 +28,7 @@ class _PanelStreamMixin:
     def _append_agent_msg(self, text):
         c = self._get_colors()
         html = markdown_to_html(text, colors={"code_bg": c.code_bg, "code_border": c.code_border})
-        self.chat_display.append(
+        self._insert_html(
             f'<table width="100%" cellspacing="0" cellpadding="0"><tr>'
             f'<td style="background-color:{c.agent_bubble_bg}; padding:10px 12px; '
             f'border-left:3px solid {c.agent_bubble_border};">'
@@ -48,32 +49,16 @@ class _PanelStreamMixin:
         if desc:
             label += f" — {desc}"
 
-        preview = full_result[:200]
-        needs_expand = len(full_result) > 200
-        ellipsis = "..." if needs_expand else ""
-
-        toggle_link = ""
-        if needs_expand:
-            result_key = f"tool_{iteration}_{name}_{time.monotonic_ns()}"
-            self._pending_tool_results[result_key] = full_result
-            toggle_link = (
-                f' <a href="expand:{result_key}"'
-                f' style="color:{c.button_primary}; font-size:11px;">'
-                f'Show details</a>'
-            )
-
-        self.chat_display.append(
+        self._insert_html(
             f'<div style="margin:2px 0 2px 20px;font-size:12px;color:{c.tool_text};">'
             f'{icon} {esc(label)}'
-            f' <span style="font-size:11px;">{esc(preview)}{ellipsis}</span>'
-            f'{toggle_link}'
             f'</div>'
         )
         self._scroll_bottom()
 
     def _append_system_msg(self, text):
         c = self._get_colors()
-        self.chat_display.append(
+        self._insert_html(
             f'<div style="margin:4px 0; color:{c.system_text}; font-style:italic; '
             f'font-size:12px; text-align:center;">{esc(text)}</div>'
         )
@@ -88,19 +73,6 @@ class _PanelStreamMixin:
         if not self._reasoning_text:
             return
         c = self._get_colors()
-        preview = self._reasoning_text[:300]
-        needs_expand = len(self._reasoning_text) > 300
-        ellipsis = "..." if needs_expand else ""
-
-        toggle_link = ""
-        if needs_expand:
-            result_key = f"reasoning_{self._iteration}_{time.monotonic_ns()}"
-            self._pending_tool_results[result_key] = self._reasoning_text
-            toggle_link = (
-                f' <a href="expand:{result_key}"'
-                f' style="color:{c.button_primary}; font-size:11px;">'
-                f'Show all</a>'
-            )
 
         html = (
             f'<div style="margin:4px 0 2px 0; padding:6px 10px;'
@@ -109,8 +81,7 @@ class _PanelStreamMixin:
             f' border-radius:3px; font-size:12px;'
             f' color:{c.reasoning_text}; font-style:italic;">'
             f'<b style="font-size:11px; font-style:normal;">Reasoning:</b> '
-            f'{esc(preview)}{ellipsis}'
-            f'{toggle_link}'
+            f'{esc(self._reasoning_text)}'
             f'</div>'
         )
         if insert_before_pos is not None:
@@ -121,8 +92,14 @@ class _PanelStreamMixin:
             cursor.setPosition(pos)
             cursor.insertHtml(html)
         else:
-            self.chat_display.append(html)
+            self._insert_html(html)
         self._scroll_bottom()
+
+    def _insert_html(self, html):
+        """Insert HTML at the end of the document without extra paragraph margins."""
+        cursor = QTextCursor(self.chat_display.document())
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        cursor.insertHtml(f'<div style="margin:0; padding:0;">{html}</div>')
 
     def _scroll_bottom(self):
         sb = self.chat_display.verticalScrollBar()

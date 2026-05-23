@@ -26,6 +26,7 @@ from agent.code_fixes import pre_validate_code, auto_fix_code, error_hint
 # Restricted __builtins__ for exec() sandbox (CODE-1)
 # ---------------------------------------------------------------------------
 SAFE_BUILTINS = {
+    "__import__": __import__,
     "print": print, "range": range, "len": len, "int": int,
     "float": float, "str": str, "list": list, "dict": dict,
     "tuple": tuple, "set": set, "bool": bool, "bytes": bytes,
