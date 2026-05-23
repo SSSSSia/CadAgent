@@ -47,6 +47,9 @@ class _PanelUIMixin:
         # --- Chat history ---
         self.chat_display = QtWidgets.QTextBrowser()
         self.chat_display.setOpenExternalLinks(False)
+        self.chat_display.document().setDefaultStyleSheet(
+            "p { margin: 0; }"
+        )
         self.chat_display.setStyleSheet(
             "QTextBrowser {"
             "  font-family: 'Segoe UI', sans-serif;"

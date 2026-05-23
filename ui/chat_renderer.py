@@ -26,6 +26,9 @@ def esc(t: str) -> str:
 
 def markdown_to_html(md_text: str) -> str:
     """Convert Markdown text to HTML for QTextBrowser display."""
+    md_text = md_text.rstrip("\n\r \t")
+    if not md_text:
+        return ""
     ph = []
 
     # 1. Extract code blocks → placeholders
@@ -142,4 +145,9 @@ def markdown_to_html(md_text: str) -> str:
     # 7. Restore placeholders
     for i, blk in enumerate(ph):
         text = text.replace(f'\x01PH{i}\x01', blk)
+
+    # 8. Strip trailing <br> (from trailing newlines in source)
+    while text.endswith("<br>"):
+        text = text[:-4].rstrip()
+
     return text
