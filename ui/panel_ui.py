@@ -46,6 +46,7 @@ class _PanelUIMixin:
         self.text_input.setHorizontalScrollBarPolicy(
             QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
+        self.text_input.setFixedHeight(30)
         self.text_input.textChanged.connect(self._on_input_text_changed)
         self.text_input.installEventFilter(self)
         input_row.addWidget(self.text_input, 1)
