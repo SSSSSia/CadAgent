@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import time
+import urllib.error
 import urllib.request
 
 import core.config as _config
@@ -10,6 +12,27 @@ from agent.prompts import (
     SYSTEM_PROMPT_NEW, SYSTEM_PROMPT_MODIFY,
     SYSTEM_PROMPT_DERIVE, SYSTEM_PROMPT_VARIANT,
 )
+
+_MAX_RETRIES = 2
+_RETRY_BACKOFF = 2.0
+
+
+def _urlopen_with_retry(request, timeout):
+    """urlopen with retry and exponential backoff for transient errors."""
+    last_error = None
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            return urllib.request.urlopen(request, timeout=timeout)
+        except urllib.error.HTTPError as e:
+            if e.code == 429 or e.code >= 500:
+                last_error = e
+            else:
+                raise
+        except (urllib.error.URLError, ConnectionError, TimeoutError, OSError) as e:
+            last_error = e
+        if attempt < _MAX_RETRIES:
+            time.sleep(_RETRY_BACKOFF * (2 ** attempt))
+    raise last_error
 
 
 def _make_request(payload: dict) -> urllib.request.Request:
@@ -37,7 +60,7 @@ def call_llm_with_tools(messages: list[dict],
     if tools:
         payload["tools"] = tools
 
-    with urllib.request.urlopen(_make_request(payload), timeout=_config.LLM_TIMEOUT) as resp:
+    with _urlopen_with_retry(_make_request(payload), timeout=_config.LLM_TIMEOUT) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -73,7 +96,7 @@ def generate_freecad_code(user_description: str,
         "max_tokens": _config.MAX_TOKENS,
     }
 
-    with urllib.request.urlopen(_make_request(payload), timeout=_config.LLM_TIMEOUT) as resp:
+    with _urlopen_with_retry(_make_request(payload), timeout=_config.LLM_TIMEOUT) as resp:
         data = json.loads(resp.read().decode("utf-8"))
 
     content = data["choices"][0]["message"]["content"]
@@ -101,7 +124,7 @@ def call_llm_streaming(messages: list[dict],
     if tools:
         payload["tools"] = tools
 
-    with urllib.request.urlopen(_make_request(payload), timeout=_config.LLM_TIMEOUT) as resp:
+    with _urlopen_with_retry(_make_request(payload), timeout=_config.LLM_TIMEOUT) as resp:
         for raw_line in resp:
             line = raw_line.decode("utf-8", errors="replace").strip()
             if not line:

@@ -86,3 +86,66 @@ def test_multiline_arguments():
     result = parse_react_tool_calls(text)
     args = json.loads(result[0]["function"]["arguments"])
     assert "line1" in args["code"]
+
+
+# ---- Multi-strategy parser tests ----
+
+def test_extra_whitespace_around_equals():
+    text = '<tool name = "execute_code">{"code": "print(1)"}</tool>'
+    result = parse_react_tool_calls(text)
+    assert len(result) == 1
+    assert result[0]["function"]["name"] == "execute_code"
+
+
+def test_case_insensitive_tag():
+    text = '<TOOL NAME="analyze_geometry">{}</TOOL>'
+    result = parse_react_tool_calls(text)
+    assert len(result) == 1
+    assert result[0]["function"]["name"] == "analyze_geometry"
+
+
+def test_self_closing_tag():
+    text = '<tool name="undo_last"/>'
+    result = parse_react_tool_calls(text)
+    assert len(result) == 1
+    assert result[0]["function"]["name"] == "undo_last"
+    assert json.loads(result[0]["function"]["arguments"]) == {}
+
+
+def test_unclosed_tag():
+    text = '<tool name="analyze_geometry">'
+    result = parse_react_tool_calls(text)
+    assert len(result) == 1
+    assert result[0]["function"]["name"] == "analyze_geometry"
+
+
+def test_unclosed_tag_with_args():
+    text = '<tool name="execute_code">{"code": "x=1"}'
+    result = parse_react_tool_calls(text)
+    assert len(result) == 1
+    args = json.loads(result[0]["function"]["arguments"])
+    assert args["code"] == "x=1"
+
+
+def test_json_fixup_missing_brace():
+    text = '<tool name="execute_code">{"code": "print(1)"</tool>'
+    result = parse_react_tool_calls(text)
+    assert len(result) == 1
+    args = json.loads(result[0]["function"]["arguments"])
+    assert args["code"] == "print(1)"
+
+
+def test_json_fixup_trailing_comma():
+    text = '<tool name="execute_code">{"code": "print(1)",}</tool>'
+    result = parse_react_tool_calls(text)
+    assert len(result) == 1
+    args = json.loads(result[0]["function"]["arguments"])
+    assert args["code"] == "print(1)"
+
+
+def test_markdown_fence_in_args():
+    text = '<tool name="execute_code">```json\n{"code": "print(1)"}\n```</tool>'
+    result = parse_react_tool_calls(text)
+    assert len(result) == 1
+    args = json.loads(result[0]["function"]["arguments"])
+    assert args["code"] == "print(1)"

@@ -19,6 +19,7 @@ import math
 from core.config import VALIDATE_VOLUME_THRESHOLD, VALIDATE_DIMENSION_THRESHOLD, strip_markdown
 from core.doc_analyzer import analyze_document
 from core.logger import log_info, log_warning, log_error
+from agent.code_fixes import pre_validate_code, auto_fix_code, error_hint
 
 
 # ---------------------------------------------------------------------------
@@ -36,6 +37,25 @@ def _tool_execute_code(args_json: str) -> str:
     if not code:
         return "ERROR: Empty code block."
 
+    # Pre-validate syntax
+    ok, syntax_err = pre_validate_code(code)
+    if not ok:
+        return (
+            f"ERROR: Code has a syntax error and cannot run.\n"
+            f"{syntax_err}\n"
+            f"Hint: Check for missing colons, unmatched brackets, or incorrect indentation.\n"
+            f"Code that failed:\n{code}"
+        )
+
+    # Auto-fix common mistakes
+    code, fixes = auto_fix_code(code)
+    fix_notice = ""
+    if fixes:
+        fix_notice = (
+            "Note: Auto-fixes applied:\n"
+            + "\n".join(f"  - {f}" for f in fixes) + "\n"
+        )
+
     stdout_capture = io.StringIO()
 
     namespace = {
@@ -45,6 +65,12 @@ def _tool_execute_code(args_json: str) -> str:
         "Gui": Gui,
         "doc": FreeCAD.ActiveDocument,
         "__builtins__": __builtins__,
+        "Vector": FreeCAD.Vector,
+        "App": FreeCAD,
+        "pi": math.pi,
+        "sin": math.sin,
+        "cos": math.cos,
+        "sqrt": math.sqrt,
     }
 
     try:
@@ -61,6 +87,8 @@ def _tool_execute_code(args_json: str) -> str:
         post_state = _safe_analyze()
 
         parts = [f"SUCCESS: Code executed without errors."]
+        if fix_notice:
+            parts.append(fix_notice.rstrip())
         stdout_text = stdout_capture.getvalue()
         if stdout_text:
             parts.append(f"Stdout:\n{stdout_text}")
@@ -70,11 +98,14 @@ def _tool_execute_code(args_json: str) -> str:
     except Exception as e:
         tb = traceback.format_exc()
         post_state = _safe_analyze()
-        return (
-            f"ERROR: {type(e).__name__}: {e}\n"
-            f"Traceback:\n{tb}\n"
-            f"Document state after error:\n{post_state}"
-        )
+        hint = error_hint(e, code)
+        parts = [f"ERROR: {type(e).__name__}: {e}", f"Traceback:\n{tb}"]
+        if fix_notice:
+            parts.append(fix_notice.rstrip())
+        if hint:
+            parts.append(hint)
+        parts.append(f"Document state after error:\n{post_state}")
+        return "\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
