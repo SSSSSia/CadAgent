@@ -16,10 +16,12 @@ import FreeCADGui as Gui
 import Part
 import math
 
-from core.config import VALIDATE_VOLUME_THRESHOLD, VALIDATE_DIMENSION_THRESHOLD, strip_markdown
+from core.config import VALIDATE_VOLUME_THRESHOLD, VALIDATE_DIMENSION_THRESHOLD
+from core.text_utils import strip_markdown
 from core.doc_analyzer import analyze_document
 from core.logger import log_info, log_warning, log_error
 from agent.code_fixes import pre_validate_code, auto_fix_code, error_hint
+from agent.tool_dispatch import register_tool, dispatch_tool  # noqa: F401
 
 
 # ---------------------------------------------------------------------------
@@ -211,35 +213,13 @@ def _tool_undo_last(args_json: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Dispatch
+# Registration
 # ---------------------------------------------------------------------------
 
-_TOOL_MAP = {
-    "execute_code": _tool_execute_code,
-    "analyze_geometry": _tool_analyze_geometry,
-    "validate_design": _tool_validate_design,
-    "undo_last": _tool_undo_last,
-}
-
-
-def dispatch_tool(name: str, args_json: str) -> str:
-    """Dispatch a tool call by name. Returns result string."""
-    handler = _TOOL_MAP.get(name)
-    if handler is None:
-        return f"ERROR: Unknown tool '{name}'. Available: {list(_TOOL_MAP.keys())}"
-    try:
-        log_info(f"Tool call: {name}({args_json[:200]})")
-        result = handler(args_json)
-        if result.startswith("ERROR") or result.startswith("FAIL"):
-            log_warning(f"Tool '{name}' returned failure: {result[:500]}")
-        else:
-            log_info(f"Tool '{name}' succeeded: {result[:200]}")
-        return result
-    except Exception as e:
-        import traceback
-        tb = traceback.format_exc()
-        log_warning(f"Tool '{name}' threw exception: {type(e).__name__}: {e}\n{tb}")
-        return f"ERROR in tool '{name}': {type(e).__name__}: {e}"
+register_tool("execute_code", _tool_execute_code)
+register_tool("analyze_geometry", _tool_analyze_geometry)
+register_tool("validate_design", _tool_validate_design)
+register_tool("undo_last", _tool_undo_last)
 
 
 def _safe_analyze() -> str:

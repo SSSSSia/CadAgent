@@ -1,9 +1,8 @@
-"""Tests for core/config.py — .env loading, defaults, strip_markdown."""
+"""Tests for core/config.py — .env loading, defaults, constants."""
 from __future__ import annotations
 
 import os
 import sys
-import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -22,7 +21,6 @@ class TestLoadEnv:
         monkeypatch.delenv("API_KEY", raising=False)
         monkeypatch.delenv("MODEL_NAME", raising=False)
         monkeypatch.delenv("MAX_TOKENS", raising=False)
-        # Point config to a dir with no .env
         monkeypatch.setattr("os.path.isfile", lambda p: False)
         config = _reload_config()
         assert config.API_BASE_URL == "https://api.siliconflow.cn/v1"
@@ -31,8 +29,6 @@ class TestLoadEnv:
         assert config.MAX_TOKENS == 4096
 
     def test_env_file_values(self, tmp_path, monkeypatch):
-        env_file = tmp_path / ".env"
-        env_file.write_text("API_KEY=sk-test123\nMODEL_NAME=gpt-4o\n")
         monkeypatch.setenv("API_KEY", "sk-test123")
         monkeypatch.setenv("MODEL_NAME", "gpt-4o")
         config = _reload_config()
@@ -46,12 +42,9 @@ class TestLoadEnv:
         monkeypatch.delenv("API_KEY")
 
     def test_env_skips_comments(self, tmp_path, monkeypatch):
-        env_file = tmp_path / ".env"
-        env_file.write_text("# comment\nAPI_KEY=sk-test\n")
         monkeypatch.delenv("API_KEY", raising=False)
         monkeypatch.setattr("os.path.isfile", lambda p: str(p).endswith(".env"))
         config = _reload_config()
-        # API_KEY should be loaded (not the comment)
         assert "comment" not in config.API_KEY
 
 
@@ -85,28 +78,8 @@ class TestConstants:
         assert config.MAX_ITERATIONS == 20
         monkeypatch.delenv("MAX_ITERATIONS")
 
-
-class TestStripMarkdown:
-    def test_strip_python_block(self):
+    def test_strip_markdown_backward_compat(self):
+        """strip_markdown is re-exported from config for backward compat."""
         config = _reload_config()
-        result = config.strip_markdown("```python\nprint(1)\n```")
-        assert result == "print(1)"
-
-    def test_strip_plain_block(self):
-        config = _reload_config()
-        result = config.strip_markdown("```\ncode here\n```")
-        assert result == "code here"
-
-    def test_no_block(self):
-        config = _reload_config()
-        result = config.strip_markdown("just code")
-        assert result == "just code"
-
-    def test_whitespace_handling(self):
-        config = _reload_config()
-        result = config.strip_markdown("  ```python\nprint(1)\n```  ")
-        assert result == "print(1)"
-
-    def test_empty_string(self):
-        config = _reload_config()
-        assert config.strip_markdown("") == ""
+        assert callable(config.strip_markdown)
+        assert config.strip_markdown("```python\nx=1\n```") == "x=1"

@@ -1,47 +1,14 @@
 """Tests for agent/loop.py — AgentLoop state machine (pure logic, no Qt/FreeCAD)."""
 from __future__ import annotations
 
-import importlib.util
 import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-_BASE = os.path.join(os.path.dirname(__file__), "..")
-
-
-def _load_file(canonical_name: str, rel_path: str):
-    """Load a module file and register it under its canonical dotted name.
-
-    This lets other modules' `from X.Y import Z` resolve it via sys.modules
-    without triggering the package's __init__.py.
-    """
-    spec = importlib.util.spec_from_file_location(canonical_name, os.path.join(_BASE, rel_path))
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[canonical_name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-# Load agent submodules under canonical names to bypass agent/__init__.py
-# (which imports FreeCAD). Core modules are safe to import normally.
-_load_file("agent.react_parser", os.path.join("agent", "react_parser.py"))
-_load_file("agent.tool_defs", os.path.join("agent", "tool_defs.py"))
-_load_file("agent.prompts", os.path.join("agent", "prompts.py"))
-_load_file("agent.controller", os.path.join("agent", "controller.py"))
-_load_file("agent.loop", os.path.join("agent", "loop.py"))
-
-# Prevent agent/__init__.py from running if someone imports `agent` later
-if "agent" not in sys.modules:
-    import types
-    sys.modules["agent"] = types.ModuleType("agent")
-
-ChatSession = sys.modules["core.session"].ChatSession
-AgentController = sys.modules["agent.controller"].AgentController
-AgentLoop = sys.modules["agent.loop"].AgentLoop
-LoopAction = sys.modules["agent.loop"].LoopAction
-LoopActionKind = sys.modules["agent.loop"].LoopActionKind
-ToolExecution = sys.modules["agent.loop"].ToolExecution
+from core.session import ChatSession
+from agent.controller import AgentController
+from agent.loop import AgentLoop, LoopAction, LoopActionKind, ToolExecution
 
 
 # ---- Helpers ----

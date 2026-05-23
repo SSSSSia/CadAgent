@@ -7,7 +7,7 @@ import urllib.error
 import urllib.request
 
 import core.config as _config
-from core.config import strip_markdown
+from core.text_utils import strip_markdown
 from agent.prompts import (
     SYSTEM_PROMPT_NEW, SYSTEM_PROMPT_MODIFY,
     SYSTEM_PROMPT_DERIVE, SYSTEM_PROMPT_VARIANT,
