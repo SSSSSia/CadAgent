@@ -14,6 +14,7 @@ from core.logger import log_warning
 
 _snapshot_counter = 0
 _snapshot_stack: list[dict] = []
+_orphan_cleaned = False
 
 
 def _get_snapshot_dir() -> str:
@@ -34,6 +35,31 @@ def _get_snapshot_dir() -> str:
     return snap_dir
 
 
+def _cleanup_orphan_snapshots():
+    """Remove orphan snapshot files older than 24 hours from disk."""
+    global _orphan_cleaned
+    if _orphan_cleaned:
+        return
+    _orphan_cleaned = True
+    snap_dir = _get_snapshot_dir()
+    if not os.path.isdir(snap_dir):
+        return
+    now = time.time()
+    known_paths = {e["path"] for e in _snapshot_stack}
+    for f in os.listdir(snap_dir):
+        if not f.endswith(".FCStd"):
+            continue
+        path = os.path.join(snap_dir, f)
+        if path in known_paths:
+            continue
+        try:
+            if now - os.path.getmtime(path) > 86400:
+                os.remove(path)
+                log_warning(f"Cleaned orphan snapshot: {f}")
+        except OSError:
+            pass
+
+
 def take_snapshot() -> str | None:
     """Save a snapshot of the active FreeCAD document.
 
@@ -49,6 +75,8 @@ def take_snapshot() -> str | None:
     doc = FreeCAD.ActiveDocument
     if doc is None:
         return None
+
+    _cleanup_orphan_snapshots()
 
     original_path = doc.FileName if hasattr(doc, "FileName") else ""
 

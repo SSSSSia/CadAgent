@@ -37,11 +37,14 @@ class _PanelSessionMixin:
             from core.session import ChatSession
             self._session = ChatSession()
             self._current_session_id = self._session.session_id
+            self._mode = "auto"
             self._controller = None
             self._iteration = 0
             self._stopped = False
             self._streaming_text = ""
             self._stream_replace_start = 0
+            self._reasoning_text = ""
+            self._pending_tool_results = {}
             if self._stream_timer and self._stream_timer.isActive():
                 self._stream_timer.stop()
             self.chat_display.clear()
@@ -64,19 +67,23 @@ class _PanelSessionMixin:
             return
         self._session = loaded
         self._current_session_id = loaded.session_id
+        self._mode = loaded.last_mode
         self._controller = None
         self._iteration = 0
         self._stopped = False
         self._streaming_text = ""
         self._stream_replace_start = 0
+        self._reasoning_text = ""
+        self._pending_tool_results = {}
         if self._stream_timer and self._stream_timer.isActive():
             self._stream_timer.stop()
         self._restore_chat_display(loaded)
+        c = self._get_colors()
         turns = loaded.user_turn_count()
         msgs = loaded.message_count()
         self.status_label.setText(f"Session loaded | {turns} turns | {msgs} messages")
         self.status_label.setStyleSheet(
-            "color:#666; font-size:11px; font-family:'Segoe UI', sans-serif;"
+            f"color:{c.status_idle}; font-size:11px; font-family:'Segoe UI', sans-serif;"
         )
         used, budget = token_summary(loaded.get_messages())
         self._update_token_label(used, budget)
@@ -132,6 +139,8 @@ class _PanelSessionMixin:
             self._stopped = False
             self._streaming_text = ""
             self._stream_replace_start = 0
+            self._reasoning_text = ""
+            self._pending_tool_results = {}
             if self._stream_timer and self._stream_timer.isActive():
                 self._stream_timer.stop()
             self.chat_display.clear()

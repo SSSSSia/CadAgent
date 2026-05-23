@@ -63,9 +63,10 @@ class _PanelStatusMixin:
     def _status_reset(self):
         """Reset to idle state."""
         self._status_set("idle")
+        c = self._get_colors()
         self.status_label.setText("Ready")
         self.status_label.setStyleSheet(
-            "color:#666; font-size:11px; font-family:'Segoe UI', sans-serif;"
+            f"color:{c.status_idle}; font-size:11px; font-family:'Segoe UI', sans-serif;"
         )
 
     def _status_tick(self):
@@ -120,9 +121,10 @@ class _PanelStatusMixin:
 
     def _status_color(self):
         """Return hex color for the current state."""
+        c = self._get_colors()
         return {
-            "idle": "#666666",
-            "thinking": "#d4a017",
-            "executing_tool": "#2e7d32",
-            "stopping": "#999999",
-        }.get(self._status_state, "#666666")
+            "idle": c.status_idle,
+            "thinking": c.status_thinking,
+            "executing_tool": c.status_executing,
+            "stopping": c.status_stopping,
+        }.get(self._status_state, c.status_idle)

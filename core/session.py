@@ -21,6 +21,7 @@ class ChatSession:
         self.messages: list[dict] = []
         self.summary: str = ""
         self.document_state: str = ""
+        self.last_mode: str = "auto"
         self._system_prompt: str = ""
 
     def set_system_prompt(self, prompt: str):
@@ -94,6 +95,7 @@ class ChatSession:
             "created_at": self.created_at,
             "summary": self.summary,
             "document_state": self.document_state,
+            "last_mode": self.last_mode,
             "messages": self.messages,
         }
 
@@ -106,5 +108,6 @@ class ChatSession:
         session.messages = data.get("messages", [])
         session.summary = data.get("summary", "")
         session.document_state = data.get("document_state", "")
+        session.last_mode = data.get("last_mode", "auto")
         session._system_prompt = session.messages[0].get("content", "") if session.messages else ""
         return session

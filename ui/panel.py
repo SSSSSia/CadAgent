@@ -38,6 +38,7 @@ from ui.panel_status import _PanelStatusMixin
 class _LlmCallThread(QtCore.QThread):
     """Background thread: streams LLM API response, emits incremental chunks."""
     chunkReady = QtCore.Signal(str)
+    reasoningReady = QtCore.Signal(str)
     streamDone = QtCore.Signal(dict)
     error = QtCore.Signal(str)
 
@@ -71,6 +72,11 @@ class _LlmCallThread(QtCore.QThread):
                     content += c
                     self.chunkReady.emit(c)
 
+                # Reasoning content (from models like GLM-5.1)
+                rc = delta.get("reasoning_content")
+                if rc:
+                    self.reasoningReady.emit(rc)
+
                 # Tool calls accumulation
                 for tc in (delta.get("tool_calls") or []):
                     idx = tc.get("index", 0)
@@ -91,6 +97,18 @@ class _LlmCallThread(QtCore.QThread):
 
             # Assemble final message (same format as non-streaming response)
             tool_calls = [tc_map[i] for i in sorted(tc_map)] if tc_map else []
+
+            # Validate tool_calls arguments — truncated SSE streams leave
+            # incomplete JSON that would crash in dispatch_tool().
+            for tc in tool_calls:
+                try:
+                    json.loads(tc["function"]["arguments"])
+                except (json.JSONDecodeError, KeyError):
+                    self.error.emit(
+                        "Stream interrupted: incomplete tool call arguments"
+                    )
+                    return
+
             msg: dict = {"content": content or ""}
             if tool_calls:
                 msg["tool_calls"] = tool_calls
@@ -119,8 +137,35 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         self._streaming_text = ""
         self._stream_replace_start = 0
         self._stream_timer = None
+        self._reasoning_text = ""
+        self._pending_tool_results = {}
+        self._theme_colors = None
         self._store = SessionStore()
         self._setup_ui()
+
+    # ---- Theme ----
+
+    def _get_colors(self):
+        if self._theme_colors is None:
+            from ui.theme import get_theme_colors
+            self._theme_colors = get_theme_colors()
+        return self._theme_colors
+
+    def _refresh_theme(self):
+        from ui.theme import get_theme_colors
+        self._theme_colors = get_theme_colors()
+        self._apply_dynamic_styles()
+
+    # ---- Event filter for multi-line input ----
+
+    def eventFilter(self, obj, event):
+        if obj is self.text_input and event.type() == event.Type.KeyPress:
+            if event.key() in (QtCore.Qt.Key.Key_Return, QtCore.Qt.Key.Key_Enter):
+                if event.modifiers() & QtCore.Qt.KeyboardModifier.ShiftModifier:
+                    return False  # default newline behavior
+                self._on_send()
+                return True  # event consumed
+        return super().eventFilter(obj, event)
 
     # ---- State machine: send -> call LLM (bg) -> execute tools (main) -> repeat ----
 
@@ -128,6 +173,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         self.btn_send.setEnabled(not running)
         self.text_input.setEnabled(not running)
         self.btn_stop.setEnabled(running)
+        self.btn_new_session.setEnabled(not running)
         self.session_combo.setEnabled(not running)
         self.btn_delete_session.setEnabled(not running and self.session_combo.currentIndex() > 0)
         if not running:
@@ -135,7 +181,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             self._update_undo_button_state()
 
     def _on_send(self):
-        text = self.text_input.text().strip()
+        text = self.text_input.toPlainText().strip()
         if not text:
             return
 
@@ -158,7 +204,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         self._iteration = 0
         self._stopped = False
         self._agent_start_time = time.time()
-        self._mode = "auto"  # "auto" | "tool_calling" | "react"
+        self._mode = self._session.last_mode
         self._context = context
 
         # Add user message to session
@@ -184,13 +230,14 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
 
     def _update_token_label(self, used: int, budget: int, trimmed: bool = False):
         """Update the token budget status label with color coding."""
+        c = self._get_colors()
         ratio = used / budget if budget else 0
         if ratio > 0.9:
-            color = "#d32f2f"
+            color = c.token_danger
         elif ratio > 0.7:
-            color = "#d4a017"
+            color = c.token_warn
         else:
-            color = "#888"
+            color = c.token_ok
         tag = " [trimmed]" if trimmed else ""
         self.token_label.setText(f"Tokens: {used} / {budget}{tag}")
         self.token_label.setStyleSheet(f"color:{color}; font-size:10px;")
@@ -218,12 +265,20 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         log_info(f"LLM call iteration {self._iteration}/{_config.MAX_ITERATIONS}, mode={self._mode}, {len(messages)} messages")
         self._llm_thread = _LlmCallThread(messages, tools)
         self._llm_thread.chunkReady.connect(self._on_stream_chunk)
+        self._llm_thread.reasoningReady.connect(self._on_reasoning_chunk)
         self._llm_thread.streamDone.connect(self._on_stream_done)
         self._llm_thread.error.connect(self._on_llm_error)
         self._llm_thread.start()
 
+    def _on_reasoning_chunk(self, text):
+        """Accumulate reasoning content from models that support it."""
+        self._reasoning_text += text
+
     def _on_stream_done(self, data):
         """Streaming complete — finalize display, then route response."""
+        if self._controller is None:
+            self._remove_streaming_bubble()
+            return
         try:
             choices = data.get("choices", [])
             if not choices:
@@ -232,6 +287,10 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
                 return
             choice = choices[0]
             content = choice.get("message", {}).get("content", "")
+
+            # Render reasoning block before finalizing agent bubble
+            self._render_reasoning_block()
+            self._reasoning_text = ""
 
             # Finalize or remove streaming bubble based on content
             if self._streaming_text and self._streaming_text.strip():
@@ -262,6 +321,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             if parsed:
                 # Model doesn't support tool calling, switch to ReAct
                 self._mode = "react"
+                self._session.last_mode = "react"
                 self._append_system_msg("Model does not support tool calling, switched to ReAct mode.")
                 react_prompt = REACT_SYSTEM_PROMPT.format(
                     context=f"\nCURRENT DOCUMENT CONTEXT:\n{self._context}" if self._context else ""
@@ -272,12 +332,14 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             else:
                 # Model returned a final answer directly
                 self._mode = "tool_calling"
+                self._session.last_mode = "tool_calling"
                 self._finish(content, True, _from_stream=_streamed)
                 return
 
         # --- Tool calling mode (native API) ---
         if finish_reason == "tool_calls":
             self._mode = "tool_calling"
+            self._session.last_mode = "tool_calling"
             tool_calls = assistant_msg.get("tool_calls", [])
             self._execute_tools(tool_calls)
             return
@@ -297,6 +359,8 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
     def _on_llm_error(self, msg):
         log_warning(f"LLM API error: {msg}")
         self._remove_streaming_bubble()
+        if self._controller is None:
+            return
         self._finish(f"API error: {msg}", False)
 
     def _execute_tools(self, tool_calls):
@@ -342,7 +406,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
 
             self._append_tool_msg(
                 self._iteration, tool_name, desc,
-                tool_result[:200], is_error,
+                tool_result, is_error,
             )
             if is_error:
                 self._controller.result.errors.append(
@@ -361,6 +425,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
 
     def _finish(self, summary, success, _from_stream=False):
         """Agent loop complete — show results."""
+        c = self._get_colors()
         log_info(f"Agent finished: success={success}, iterations={self._iteration}, summary={summary[:100]}")
         if not _from_stream:
             self._append_agent_msg(summary)
@@ -396,10 +461,14 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         iters = self._iteration
         if success:
             self.status_label.setText(f"Done  {elapsed_str}  {iters} iters  Turn {turns}")
-            self.status_label.setStyleSheet("color:#0d904f; font-size:11px; font-family:'Segoe UI', sans-serif;")
+            self.status_label.setStyleSheet(
+                f"color:{c.status_success}; font-size:11px; font-family:'Segoe UI', sans-serif;"
+            )
         else:
             self.status_label.setText(f"Failed  {elapsed_str}  {iters} iters  Turn {turns}")
-            self.status_label.setStyleSheet("color:#d32f2f; font-size:11px; font-family:'Segoe UI', sans-serif;")
+            self.status_label.setStyleSheet(
+                f"color:{c.status_error}; font-size:11px; font-family:'Segoe UI', sans-serif;"
+            )
 
         self._set_running(False)
         self._refresh_session_list()
@@ -413,17 +482,30 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         self._status_set("stopping")
 
     def _on_new_session(self):
+        # Stop the running thread and disconnect signals so stale
+        # streamDone / chunkReady don't hit the cleared state below.
         self._stopped = True
         if self._llm_thread and self._llm_thread.isRunning():
+            self._llm_thread.chunkReady.disconnect(self._on_stream_chunk)
+            self._llm_thread.reasoningReady.disconnect(self._on_reasoning_chunk)
+            self._llm_thread.streamDone.disconnect(self._on_stream_done)
+            self._llm_thread.error.disconnect(self._on_llm_error)
             self._llm_thread.requestInterruption()
             self._llm_thread.quit()
-            self._llm_thread.wait(1000)
+            self._llm_thread.wait(3000)
         self._store.save_if_not_empty(self._session)
         from core.snapshot import cleanup_all_snapshots
         cleanup_all_snapshots()
         self._session = ChatSession()
         self._current_session_id = self._session.session_id
         self._controller = None
+        self._iteration = 0
+        self._streaming_text = ""
+        self._stream_replace_start = 0
+        self._reasoning_text = ""
+        self._pending_tool_results = {}
+        if self._stream_timer and self._stream_timer.isActive():
+            self._stream_timer.stop()
         self.chat_display.clear()
         self._append_system_msg("New session started. Describe a part to begin.")
         self._status_reset()
@@ -447,7 +529,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
 
         self._append_tool_msg(
             self._iteration, "undo_last (user)", "",
-            result[:200], is_error,
+            result, is_error,
         )
 
         if not is_error:
@@ -465,6 +547,26 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
     def _on_settings(self):
         from ui.settings_dialog import SettingsDialog
         SettingsDialog(parent=self).exec()
+
+    def _on_chat_link_clicked(self, url):
+        """Handle expand/collapse clicks in chat display."""
+        url_str = url.toString()
+        if url_str.startswith("expand:"):
+            result_key = url_str[7:]
+            full_text = self._pending_tool_results.pop(result_key, None)
+            if full_text:
+                c = self._get_colors()
+                from ui.chat_renderer import esc
+                self.chat_display.append(
+                    f'<div style="margin:2px 0 2px 40px; padding:6px 8px;'
+                    f' background-color:{c.reasoning_bg};'
+                    f' border:1px solid {c.code_border};'
+                    f' border-radius:3px; font-size:11px;'
+                    f' color:{c.tool_text}; white-space:pre-wrap;'
+                    f' max-height:400px; overflow:auto;">'
+                    f'{esc(full_text)}</div>'
+                )
+                self._scroll_bottom()
 
     def closeEvent(self, event):
         self._store.save_current_on_close(self._session)

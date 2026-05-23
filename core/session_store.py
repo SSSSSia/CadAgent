@@ -10,6 +10,8 @@ import json
 import os
 import tempfile
 
+from core.logger import log_warning
+
 
 def _get_storage_dir() -> str:
     try:
@@ -29,15 +31,6 @@ def _get_storage_dir() -> str:
     return session_dir
 
 
-def _print_warning(msg: str):
-    try:
-        import FreeCAD
-        FreeCAD.Console.PrintWarning(f"[SessionStore] {msg}\n")
-    except (ImportError, AttributeError):
-        import sys
-        print(f"[SessionStore] WARNING: {msg}", file=sys.stderr)
-
-
 class SessionStore:
     """Manages disk I/O for ChatSession objects."""
 
@@ -55,7 +48,7 @@ class SessionStore:
             os.replace(tmp_path, path)
             return path
         except Exception as e:
-            _print_warning(f"Failed to save session {getattr(session, 'session_id', '?')}: {e}")
+            log_warning(f"Failed to save session {getattr(session, 'session_id', '?')}: {e}")
             return ""
 
     def load(self, session_id: str):
@@ -70,7 +63,7 @@ class SessionStore:
                 data = json.load(f)
             return ChatSession.from_dict(data)
         except Exception as e:
-            _print_warning(f"Failed to load session {session_id}: {e}")
+            log_warning(f"Failed to load session {session_id}: {e}")
             return None
 
     def list_sessions(self) -> list[dict]:
@@ -96,7 +89,7 @@ class SessionStore:
                     "message_count": len(data.get("messages", [])),
                 })
             except Exception as e:
-                _print_warning(f"Skipping corrupt session file {filename}: {e}")
+                log_warning(f"Skipping corrupt session file {filename}: {e}")
 
         sessions.sort(key=lambda s: s["created_at"], reverse=True)
         return sessions
@@ -110,7 +103,7 @@ class SessionStore:
                 return True
             return False
         except Exception as e:
-            _print_warning(f"Failed to delete session {session_id}: {e}")
+            log_warning(f"Failed to delete session {session_id}: {e}")
             return False
 
     def save_current_on_close(self, session):

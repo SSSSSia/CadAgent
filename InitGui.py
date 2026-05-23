@@ -13,6 +13,9 @@ if not os.path.isdir(_mod_dir):
     _mod_dir = os.path.normpath(os.path.join(FreeCAD.getHomePath(), "Mod", "CadAgent"))
 if _mod_dir not in sys.path:
     sys.path.insert(0, _mod_dir)
+# Store on FreeCAD for access inside method bodies (exec() scope trap:
+# top-level names are invisible inside class methods).
+FreeCAD._cadagent_dir = _mod_dir
 
 
 # FreeCAD exec() 作用域陷阱：InitGui.py 被 exec() 加载时，文件内定义的顶层名称
@@ -29,10 +32,7 @@ class CadAgentWorkbench(Workbench):
     def __init__(self):
         import os
         icon_path = os.path.join(
-            os.path.join(FreeCAD.getUserAppDataDir(), "Mod", "CadAgent")
-            if os.path.isdir(os.path.join(FreeCAD.getUserAppDataDir(), "Mod", "CadAgent"))
-            else os.path.normpath(os.path.join(FreeCAD.getHomePath(), "Mod", "CadAgent")),
-            "resources", "icons", "CadAgentWorkbench.svg",
+            FreeCAD._cadagent_dir, "resources", "icons", "CadAgentWorkbench.svg"
         )
         if os.path.isfile(icon_path):
             self.__class__.Icon = icon_path
@@ -40,12 +40,7 @@ class CadAgentWorkbench(Workbench):
     def Initialize(self):
         """首次切换到此工作台时调用，注册工具栏按钮。"""
         import os
-        icon_dir = os.path.join(
-            os.path.join(FreeCAD.getUserAppDataDir(), "Mod", "CadAgent")
-            if os.path.isdir(os.path.join(FreeCAD.getUserAppDataDir(), "Mod", "CadAgent"))
-            else os.path.normpath(os.path.join(FreeCAD.getHomePath(), "Mod", "CadAgent")),
-            "resources", "icons",
-        )
+        icon_dir = os.path.join(FreeCAD._cadagent_dir, "resources", "icons")
         if os.path.isdir(icon_dir):
             Gui.addIconPath(icon_dir)
         self.appendToolbar("CadAgent", ["CadAgent_ShowPanel", "CadAgent_Settings"])

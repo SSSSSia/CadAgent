@@ -23,6 +23,26 @@ from agent.code_fixes import pre_validate_code, auto_fix_code, error_hint
 
 
 # ---------------------------------------------------------------------------
+# Restricted __builtins__ for exec() sandbox (CODE-1)
+# ---------------------------------------------------------------------------
+SAFE_BUILTINS = {
+    "print": print, "range": range, "len": len, "int": int,
+    "float": float, "str": str, "list": list, "dict": dict,
+    "tuple": tuple, "set": set, "bool": bool, "bytes": bytes,
+    "abs": abs, "min": min, "max": max, "round": round, "sum": sum,
+    "sorted": sorted, "reversed": reversed, "enumerate": enumerate,
+    "zip": zip, "map": map, "filter": filter, "any": any, "all": all,
+    "isinstance": isinstance, "type": type, "hasattr": hasattr,
+    "getattr": getattr, "setattr": setattr, "repr": repr,
+    "ValueError": ValueError, "TypeError": TypeError,
+    "KeyError": KeyError, "IndexError": IndexError,
+    "RuntimeError": RuntimeError, "Exception": Exception,
+    "NotImplementedError": NotImplementedError,
+    "AttributeError": AttributeError, "OSError": OSError,
+}
+
+
+# ---------------------------------------------------------------------------
 # Tool: execute_code
 # ---------------------------------------------------------------------------
 
@@ -64,7 +84,7 @@ def _tool_execute_code(args_json: str) -> str:
         "math": math,
         "Gui": Gui,
         "doc": FreeCAD.ActiveDocument,
-        "__builtins__": __builtins__,
+        "__builtins__": SAFE_BUILTINS,
         "Vector": FreeCAD.Vector,
         "App": FreeCAD,
         "pi": math.pi,

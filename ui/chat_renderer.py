@@ -24,11 +24,16 @@ def esc(t: str) -> str:
     return _esc_html(t).replace("\n", "<br>")
 
 
-def markdown_to_html(md_text: str) -> str:
+def markdown_to_html(md_text: str, colors: dict | None = None) -> str:
     """Convert Markdown text to HTML for QTextBrowser display."""
     md_text = md_text.rstrip("\n\r \t")
     if not md_text:
         return ""
+    _code_bg = (colors or {}).get("code_bg", "#f4f4f4")
+    _code_border = (colors or {}).get("code_border", "#dddddd")
+    _code_bg_pyg = (colors or {}).get("code_bg", "#f8f8f8")
+    _tbl_header_bg = (colors or {}).get("table_header_bg", "#f0f4f8")
+    _inline_code_bg = (colors or {}).get("inline_code_bg", "#f0f0f0")
     ph = []
 
     # 1. Extract code blocks → placeholders
@@ -47,13 +52,13 @@ def markdown_to_html(md_text: str) -> str:
                 lexer = PythonLexer()
             html = highlight(code, lexer, _pygments_fmt)
             ph.append(
-                f'<div style="background-color:#f8f8f8; padding:6px;'
+                f'<div style="background-color:{_code_bg_pyg}; padding:6px;'
                 f'font-size:12px; margin:4px 0; border-radius:3px;'
                 f'overflow:auto;">{html}</div>')
         else:
             c = _esc_html(code)
             ph.append(
-                '<pre style="background-color:#f4f4f4; padding:6px;'
+                f'<pre style="background-color:{_code_bg}; padding:6px;'
                 f'font-size:12px; margin:4px 0;">{c}</pre>')
         return f'\x01PH{len(ph)-1}\x01'
     text = re.sub(r'```(\w*)\n?(.*?)```', _code, md_text, flags=re.DOTALL)
@@ -76,7 +81,7 @@ def markdown_to_html(md_text: str) -> str:
             tag = 'th' if i == 0 else 'td'
             h += '<tr>'
             for c in cells:
-                bg = 'background-color:#f0f4f8; font-weight:bold;' if tag == 'th' else ''
+                bg = f'background-color:{_tbl_header_bg}; font-weight:bold;' if tag == 'th' else ''
                 h += f'<{tag} style="padding:4px 8px; text-align:left; {bg}">{c}</{tag}>'
             h += '</tr>'
         ph.append(h + '</table>')
@@ -133,7 +138,10 @@ def markdown_to_html(md_text: str) -> str:
 
     # 5. Bold, inline code
     text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
-    text = re.sub(r'`([^`]+)`', r'<code style="background-color:#f0f0f0; padding:1px 4px;">\1</code>', text)
+    text = re.sub(r'`([^`]+)`', rf'<code style="background-color:{_inline_code_bg}; padding:1px 4px;">\1</code>', text)
+
+    # 5b. Markdown links [text](url)
+    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', text)
 
     # 6. Newlines → <br>
     text = text.replace("\n", "<br>")
