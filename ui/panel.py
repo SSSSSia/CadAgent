@@ -56,7 +56,10 @@ class _LlmCallThread(QtCore.QThread):
                 if self.isInterruptionRequested():
                     break
 
-                choice = chunk.get("choices", [{}])[0]
+                choices = chunk.get("choices", [])
+                if not choices:
+                    continue
+                choice = choices[0]
                 delta = choice.get("delta", {})
                 fr = choice.get("finish_reason")
                 if fr:
@@ -222,7 +225,12 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
     def _on_stream_done(self, data):
         """Streaming complete — finalize display, then route response."""
         try:
-            choice = data["choices"][0]
+            choices = data.get("choices", [])
+            if not choices:
+                self._remove_streaming_bubble()
+                self._finish("API returned empty response.", False)
+                return
+            choice = choices[0]
             content = choice.get("message", {}).get("content", "")
 
             # Finalize or remove streaming bubble based on content
