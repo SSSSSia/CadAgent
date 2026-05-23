@@ -12,6 +12,7 @@ class AgentResult:
         self.iterations: int = 0
         self.errors: list[str] = []
         self.tool_calls_log: list[dict] = []
+        self.start_time: float = 0.0
 
 
 class AgentController:

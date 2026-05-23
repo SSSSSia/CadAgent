@@ -32,7 +32,6 @@ class _PanelStatusMixin:
         self._status_tool_name = ""
         self._status_tool_desc = ""
         self._status_phase_start = 0.0
-        self._agent_start_time = 0.0
         self._status_timer = QtCore.QTimer(self)
         self._status_timer.setInterval(500)
         self._status_timer.timeout.connect(self._status_tick)
@@ -88,8 +87,8 @@ class _PanelStatusMixin:
         elapsed = time.time() - self._status_phase_start if self._status_phase_start else 0
         elapsed_str = self._format_elapsed(elapsed)
         iter_str = (
-            f"  [{self._iteration}/{_config.MAX_ITERATIONS}]"
-            if self._iteration > 0
+            f"  [{self._loop.iteration}/{_config.MAX_ITERATIONS}]"
+            if self._loop and self._loop.iteration > 0
             else ""
         )
 

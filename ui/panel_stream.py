@@ -117,7 +117,7 @@ class _PanelStreamMixin:
 
     def _on_stream_chunk(self, delta_text):
         """Accumulate streaming text and schedule a batched UI update."""
-        if self._mode == "react":
+        if self._loop.mode == "react" if self._loop else False:
             return
         self._streaming_text += delta_text
         if self._stream_timer is None:

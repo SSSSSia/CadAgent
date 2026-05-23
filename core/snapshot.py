@@ -12,179 +12,218 @@ import tempfile
 import core.config as _config
 from core.logger import log_warning
 
-_snapshot_counter = 0
-_snapshot_stack: list[dict] = []
-_orphan_cleaned = False
 
+class SnapshotManager:
+    """Manages FreeCAD document snapshots for undo support.
 
-def _get_snapshot_dir() -> str:
-    try:
+    Encapsulates snapshot state (counter, stack, orphan cleanup flag).
+    Designed for single-threaded main-thread use (FreeCAD constraint).
+    """
+
+    def __init__(self, max_snapshots: int | None = None):
+        self._counter: int = 0
+        self._stack: list[dict] = []
+        self._orphan_cleaned: bool = False
+        self._max_snapshots: int = max_snapshots or _config.MAX_SNAPSHOTS
+
+    # --- Snapshot directory ---
+
+    @staticmethod
+    def get_snapshot_dir() -> str:
+        """Return the snapshot storage directory, creating it if needed."""
+        try:
+            import FreeCAD
+            base = FreeCAD.getUserAppDataDir()
+        except (ImportError, AttributeError):
+            base = tempfile.gettempdir()
+        snap_dir = os.path.join(base, "CadAgent", "snapshots")
+        os.makedirs(snap_dir, exist_ok=True)
+        # Migrate from old AiCadAgent directory
+        old_dir = os.path.join(base, "AiCadAgent", "snapshots")
+        if os.path.isdir(old_dir) and not os.listdir(snap_dir):
+            try:
+                os.rename(old_dir, snap_dir)
+            except OSError:
+                pass
+        return snap_dir
+
+    # --- Orphan cleanup ---
+
+    def cleanup_orphans(self) -> None:
+        """Remove orphan snapshot files older than 24 hours from disk."""
+        if self._orphan_cleaned:
+            return
+        self._orphan_cleaned = True
+        snap_dir = self.get_snapshot_dir()
+        if not os.path.isdir(snap_dir):
+            return
+        now = time.time()
+        known_paths = {e["path"] for e in self._stack}
+        for f in os.listdir(snap_dir):
+            if not f.endswith(".FCStd"):
+                continue
+            path = os.path.join(snap_dir, f)
+            if path in known_paths:
+                continue
+            try:
+                if now - os.path.getmtime(path) > 86400:
+                    os.remove(path)
+                    log_warning(f"Cleaned orphan snapshot: {f}")
+            except OSError:
+                pass
+
+    # --- Core operations ---
+
+    def take(self) -> str | None:
+        """Save a snapshot of the active FreeCAD document.
+
+        Returns the snapshot file path, or None if no active document.
+        """
+        try:
+            import FreeCAD
+        except ImportError:
+            return None
+
+        doc = FreeCAD.ActiveDocument
+        if doc is None:
+            return None
+
+        self.cleanup_orphans()
+
+        original_path = doc.FileName if hasattr(doc, "FileName") else ""
+
+        self._counter += 1
+        snap_dir = self.get_snapshot_dir()
+        snapshot_filename = f"{doc.Name}_{self._counter:04d}_{int(time.time())}.FCStd"
+        snapshot_path = os.path.join(snap_dir, snapshot_filename)
+
+        doc.saveAs(snapshot_path)
+
+        # saveAs changes doc.FileName — restore it
+        if original_path:
+            doc.FileName = original_path
+        else:
+            doc.FileName = ""
+
+        self._stack.append({
+            "path": snapshot_path,
+            "doc_name": doc.Name,
+            "original_path": original_path,
+            "time": time.time(),
+        })
+
+        self._cleanup_old()
+        return snapshot_path
+
+    def has_snapshot(self) -> bool:
+        return len(self._stack) > 0
+
+    def count(self) -> int:
+        return len(self._stack)
+
+    def pop(self) -> dict | None:
+        if not self._stack:
+            return None
+        return self._stack.pop()
+
+    def restore_latest(self) -> str:
+        """Restore the most recent snapshot, popping it from the stack.
+
+        Returns a result string suitable as a tool result message.
+        """
+        entry = self.pop()
+        if entry is None:
+            return "ERROR: No snapshot available to restore."
+
         import FreeCAD
-        base = FreeCAD.getUserAppDataDir()
-    except (ImportError, AttributeError):
-        base = tempfile.gettempdir()
-    snap_dir = os.path.join(base, "CadAgent", "snapshots")
-    os.makedirs(snap_dir, exist_ok=True)
-    # Migrate from old AiCadAgent directory if it exists
-    old_dir = os.path.join(base, "AiCadAgent", "snapshots")
-    if os.path.isdir(old_dir) and not os.listdir(snap_dir):
+        import FreeCADGui as Gui
+
+        snapshot_path = entry["path"]
+        doc_name = entry["doc_name"]
+
+        if not os.path.isfile(snapshot_path):
+            return f"ERROR: Snapshot file not found: {snapshot_path}"
+
         try:
-            os.rename(old_dir, snap_dir)
-        except OSError:
-            pass
-    return snap_dir
+            current_doc = FreeCAD.ActiveDocument
+            if current_doc and current_doc.Name == doc_name:
+                FreeCAD.closeDocument(doc_name)
+
+            restored_doc = FreeCAD.openDocument(snapshot_path)
+
+            original_path = entry.get("original_path", "")
+            if original_path:
+                restored_doc.FileName = original_path
+
+            try:
+                gui_doc = Gui.activeDocument()
+                if gui_doc:
+                    view = gui_doc.activeView()
+                    if view:
+                        view.viewIsometric()
+                        view.fitAll()
+            except Exception as e:
+                log_warning(f"Failed to restore camera view: {e}")
+
+            return (
+                f"SUCCESS: Document restored from snapshot.\n"
+                f"Snapshot: {snapshot_path}\n"
+                f"Remaining snapshots: {self.count()}"
+            )
+
+        except Exception as e:
+            return f"ERROR: Failed to restore snapshot: {type(e).__name__}: {e}"
+
+    def cleanup_all(self) -> None:
+        """Remove all snapshot files and clear the stack."""
+        for entry in self._stack:
+            try:
+                if os.path.isfile(entry["path"]):
+                    os.remove(entry["path"])
+            except OSError as e:
+                log_warning(f"Failed to delete snapshot {entry['path']}: {e}")
+        self._stack.clear()
+        self._counter = 0
+
+    # --- Internal ---
+
+    def _cleanup_old(self) -> None:
+        """Enforce max snapshot limit by removing oldest entries."""
+        while len(self._stack) > self._max_snapshots:
+            oldest = self._stack.pop(0)
+            try:
+                if os.path.isfile(oldest["path"]):
+                    os.remove(oldest["path"])
+            except OSError as e:
+                log_warning(f"Failed to delete old snapshot {oldest['path']}: {e}")
 
 
-def _cleanup_orphan_snapshots():
-    """Remove orphan snapshot files older than 24 hours from disk."""
-    global _orphan_cleaned
-    if _orphan_cleaned:
-        return
-    _orphan_cleaned = True
-    snap_dir = _get_snapshot_dir()
-    if not os.path.isdir(snap_dir):
-        return
-    now = time.time()
-    known_paths = {e["path"] for e in _snapshot_stack}
-    for f in os.listdir(snap_dir):
-        if not f.endswith(".FCStd"):
-            continue
-        path = os.path.join(snap_dir, f)
-        if path in known_paths:
-            continue
-        try:
-            if now - os.path.getmtime(path) > 86400:
-                os.remove(path)
-                log_warning(f"Cleaned orphan snapshot: {f}")
-        except OSError:
-            pass
+# ---------------------------------------------------------------------------
+# Module-level convenience API (backward compatible)
+# ---------------------------------------------------------------------------
+
+_default_manager = SnapshotManager()
 
 
 def take_snapshot() -> str | None:
-    """Save a snapshot of the active FreeCAD document.
-
-    Returns the snapshot file path, or None if no active document.
-    """
-    global _snapshot_counter
-
-    try:
-        import FreeCAD
-    except ImportError:
-        return None
-
-    doc = FreeCAD.ActiveDocument
-    if doc is None:
-        return None
-
-    _cleanup_orphan_snapshots()
-
-    original_path = doc.FileName if hasattr(doc, "FileName") else ""
-
-    _snapshot_counter += 1
-    snap_dir = _get_snapshot_dir()
-    snapshot_filename = f"{doc.Name}_{_snapshot_counter:04d}_{int(time.time())}.FCStd"
-    snapshot_path = os.path.join(snap_dir, snapshot_filename)
-
-    doc.saveAs(snapshot_path)
-
-    # saveAs changes doc.FileName — restore it
-    if original_path:
-        doc.FileName = original_path
-    else:
-        doc.FileName = ""
-
-    _snapshot_stack.append({
-        "path": snapshot_path,
-        "doc_name": doc.Name,
-        "original_path": original_path,
-        "time": time.time(),
-    })
-
-    _cleanup_old_snapshots()
-    return snapshot_path
+    return _default_manager.take()
 
 
 def has_snapshot() -> bool:
-    return len(_snapshot_stack) > 0
+    return _default_manager.has_snapshot()
 
 
 def snapshot_count() -> int:
-    return len(_snapshot_stack)
+    return _default_manager.count()
 
 
 def pop_snapshot() -> dict | None:
-    if not _snapshot_stack:
-        return None
-    return _snapshot_stack.pop()
+    return _default_manager.pop()
 
 
 def restore_latest_snapshot() -> str:
-    """Restore the most recent snapshot, popping it from the stack.
-
-    Returns a result string suitable as a tool result message.
-    """
-    import FreeCAD
-    import FreeCADGui as Gui
-
-    entry = pop_snapshot()
-    if entry is None:
-        return "ERROR: No snapshot available to restore."
-
-    snapshot_path = entry["path"]
-    doc_name = entry["doc_name"]
-
-    if not os.path.isfile(snapshot_path):
-        return f"ERROR: Snapshot file not found: {snapshot_path}"
-
-    try:
-        current_doc = FreeCAD.ActiveDocument
-        if current_doc and current_doc.Name == doc_name:
-            FreeCAD.closeDocument(doc_name)
-
-        restored_doc = FreeCAD.openDocument(snapshot_path)
-
-        original_path = entry.get("original_path", "")
-        if original_path:
-            restored_doc.FileName = original_path
-
-        try:
-            gui_doc = Gui.activeDocument()
-            if gui_doc:
-                view = gui_doc.activeView()
-                if view:
-                    view.viewIsometric()
-                    view.fitAll()
-        except Exception as e:
-            log_warning(f"Failed to restore camera view: {e}")
-
-        return (
-            f"SUCCESS: Document restored from snapshot.\n"
-            f"Snapshot: {snapshot_path}\n"
-            f"Remaining snapshots: {snapshot_count()}"
-        )
-
-    except Exception as e:
-        return f"ERROR: Failed to restore snapshot: {type(e).__name__}: {e}"
+    return _default_manager.restore_latest()
 
 
-def _cleanup_old_snapshots():
-    while len(_snapshot_stack) > _config.MAX_SNAPSHOTS:
-        oldest = _snapshot_stack.pop(0)
-        try:
-            if os.path.isfile(oldest["path"]):
-                os.remove(oldest["path"])
-        except OSError as e:
-            log_warning(f"Failed to delete old snapshot {oldest['path']}: {e}")
-
-
-def cleanup_all_snapshots():
-    """Remove all snapshot files and clear the stack."""
-    global _snapshot_counter
-    for entry in _snapshot_stack:
-        try:
-            if os.path.isfile(entry["path"]):
-                os.remove(entry["path"])
-        except OSError as e:
-            log_warning(f"Failed to delete snapshot {entry['path']}: {e}")
-    _snapshot_stack.clear()
-    _snapshot_counter = 0
+def cleanup_all_snapshots() -> None:
+    _default_manager.cleanup_all()

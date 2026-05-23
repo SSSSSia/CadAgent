@@ -17,14 +17,12 @@ import FreeCADGui as Gui
 from PySide6 import QtCore, QtWidgets
 
 from agent.controller import AgentController
+from agent.loop import AgentLoop, LoopAction, LoopActionKind, ToolExecution
 from core.session import ChatSession
 from core.doc_analyzer import analyze_document
-from core.token_budget import trim_messages, token_summary
+from core.token_budget import token_summary
 from core.session_store import SessionStore
-from agent.prompts import AGENT_SYSTEM_PROMPT, REACT_SYSTEM_PROMPT
-from agent.react_parser import parse_react_tool_calls
 from agent.tools import dispatch_tool
-from agent.tool_defs import TOOL_DEFINITIONS
 import core.config as _config
 from core.llm_client import call_llm_streaming
 from core.logger import log_info, log_warning, log_error
@@ -131,8 +129,8 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         self._session = ChatSession()
         self._current_session_id = self._session.session_id
         self._controller = None
-        self._iteration = 0
-        self._stopped = False
+        self._loop: AgentLoop | None = None
+        self._mode = "auto"
         self._llm_thread = None
         self._streaming_text = ""
         self._stream_replace_start = 0
@@ -198,34 +196,15 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
                 log_warning(f"Document analysis failed: {e}")
                 context = ""
 
-        # Initialize controller
+        # Initialize controller and loop
         self._controller = AgentController(self._session)
-        self._iteration = 0
-        self._stopped = False
-        self._agent_start_time = time.time()
+        self._loop = AgentLoop(self._controller, context, self._session.last_mode)
         self._mode = self._session.last_mode
-        self._context = context
-
-        # Add user message to session
-        self._controller.session.add_user_message(text)
-
-        # Set system prompt — start with tool calling version
-        system_content = AGENT_SYSTEM_PROMPT.format(
-            context=f"\nCURRENT DOCUMENT CONTEXT:\n{context}" if context else ""
-        )
-        self._controller.session.set_system_prompt(system_content)
 
         self._store.save_if_not_empty(self._session)
 
-        self._status_set("thinking")
-
-        # Show token usage after adding user message
-        used, budget = token_summary(self._controller.session.get_messages())
-        self._update_token_label(used, budget)
-
-        # Start first LLM call
-        log_info(f"Agent loop started: mode=auto, context={len(context)} chars")
-        self._call_llm()
+        action = self._loop.start(text)
+        self._execute_action(action)
 
     def _update_token_label(self, used: int, budget: int, trimmed: bool = False):
         """Update the token budget status label with color coding."""
@@ -241,28 +220,28 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         self.token_label.setText(f"Tokens: {used} / {budget}{tag}")
         self.token_label.setStyleSheet(f"color:{color}; font-size:10px;")
 
-    def _call_llm(self):
+    def _execute_action(self, action: LoopAction):
+        if action.kind == LoopActionKind.CALL_LLM:
+            self._start_llm_call(action)
+        elif action.kind == LoopActionKind.EXECUTE_TOOLS:
+            if action.system_message:
+                self._append_system_msg(action.system_message)
+            self._mode = self._loop.mode
+            self._run_tool_calls(action)
+        elif action.kind == LoopActionKind.FINISH:
+            self._finish_from_action(action)
+
+    def _start_llm_call(self, action: LoopAction):
         """Kick off a background streaming LLM API call."""
-        if self._stopped or self._iteration >= _config.MAX_ITERATIONS:
-            self._finish("Agent stopped." if self._stopped else "Max iterations reached.", False)
-            return
-
-        self._iteration += 1
-        self._status_set("thinking")
-
-        # In react mode, don't send tools parameter (model doesn't support it)
-        tools = TOOL_DEFINITIONS if self._mode != "react" else None
+        self._status_set(action.status_state)
+        self._mode = self._loop.mode
 
         # Start streaming bubble (skip for react — needs full text before display)
         if self._mode != "react":
             self._start_streaming_bubble()
 
-        original_count = len(self._controller.session.get_messages())
-        messages = trim_messages(self._controller.session.get_messages())
-        used, budget = token_summary(messages)
-        self._update_token_label(used, budget, trimmed=(len(messages) < original_count))
-        log_info(f"LLM call iteration {self._iteration}/{_config.MAX_ITERATIONS}, mode={self._mode}, {len(messages)} messages")
-        self._llm_thread = _LlmCallThread(messages, tools)
+        self._update_token_label(action.token_used, action.token_budget, action.token_trimmed)
+        self._llm_thread = _LlmCallThread(action.messages, action.tools)
         self._llm_thread.chunkReady.connect(self._on_stream_chunk)
         self._llm_thread.reasoningReady.connect(self._on_reasoning_chunk)
         self._llm_thread.streamDone.connect(self._on_stream_done)
@@ -282,10 +261,12 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             choices = data.get("choices", [])
             if not choices:
                 self._remove_streaming_bubble()
-                self._finish("API returned empty response.", False)
+                self._finish_from_action(LoopAction(
+                    kind=LoopActionKind.FINISH, success=False,
+                    summary="API returned empty response.",
+                ))
                 return
-            choice = choices[0]
-            content = choice.get("message", {}).get("content", "")
+            content = choices[0].get("message", {}).get("content", "")
 
             # Save position so reasoning can be inserted before the bubble
             bubble_start = self._stream_replace_start
@@ -301,75 +282,30 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             self._render_reasoning_block(insert_before_pos=bubble_start)
             self._reasoning_text = ""
 
-            self._handle_llm_response(data, _streamed=bool(self._streaming_text))
+            has_streaming_text = bool(self._streaming_text and self._streaming_text.strip())
+            action = self._loop.handle_stream_done(data, has_streaming_text)
+            self._execute_action(action)
         except Exception as e:
             log_warning(f"Error in stream handler: {e}")
             self._remove_streaming_bubble()
-            self._finish(f"Internal error: {e}", False)
-
-    def _handle_llm_response(self, data, _streamed=False):
-        """Route LLM response to the appropriate handler."""
-        choice = data["choices"][0]
-        assistant_msg = choice.get("message", {})
-        finish_reason = choice.get("finish_reason", "")
-        content = assistant_msg.get("content", "")
-        has_tools = bool(assistant_msg.get("tool_calls"))
-        log_info(f"LLM response: finish_reason={finish_reason}, has_tool_calls={has_tools}, content_len={len(content)}")
-
-        self._controller.session.add_assistant_message(assistant_msg)
-
-        # --- Mode auto-detection (first iteration) ---
-        if self._mode == "auto" and finish_reason == "stop" and self._iteration == 1:
-            parsed = parse_react_tool_calls(content)
-            if parsed:
-                # Model doesn't support tool calling, switch to ReAct
-                self._mode = "react"
-                self._session.last_mode = "react"
-                self._append_system_msg("Model does not support tool calling, switched to ReAct mode.")
-                react_prompt = REACT_SYSTEM_PROMPT.format(
-                    context=f"\nCURRENT DOCUMENT CONTEXT:\n{self._context}" if self._context else ""
-                )
-                self._controller.session.set_system_prompt(react_prompt)
-                self._execute_tools(parsed)
-                return
-            else:
-                # Model returned a final answer directly
-                self._mode = "tool_calling"
-                self._session.last_mode = "tool_calling"
-                self._finish(content, True, _from_stream=_streamed)
-                return
-
-        # --- Tool calling mode (native API) ---
-        if finish_reason == "tool_calls":
-            self._mode = "tool_calling"
-            self._session.last_mode = "tool_calling"
-            tool_calls = assistant_msg.get("tool_calls", [])
-            self._execute_tools(tool_calls)
-            return
-
-        # --- ReAct mode: check for <tool> tags in text ---
-        if self._mode == "react":
-            parsed = parse_react_tool_calls(content)
-            if parsed:
-                self._execute_tools(parsed)
-                return
-            self._finish(content, True)
-            return
-
-        # --- finish_reason == "stop" with no tool tags — agent done ---
-        self._finish(content, True, _from_stream=_streamed)
+            self._finish_from_action(LoopAction(
+                kind=LoopActionKind.FINISH, success=False,
+                summary=f"Internal error: {e}",
+            ))
 
     def _on_llm_error(self, msg):
         log_warning(f"LLM API error: {msg}")
         self._remove_streaming_bubble()
         if self._controller is None:
             return
-        self._finish(f"API error: {msg}", False)
+        action = self._loop.handle_error(msg)
+        self._execute_action(action)
 
-    def _execute_tools(self, tool_calls):
+    def _run_tool_calls(self, action: LoopAction):
         """Execute tools in the MAIN thread (safe for FreeCAD)."""
-        for tc in tool_calls:
-            if self._stopped:
+        executions = []
+        for tc in action.tool_calls:
+            if self._loop.stopped:
                 break
 
             fn = tc.get("function", {})
@@ -394,49 +330,35 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             tool_result = dispatch_tool(tool_name, tool_args)
             is_error = tool_result.startswith("ERROR") or tool_result.startswith("FAIL")
             if is_error:
-                log_warning(f"Tool '{tool_name}' failed at iteration {self._iteration}: {tool_result[:300]}")
+                log_warning(f"Tool '{tool_name}' failed at iteration {self._loop.iteration}: {tool_result[:300]}")
 
             # Update undo button state (snapshot was taken if execute_code)
             self._update_undo_button_state()
 
-            # ReAct mode: use user message for tool results (model doesn't understand role="tool")
-            if self._mode == "react":
-                self._controller.session.add_user_message(
-                    f"[Tool Result for {tool_name}]:\n{tool_result}"
-                )
-            else:
-                self._controller.session.add_tool_result(tool_id, tool_result)
-
             self._append_tool_msg(
-                self._iteration, tool_name, desc,
+                self._loop.iteration, tool_name, desc,
                 tool_result, is_error,
             )
-            if is_error:
-                self._controller.result.errors.append(
-                    f"[Iter {self._iteration}] {tool_name}: {tool_result[:100]}"
-                )
-            self._controller.result.tool_calls_log.append({
-                "iteration": self._iteration,
-                "name": tool_name,
-                "description": desc,
-                "result_preview": tool_result[:200],
-                "is_error": is_error,
-            })
 
-        # Tools done — next iteration
-        self._call_llm()
+            executions.append(ToolExecution(
+                tool_name=tool_name, tool_args=tool_args, tool_id=tool_id,
+                description=desc, result=tool_result, is_error=is_error,
+            ))
 
-    def _finish(self, summary, success, _from_stream=False):
+        next_action = self._loop.handle_tool_results(executions)
+        self._execute_action(next_action)
+
+    def _finish_from_action(self, action: LoopAction):
         """Agent loop complete — show results."""
         c = self._get_colors()
-        log_info(f"Agent finished: success={success}, iterations={self._iteration}, summary={summary[:100]}")
-        if not _from_stream:
-            self._append_agent_msg(summary)
+        log_info(f"Agent finished: success={action.success}, iterations={action.iterations}, summary={action.summary[:100]}")
+        if not action.from_stream:
+            self._append_agent_msg(action.summary)
 
-        if success:
+        if action.success:
             self._controller.result.success = True
-            self._controller.result.summary = summary
-            self._controller.session.update_summary(summary)
+            self._controller.result.summary = action.summary
+            self._controller.session.update_summary(action.summary)
 
             # Snapshot document state + fit view
             try:
@@ -458,11 +380,11 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         self._store.save_if_not_empty(self._session)
 
         self._status_timer.stop()
-        total_elapsed = time.time() - self._agent_start_time if self._agent_start_time else 0
+        total_elapsed = time.time() - self._loop.start_time if self._loop else 0
         elapsed_str = self._format_elapsed(total_elapsed)
         turns = self._controller.session.user_turn_count()
-        iters = self._iteration
-        if success:
+        iters = action.iterations or self._loop.iteration if self._loop else 0
+        if action.success:
             self.status_label.setText(f"Done  {elapsed_str}  {iters} iters  Turn {turns}")
             self.status_label.setStyleSheet(
                 f"color:{c.status_success}; font-size:11px; font-family:'Segoe UI', sans-serif;"
@@ -479,7 +401,8 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
     # ---- Event handlers ----
 
     def _on_stop(self):
-        self._stopped = True
+        if self._loop:
+            self._loop.request_stop()
         if self._llm_thread and self._llm_thread.isRunning():
             self._llm_thread.requestInterruption()
         self._status_set("stopping")
@@ -487,7 +410,8 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
     def _on_new_session(self):
         # Stop the running thread and disconnect signals so stale
         # streamDone / chunkReady don't hit the cleared state below.
-        self._stopped = True
+        if self._loop:
+            self._loop.request_stop()
         if self._llm_thread and self._llm_thread.isRunning():
             self._llm_thread.chunkReady.disconnect(self._on_stream_chunk)
             self._llm_thread.reasoningReady.disconnect(self._on_reasoning_chunk)
@@ -502,7 +426,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         self._session = ChatSession()
         self._current_session_id = self._session.session_id
         self._controller = None
-        self._iteration = 0
+        self._loop = None
         self._streaming_text = ""
         self._stream_replace_start = 0
         self._reasoning_text = ""
@@ -530,7 +454,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         is_error = result.startswith("ERROR")
 
         self._append_tool_msg(
-            self._iteration, "undo_last (user)", "",
+            self._loop.iteration if self._loop else 0, "undo_last (user)", "",
             result, is_error,
         )
 

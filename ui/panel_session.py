@@ -39,8 +39,7 @@ class _PanelSessionMixin:
             self._current_session_id = self._session.session_id
             self._mode = "auto"
             self._controller = None
-            self._iteration = 0
-            self._stopped = False
+            self._loop = None
             self._streaming_text = ""
             self._stream_replace_start = 0
             self._reasoning_text = ""
@@ -69,8 +68,7 @@ class _PanelSessionMixin:
         self._current_session_id = loaded.session_id
         self._mode = loaded.last_mode
         self._controller = None
-        self._iteration = 0
-        self._stopped = False
+        self._loop = None
         self._streaming_text = ""
         self._stream_replace_start = 0
         self._reasoning_text = ""
@@ -135,8 +133,7 @@ class _PanelSessionMixin:
             self._session = ChatSession()
             self._current_session_id = self._session.session_id
             self._controller = None
-            self._iteration = 0
-            self._stopped = False
+            self._loop = None
             self._streaming_text = ""
             self._stream_replace_start = 0
             self._reasoning_text = ""
