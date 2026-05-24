@@ -46,6 +46,29 @@ SAFE_BUILTINS = {
 
 
 # ---------------------------------------------------------------------------
+# Post-execution shape validation
+# ---------------------------------------------------------------------------
+
+def _post_exec_validate(doc) -> list[str]:
+    """Post-execution geometric validation. Returns warning strings."""
+    import core.config as _config
+    warnings = []
+    if doc is None:
+        return warnings
+    for obj in doc.Objects:
+        if not hasattr(obj, "Shape") or obj.Shape is None or obj.Shape.isNull():
+            continue
+        if not obj.Shape.isValid():
+            warnings.append(f"Object '{obj.Label}' has INVALID shape — boolean operation may have failed")
+        if abs(obj.Shape.Volume) < _config.VALIDATE_VOLUME_THRESHOLD:
+            warnings.append(f"Object '{obj.Label}' has near-zero volume ({obj.Shape.Volume:.6f} mm³)")
+        bb = obj.Shape.BoundBox
+        if bb.XLength < _config.VALIDATE_DIMENSION_THRESHOLD or bb.YLength < _config.VALIDATE_DIMENSION_THRESHOLD or bb.ZLength < _config.VALIDATE_DIMENSION_THRESHOLD:
+            warnings.append(f"Object '{obj.Label}' has degenerate dimensions: {bb.XLength:.3f} x {bb.YLength:.3f} x {bb.ZLength:.3f}")
+    return warnings
+
+
+# ---------------------------------------------------------------------------
 # Tool: execute_code
 # ---------------------------------------------------------------------------
 
@@ -107,6 +130,7 @@ def _tool_execute_code(args_json: str) -> str:
         with contextlib.redirect_stdout(stdout_capture):
             exec(code, namespace)
 
+        post_exec_warnings = _post_exec_validate(FreeCAD.ActiveDocument)
         post_state = _safe_analyze()
 
         parts = [f"SUCCESS: Code executed without errors."]
@@ -115,6 +139,8 @@ def _tool_execute_code(args_json: str) -> str:
         stdout_text = stdout_capture.getvalue()
         if stdout_text:
             parts.append(f"Stdout:\n{stdout_text}")
+        if post_exec_warnings:
+            parts.append("WARNINGS:\n" + "\n".join(f"  - {w}" for w in post_exec_warnings))
         parts.append(f"Document state:\n{post_state}")
         return "\n".join(parts)
 
@@ -128,6 +154,7 @@ def _tool_execute_code(args_json: str) -> str:
             try:
                 with contextlib.redirect_stdout(stdout_capture):
                     exec(fixed_code, namespace)
+                post_exec_warnings = _post_exec_validate(FreeCAD.ActiveDocument)
                 post_state = _safe_analyze()
                 parts = [
                     f"SUCCESS (auto-corrected): Original error was {type(e).__name__}: {e}",
@@ -136,6 +163,8 @@ def _tool_execute_code(args_json: str) -> str:
                 stdout_text = stdout_capture.getvalue()
                 if stdout_text:
                     parts.append(f"Stdout:\n{stdout_text}")
+                if post_exec_warnings:
+                    parts.append("WARNINGS:\n" + "\n".join(f"  - {w}" for w in post_exec_warnings))
                 parts.append(f"Document state:\n{post_state}")
                 return "\n".join(parts)
             except Exception:
