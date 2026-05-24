@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import re
 import traceback
 
 import FreeCAD
@@ -56,15 +57,18 @@ def _post_exec_validate(doc) -> list[str]:
     if doc is None:
         return warnings
     for obj in doc.Objects:
-        if not hasattr(obj, "Shape") or obj.Shape is None or obj.Shape.isNull():
+        try:
+            if not hasattr(obj, "Shape") or obj.Shape is None or obj.Shape.isNull():
+                continue
+            if not obj.Shape.isValid():
+                warnings.append(f"Object '{obj.Label}' has INVALID shape — boolean operation may have failed")
+            if abs(obj.Shape.Volume) < _config.VALIDATE_VOLUME_THRESHOLD:
+                warnings.append(f"Object '{obj.Label}' has near-zero volume ({obj.Shape.Volume:.6f} mm³)")
+            bb = obj.Shape.BoundBox
+            if bb.XLength < _config.VALIDATE_DIMENSION_THRESHOLD or bb.YLength < _config.VALIDATE_DIMENSION_THRESHOLD or bb.ZLength < _config.VALIDATE_DIMENSION_THRESHOLD:
+                warnings.append(f"Object '{obj.Label}' has degenerate dimensions: {bb.XLength:.3f} x {bb.YLength:.3f} x {bb.ZLength:.3f}")
+        except Exception:
             continue
-        if not obj.Shape.isValid():
-            warnings.append(f"Object '{obj.Label}' has INVALID shape — boolean operation may have failed")
-        if abs(obj.Shape.Volume) < _config.VALIDATE_VOLUME_THRESHOLD:
-            warnings.append(f"Object '{obj.Label}' has near-zero volume ({obj.Shape.Volume:.6f} mm³)")
-        bb = obj.Shape.BoundBox
-        if bb.XLength < _config.VALIDATE_DIMENSION_THRESHOLD or bb.YLength < _config.VALIDATE_DIMENSION_THRESHOLD or bb.ZLength < _config.VALIDATE_DIMENSION_THRESHOLD:
-            warnings.append(f"Object '{obj.Label}' has degenerate dimensions: {bb.XLength:.3f} x {bb.YLength:.3f} x {bb.ZLength:.3f}")
     return warnings
 
 
@@ -127,11 +131,14 @@ def _tool_execute_code(args_json: str) -> str:
         except Exception as e:
             log_warning(f"Snapshot failed, undo unavailable: {e}")
 
+        pre_state = _safe_analyze()
+
         with contextlib.redirect_stdout(stdout_capture):
             exec(code, namespace)
 
         post_exec_warnings = _post_exec_validate(FreeCAD.ActiveDocument)
         post_state = _safe_analyze()
+        delta = _compute_delta(pre_state, post_state)
 
         parts = [f"SUCCESS: Code executed without errors."]
         if fix_notice:
@@ -141,6 +148,7 @@ def _tool_execute_code(args_json: str) -> str:
             parts.append(f"Stdout:\n{stdout_text}")
         if post_exec_warnings:
             parts.append("WARNINGS:\n" + "\n".join(f"  - {w}" for w in post_exec_warnings))
+        parts.append(f"Changes: {delta}")
         parts.append(f"Document state:\n{post_state}")
         return "\n".join(parts)
 
@@ -156,6 +164,7 @@ def _tool_execute_code(args_json: str) -> str:
                     exec(fixed_code, namespace)
                 post_exec_warnings = _post_exec_validate(FreeCAD.ActiveDocument)
                 post_state = _safe_analyze()
+                delta = _compute_delta(pre_state, post_state)
                 parts = [
                     f"SUCCESS (auto-corrected): Original error was {type(e).__name__}: {e}",
                     f"Auto-fix: {hint}",
@@ -165,16 +174,20 @@ def _tool_execute_code(args_json: str) -> str:
                     parts.append(f"Stdout:\n{stdout_text}")
                 if post_exec_warnings:
                     parts.append("WARNINGS:\n" + "\n".join(f"  - {w}" for w in post_exec_warnings))
+                parts.append(f"Changes: {delta}")
                 parts.append(f"Document state:\n{post_state}")
                 return "\n".join(parts)
             except Exception:
                 pass  # auto-retry failed, fall through to error report
 
+        post_state = _safe_analyze()
+        delta = _compute_delta(pre_state, post_state)
         parts = [f"ERROR: {type(e).__name__}: {e}", f"Traceback:\n{tb}"]
         if fix_notice:
             parts.append(fix_notice.rstrip())
         if hint:
             parts.append(hint)
+        parts.append(f"Changes: {delta}")
         parts.append(f"Document state after error:\n{post_state}")
         return "\n".join(parts)
 
@@ -279,3 +292,36 @@ def _safe_analyze() -> str:
         return "(no active document)"
     except Exception as e:
         return f"(analysis error: {e})"
+
+
+def _extract_total_volume(state: str) -> float | None:
+    """Sum all per-object volumes from analyze_document() output text."""
+    volumes = re.findall(r"Volume:\s*([\d.]+)", state)
+    if not volumes:
+        return None
+    return sum(float(v) for v in volumes)
+
+
+def _compute_delta(pre_state: str, post_state: str) -> str:
+    """Compare pre/post document states, return change summary."""
+    pre_objs = set(re.findall(r"- '([^']+)'", pre_state))
+    post_objs = set(re.findall(r"- '([^']+)'", post_state))
+
+    added = sorted(post_objs - pre_objs)
+    removed = sorted(pre_objs - post_objs)
+
+    pre_vol = _extract_total_volume(pre_state)
+    post_vol = _extract_total_volume(post_state)
+
+    parts = []
+    if added:
+        parts.append(f"New objects: {', '.join(added)}")
+    if removed:
+        parts.append(f"Removed objects: {', '.join(removed)}")
+    if pre_vol is not None and post_vol is not None:
+        delta = post_vol - pre_vol
+        pct = (delta / pre_vol * 100) if pre_vol != 0 else 0
+        direction = "+" if delta >= 0 else ""
+        parts.append(f"Volume: {pre_vol:.0f} -> {post_vol:.0f} mm3 ({direction}{pct:.1f}%)")
+
+    return "; ".join(parts) if parts else "No changes detected"
