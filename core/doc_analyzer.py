@@ -6,6 +6,8 @@ and delegates analysis to core/geometry_analyzer.py.
 """
 from __future__ import annotations
 
+import math
+
 import FreeCAD
 
 from core.geometry_analyzer import (
@@ -19,12 +21,16 @@ def _extract_face_info(face) -> FaceInfo:
     geom_type = getattr(surf, "geomType", "Unknown")
     area = face.Area if hasattr(face, "Area") else 0.0
     normal = None
+    center = None
+    axis = None
+    cone_half_angle = None
+
     if geom_type == "Plane" and hasattr(face, "normalAt"):
         n = face.normalAt(0, 0)
         normal = (round(n.x, 2), round(n.y, 2), round(n.z, 2))
+
+    # Radius-based surfaces (Cylinder, Sphere, Cone, Torus)
     radius = getattr(surf, "Radius", None)
-    center = None
-    axis = None
     if radius is not None:
         c = getattr(surf, "Center", None)
         if c:
@@ -32,9 +38,30 @@ def _extract_face_info(face) -> FaceInfo:
         a = getattr(surf, "Axis", None)
         if a:
             axis = (a.x, a.y, a.z)
+
+    # Cone-specific: half-angle
+    if geom_type == "Cone":
+        sa = getattr(surf, "SemiAngle", None)
+        if sa is not None:
+            cone_half_angle = round(math.degrees(sa), 2)
+
+    # Plane center point (for symmetry and wall-thickness detection)
+    if geom_type == "Plane" and center is None:
+        if hasattr(face, "CenterOfMass"):
+            c = face.CenterOfMass
+            center = (c.x, c.y, c.z)
+        elif hasattr(face, "BoundBox"):
+            bb = face.BoundBox
+            center = (
+                (bb.XMin + bb.XMax) / 2,
+                (bb.YMin + bb.YMax) / 2,
+                (bb.ZMin + bb.ZMax) / 2,
+            )
+
     return FaceInfo(
         geom_type=geom_type, area=area, normal=normal,
         radius=radius, center=center, axis=axis,
+        cone_half_angle=cone_half_angle,
     )
 
 
