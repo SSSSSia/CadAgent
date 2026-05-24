@@ -72,6 +72,31 @@ def _post_exec_validate(doc) -> list[str]:
     return warnings
 
 
+def _detect_orphan_shapes(namespace: dict, doc) -> list[str]:
+    """Detect Part shapes created but not added to the document."""
+    _SKIP_NAMES = {
+        "FreeCAD", "Part", "math", "Gui", "doc", "Vector", "App",
+        "pi", "sin", "cos", "sqrt", "__builtins__",
+    }
+    orphans = []
+    for name, value in namespace.items():
+        if name.startswith("_") or name in _SKIP_NAMES:
+            continue
+        try:
+            if not isinstance(value, Part.Shape) or value.isNull():
+                continue
+            is_assigned = any(
+                hasattr(obj, "Shape") and obj.Shape is not None
+                and obj.Shape.isSame(value)
+                for obj in doc.Objects
+            ) if doc else False
+            if not is_assigned:
+                orphans.append(name)
+        except Exception:
+            continue
+    return orphans
+
+
 # ---------------------------------------------------------------------------
 # Tool: execute_code
 # ---------------------------------------------------------------------------
@@ -137,6 +162,13 @@ def _tool_execute_code(args_json: str) -> str:
             exec(code, namespace)
 
         post_exec_warnings = _post_exec_validate(FreeCAD.ActiveDocument)
+        orphan_names = _detect_orphan_shapes(namespace, FreeCAD.ActiveDocument)
+        if orphan_names:
+            post_exec_warnings.append(
+                f"Orphan shapes detected: {', '.join(orphan_names)} — "
+                f"these Part shapes were created but not added to the document. "
+                f"Use doc.addObject('Part::Feature', 'Name') and obj.Shape = shape to register them."
+            )
         post_state = _safe_analyze()
         delta = _compute_delta(pre_state, post_state)
 
@@ -163,6 +195,13 @@ def _tool_execute_code(args_json: str) -> str:
                 with contextlib.redirect_stdout(stdout_capture):
                     exec(fixed_code, namespace)
                 post_exec_warnings = _post_exec_validate(FreeCAD.ActiveDocument)
+                orphan_names = _detect_orphan_shapes(namespace, FreeCAD.ActiveDocument)
+                if orphan_names:
+                    post_exec_warnings.append(
+                        f"Orphan shapes detected: {', '.join(orphan_names)} — "
+                        f"these Part shapes were created but not added to the document. "
+                        f"Use doc.addObject('Part::Feature', 'Name') and obj.Shape = shape to register them."
+                    )
                 post_state = _safe_analyze()
                 delta = _compute_delta(pre_state, post_state)
                 parts = [
