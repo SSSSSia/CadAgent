@@ -360,6 +360,13 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
                 description=desc, result=tool_result, is_error=is_error,
             ))
 
+        # Sync parameters from tools to session
+        try:
+            from agent.tools import get_param_store
+            self._controller.session.parameters = get_param_store()
+        except Exception:
+            pass
+
         next_action = self._loop.handle_tool_results(executions)
         self._execute_action(next_action)
 

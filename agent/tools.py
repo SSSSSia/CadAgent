@@ -29,6 +29,53 @@ from agent.tool_dispatch import register_tool, dispatch_tool  # noqa: F401
 
 
 # ---------------------------------------------------------------------------
+# Parametric design — module-level parameter store
+# ---------------------------------------------------------------------------
+
+_PARAM_STORE: dict[str, float | int] = {}
+_PARAMETRIC_CODE: str = ""
+
+_PARAM_PATTERN = re.compile(r'^([A-Z][A-Z0-9_]*)\s*=\s*([-+]?[\d.]+)\s*$')
+
+
+def _extract_parameters(code: str) -> dict:
+    """Extract parameter definitions (UPPER_NAME = value) from top of code."""
+    params = {}
+    for line in code.strip().split('\n'):
+        m = _PARAM_PATTERN.match(line.strip())
+        if m:
+            val = float(m.group(2)) if '.' in m.group(2) else int(m.group(2))
+            params[m.group(1)] = val
+        elif line.strip() and not line.strip().startswith('#'):
+            break
+    return params
+
+
+def _substitute_parameters(code: str, updates: dict) -> str:
+    """Replace parameter assignment values in code."""
+    lines = code.split('\n')
+    result = []
+    for line in lines:
+        m = _PARAM_PATTERN.match(line.strip())
+        if m and m.group(1) in updates:
+            result.append(f"{m.group(1)} = {updates[m.group(1)]}")
+        else:
+            result.append(line)
+    return '\n'.join(result)
+
+
+def get_param_store() -> dict:
+    """Return a copy of the current parameter store."""
+    return dict(_PARAM_STORE)
+
+
+def set_param_store(params: dict) -> None:
+    """Replace the parameter store with given params."""
+    _PARAM_STORE.clear()
+    _PARAM_STORE.update(params)
+
+
+# ---------------------------------------------------------------------------
 # Document resolution helper
 # ---------------------------------------------------------------------------
 
@@ -221,6 +268,15 @@ def _tool_execute_code(args_json: str) -> str:
             parts.append("WARNINGS:\n" + "\n".join(f"  - {w}" for w in post_exec_warnings))
         parts.append(f"Changes: {delta}")
         parts.append(f"Document state:\n{post_state}")
+
+        # Extract parametric definitions from code
+        params = _extract_parameters(code)
+        if params:
+            _PARAM_STORE.update(params)
+            _PARAMETRIC_CODE = code
+            param_lines = "\n".join(f"  {k} = {v}" for k, v in params.items())
+            parts.append(f"Parameters extracted:\n{param_lines}")
+
         return "\n".join(parts)
 
     except Exception as e:
@@ -257,6 +313,15 @@ def _tool_execute_code(args_json: str) -> str:
                     parts.append("WARNINGS:\n" + "\n".join(f"  - {w}" for w in post_exec_warnings))
                 parts.append(f"Changes: {delta}")
                 parts.append(f"Document state:\n{post_state}")
+
+                # Extract parametric definitions from code
+                params = _extract_parameters(code)
+                if params:
+                    _PARAM_STORE.update(params)
+                    _PARAMETRIC_CODE = code
+                    param_lines = "\n".join(f"  {k} = {v}" for k, v in params.items())
+                    parts.append(f"Parameters extracted:\n{param_lines}")
+
                 return "\n".join(parts)
             except Exception:
                 pass  # auto-retry failed, fall through to error report
@@ -702,6 +767,70 @@ def _tool_create_assembly(args_json: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Tool: update_parameter
+# ---------------------------------------------------------------------------
+
+def _tool_update_parameter(args_json: str) -> str:
+    """Update design parameters and re-execute the design code."""
+    args = json.loads(args_json)
+    updates = args["updates"]
+    doc_name = args.get("document", "")
+
+    if not _PARAMETRIC_CODE:
+        return (
+            "ERROR: No parameterized design found. "
+            "Create a design with named constants first (e.g. OD = 200)."
+        )
+
+    # Validate parameter names
+    unknown = [k for k in updates if k not in _PARAM_STORE]
+    if unknown:
+        available = ", ".join(sorted(_PARAM_STORE.keys()))
+        return (
+            f"ERROR: Unknown parameter(s): {', '.join(unknown)}. "
+            f"Available: {available}"
+        )
+
+    # Substitute parameter values in stored code
+    updated_code = _substitute_parameters(_PARAMETRIC_CODE, updates)
+
+    # Undo to the state before the parametric code was executed
+    undo_result = _tool_undo_last("{}")
+
+    # Re-execute with updated parameters
+    exec_args = json.dumps({
+        "code": updated_code,
+        "description": f"Update parameters: {updates}",
+        "document": doc_name,
+    })
+    result = _tool_execute_code(exec_args)
+
+    # Update parameter store with new values
+    _PARAM_STORE.update(updates)
+
+    # Append parameter table to result
+    param_str = "\n".join(f"  {k} = {v}" for k, v in sorted(_PARAM_STORE.items()))
+    return f"{result}\n\nUpdated parameter table:\n{param_str}"
+
+
+# ---------------------------------------------------------------------------
+# Tool: list_parameters
+# ---------------------------------------------------------------------------
+
+def _tool_list_parameters(args_json: str) -> str:
+    """List current design parameters and their values."""
+    if not _PARAM_STORE:
+        return (
+            "No parameters defined yet. "
+            "Use named constants (e.g. OD = 200) at the top of your code."
+        )
+    lines = ["Current design parameters:"]
+    for name, value in sorted(_PARAM_STORE.items()):
+        lines.append(f"  {name} = {value}")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
 
@@ -715,6 +844,8 @@ register_tool("list_materials", _tool_list_materials)
 register_tool("screenshot", _tool_screenshot)
 register_tool("list_documents", _tool_list_documents)
 register_tool("create_assembly", _tool_create_assembly)
+register_tool("update_parameter", _tool_update_parameter)
+register_tool("list_parameters", _tool_list_parameters)
 
 
 def _safe_analyze(doc=None) -> str:

@@ -71,12 +71,12 @@ pytest tests/test_token_budget.py::test_trim_preserves_system_prompt
 |------|------|
 | `InitGui.py` | FreeCAD 工作台注册。方法体中**必须使用局部导入**，因为 FreeCAD 通过 `exec()` 加载此文件。 |
 | `agent/controller.py` | 共享状态容器（session + result + mode），供 UI 驱动的 Agent 循环使用。本身不是循环。 |
-| `agent/tools.py` | 工具实现。`dispatch_tool()` 按名称路由。每个工具接收 JSON 参数字符串，返回结果字符串。`execute_code` 执行 validate→fix→exec→hint 流水线（见下文）并在执行前创建快照。 |
+| `agent/tools.py` | 工具实现。`dispatch_tool()` 按名称路由。每个工具接收 JSON 参数字符串，返回结果字符串。`execute_code` 执行 validate→fix→exec→hint 流水线（见下文）并在执行前创建快照。含参数化设计支持：参数提取、替换、`update_parameter`/`list_parameters` 工具。 |
 | `agent/tool_defs.py` | OpenAI function calling API 的 JSON Schema 定义。 |
 | `agent/code_fixes.py` | 弱模型兼容：`pre_validate_code()`（compile 检查）、`auto_fix_code()`（3 种模式：translate 赋值、布尔运算赋值、缺少 recompute）、`error_hint()`（按异常类型生成可操作提示）。无 FreeCAD 导入，可独立测试。 |
-| `agent/prompts.py` | 两套提示词：`AGENT_SYSTEM_PROMPT`（Tool Calling）和 `REACT_SYSTEM_PROMPT`（XML 标签）。均含 `{context}` 占位符用于插入文档几何信息。另有遗留的 `SYSTEM_PROMPT_*` 用于单次模式。 |
+| `agent/prompts.py` | 两套提示词：`AGENT_SYSTEM_PROMPT`（Tool Calling）和 `REACT_SYSTEM_PROMPT`（XML 标签）。均含 `{context}` 占位符用于插入文档几何信息和参数表。另有弱模型变体和遗留的 `SYSTEM_PROMPT_*` 用于单次模式。 |
 | `core/llm_client.py` | 三个入口：`call_llm_with_tools()`（非流式）、`call_llm_streaming()`（SSE 生成器）、`generate_freecad_code()`（遗留单次）。 |
-| `core/session.py` | `ChatSession` — 有序消息列表，含 system/user/assistant/tool 角色。支持序列化/反序列化。 |
+| `core/session.py` | `ChatSession` — 有序消息列表，含 system/user/assistant/tool 角色。含 `parameters` 参数表和 `parametric_code` 参数化代码存储。支持序列化/反序列化。 |
 | `core/session_store.py` | JSON 文件持久化，存储在 `<FreeCAD 用户数据>/CadAgent/sessions/` 下。 |
 | `core/doc_analyzer.py` | 从 FreeCAD 文档提取包围盒、体积、质心、圆柱特征、平面等信息，以文本形式提供给 LLM 作为上下文。 |
 | `core/snapshot.py` | 基于 `.FCStd` 文件的撤销栈（最多 10 个）。`take_snapshot()` 在每次 `execute_code` 前调用，`restore_latest_snapshot()` 用于撤销。 |

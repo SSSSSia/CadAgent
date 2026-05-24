@@ -110,7 +110,7 @@ class AgentLoop:
         self._stopped = True
 
     def start(self, user_text: str) -> LoopAction:
-        ctx = f"\nCURRENT DOCUMENT CONTEXT:\n{self._context}" if self._context else ""
+        ctx = self._build_context()
         if self._weak_prompt:
             system_content = WEAK_AGENT_SYSTEM_PROMPT.replace("{context}", ctx)
         else:
@@ -119,6 +119,23 @@ class AgentLoop:
         self._controller.session.add_user_message(user_text)
         log_info(f"Agent loop started: mode=auto, context={len(self._context)} chars")
         return self.prepare_llm_call()
+
+    def _build_context(self) -> str:
+        """Build full context string including parameters and document state."""
+        param_ctx = ""
+        try:
+            from agent.tools import get_param_store
+            params = get_param_store()
+        except ImportError:
+            params = {}
+        if params:
+            lines = ["CURRENT DESIGN PARAMETERS:"]
+            for name, value in sorted(params.items()):
+                lines.append(f"  {name} = {value}")
+            param_ctx = "\n" + "\n".join(lines)
+
+        doc_ctx = f"\nCURRENT DOCUMENT CONTEXT:\n{self._context}" if self._context else ""
+        return param_ctx + doc_ctx
 
     def prepare_llm_call(self) -> LoopAction:
         if self._stopped:
@@ -181,7 +198,7 @@ class AgentLoop:
             if parsed:
                 self._mode = "react"
                 self._controller.session.last_mode = "react"
-                ctx = f"\nCURRENT DOCUMENT CONTEXT:\n{self._context}" if self._context else ""
+                ctx = self._build_context()
                 if self._weak_prompt:
                     react_prompt = WEAK_REACT_SYSTEM_PROMPT.replace("{context}", ctx)
                 else:

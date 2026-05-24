@@ -109,8 +109,8 @@ def test_measure_distance_has_document_param():
 
 
 def test_all_tools_count():
-    # Should have 10 tools now (8 original + list_documents + create_assembly)
-    assert len(TOOL_DEFINITIONS) == 10
+    # 10 base tools + update_parameter + list_parameters = 12
+    assert len(TOOL_DEFINITIONS) == 12
 
 
 # ---------------------------------------------------------------------------

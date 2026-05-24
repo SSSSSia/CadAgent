@@ -291,4 +291,43 @@ TOOL_DEFINITIONS = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_parameter",
+            "description": (
+                "Update design parameters and re-execute the design code with new values. "
+                "Use when the user asks to change specific dimensions of a parametric design. "
+                "This tool undoes the previous execution and re-runs the code with updated parameter values."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "updates": {
+                        "type": "object",
+                        "description": "Parameters to update as name-value pairs, e.g. {\"OD\": 250, \"HEIGHT\": 400}"
+                    },
+                    "document": {
+                        "type": "string",
+                        "description": "Optional target document name."
+                    }
+                },
+                "required": ["updates"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_parameters",
+            "description": (
+                "List current design parameters and their values. "
+                "Use to check what parameters are available before updating."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
 ]

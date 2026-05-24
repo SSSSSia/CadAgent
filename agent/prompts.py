@@ -23,6 +23,8 @@ AVAILABLE TOOLS:
 - screenshot: Capture 3D viewport as PNG image. Args: optional save_path, width, height.
 - list_documents: List all open FreeCAD documents with object counts. Args: optional include_geometry (bool).
 - create_assembly: Create assembly doc by copying parts from other documents with Placement. Args: name (required), parts[] (source_document, object_label, position [x,y,z], optional rotation {axis, angle_deg}).
+- update_parameter: Update design parameters and re-execute. Args: updates (dict of name->value, e.g. {"OD": 250}).
+- list_parameters: List current design parameters and values.
 
 ASSEMBLY DESIGN MODE — when the user asks to create an assembly or multiple parts:
 1. Create each part in its own document: doc = FreeCAD.newDocument("PartName")
@@ -83,6 +85,15 @@ Part API Quick Reference:
 - a.common(b)               NEW shape intersection
 - FreeCAD.Vector(x,y,z)
 
+PARAMETRIC DESIGN — for every design, define key dimensions as named constants at the top:
+  OD = 200          # outer diameter
+  HEIGHT = 360      # total height
+  FLANGE_R = 125    # flange radius
+  HOLE_R = 5        # bolt hole radius
+Use UPPER_CASE names for all dimensions. Put ALL parameter definitions before any other code.
+When the user asks to change dimensions, use the update_parameter tool instead of execute_code.
+You can also use list_parameters to check current values.
+
 {context}"""
 
 REACT_SYSTEM_PROMPT = """\
@@ -131,6 +142,14 @@ TOOL CALLING FORMAT — you MUST use this exact format:
 {"name": "MyAssembly", "parts": [{"source_document": "Base", "object_label": "Body", "position": [0, 0, 0], "rotation": {"axis": [0, 0, 1], "angle_deg": 45}}]}
 </tool>
 
+<tool name="update_parameter">
+{"updates": {"OD": 250}}
+</tool>
+
+<tool name="list_parameters">
+{}
+</tool>
+
 Available tools:
 - execute_code: Run FreeCAD Python code (FreeCAD, Part, math, Gui pre-imported)
 - analyze_geometry: Inspect current document geometry (no args needed, use {})
@@ -142,6 +161,8 @@ Available tools:
 - screenshot: Capture 3D viewport as PNG (no args needed, use {})
 - list_documents: List all open FreeCAD documents (args: optional include_geometry bool)
 - create_assembly: Create assembly by copying parts with Placement (args: name, parts[{source_document, object_label, position, rotation}])
+- update_parameter: Update design parameters and re-execute (args: updates dict e.g. {"OD": 250})
+- list_parameters: List current design parameters and values
 
 WORKFLOW — follow these steps for EVERY design:
 1. Read requirements. FIRST, output a design plan as plain text (no <tool> tags), \
@@ -186,6 +207,15 @@ Part API Quick Reference:
 - shape.translate(Vector) IN-PLACE, a.cut(b) NEW, a.fuse(b) NEW
 - FreeCAD.Vector(x,y,z)
 
+PARAMETRIC DESIGN — for every design, define key dimensions as named constants at the top:
+  OD = 200          # outer diameter
+  HEIGHT = 360      # total height
+  FLANGE_R = 125    # flange radius
+  HOLE_R = 5        # bolt hole radius
+Use UPPER_CASE names for all dimensions. Put ALL parameter definitions before any other code.
+When the user asks to change dimensions, use the update_parameter tool instead of execute_code.
+You can also use list_parameters to check current values.
+
 ASSEMBLY DESIGN MODE — when the user asks to create an assembly or multiple parts:
 1. Create each part in its own document: doc = FreeCAD.newDocument("PartName")
 2. Verify each part with analyze_geometry(document="PartName")
@@ -207,7 +237,7 @@ You create 3D mechanical parts using FreeCAD Python code.
 
 Pre-imported: FreeCAD, Part, math, Gui, doc (FreeCAD.ActiveDocument), Vector.
 Tool: execute_code — runs FreeCAD Python code and returns results.
-Other tools: analyze_geometry, validate_design, undo_last, export_step, measure_distance, list_materials, screenshot, list_documents, create_assembly.
+Other tools: analyze_geometry, validate_design, undo_last, export_step, measure_distance, list_materials, screenshot, list_documents, create_assembly, update_parameter, list_parameters.
 
 WORKFLOW:
 1. Write a brief plan (2-3 sentences max).
@@ -259,6 +289,11 @@ then use create_assembly to combine them with positions.
 Tools with "document" param can target specific docs. \
 Placement: FreeCAD.Placement(Vector(x,y,z), Vector(ax,ay,az), angle_deg)
 
+PARAMETRIC DESIGN — define key dimensions as named constants at the top of execute_code:
+  OD = 200          # outer diameter
+  HEIGHT = 360      # total height
+Use UPPER_CASE names. For dimension changes, use update_parameter instead of execute_code.
+
 {context}"""
 
 WEAK_REACT_SYSTEM_PROMPT = """\
@@ -272,7 +307,7 @@ TOOL CALLING FORMAT — you MUST use this exact format:
 
 Pre-imported: FreeCAD, Part, math, Gui, doc (FreeCAD.ActiveDocument), Vector.
 Available tool: execute_code — runs FreeCAD Python code and returns results.
-Other tools: analyze_geometry, validate_design, undo_last, export_step, measure_distance, list_materials, screenshot, list_documents, create_assembly.
+Other tools: analyze_geometry, validate_design, undo_last, export_step, measure_distance, list_materials, screenshot, list_documents, create_assembly, update_parameter, list_parameters.
 
 WORKFLOW:
 1. Write a brief plan (2-3 sentences max).
@@ -324,6 +359,11 @@ ASSEMBLY: Create parts in separate docs (doc = FreeCAD.newDocument("name")), \
 then use create_assembly to combine them with positions.
 Tools with "document" param can target specific docs. \
 Placement: FreeCAD.Placement(Vector(x,y,z), Vector(ax,ay,az), angle_deg)
+
+PARAMETRIC DESIGN — define key dimensions as named constants at the top of execute_code:
+  OD = 200          # outer diameter
+  HEIGHT = 360      # total height
+Use UPPER_CASE names. For dimension changes, use update_parameter instead of execute_code.
 
 {context}"""
 

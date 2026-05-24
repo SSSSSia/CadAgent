@@ -22,6 +22,8 @@ class ChatSession:
         self.summary: str = ""
         self.document_state: str = ""
         self.last_mode: str = "auto"
+        self.parameters: dict = {}
+        self.parametric_code: str = ""
         self._system_prompt: str = ""
 
     def set_system_prompt(self, prompt: str):
@@ -85,6 +87,8 @@ class ChatSession:
         self.messages.clear()
         self.summary = ""
         self.document_state = ""
+        self.parameters = {}
+        self.parametric_code = ""
         if system:
             self.messages.append({"role": "system", "content": system})
 
@@ -97,6 +101,8 @@ class ChatSession:
             "document_state": self.document_state,
             "last_mode": self.last_mode,
             "messages": self.messages,
+            "parameters": self.parameters,
+            "parametric_code": self.parametric_code,
         }
 
     @classmethod
@@ -109,5 +115,7 @@ class ChatSession:
         session.summary = data.get("summary", "")
         session.document_state = data.get("document_state", "")
         session.last_mode = data.get("last_mode", "auto")
+        session.parameters = data.get("parameters", {})
+        session.parametric_code = data.get("parametric_code", "")
         session._system_prompt = session.messages[0].get("content", "") if session.messages else ""
         return session

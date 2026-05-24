@@ -67,6 +67,15 @@ class _PanelSessionMixin:
         self._session = loaded
         self._current_session_id = loaded.session_id
         self._mode = loaded.last_mode
+
+        # Sync parameters from loaded session to tool store
+        if loaded.parameters:
+            try:
+                from agent.tools import set_param_store
+                set_param_store(loaded.parameters)
+            except Exception:
+                pass
+
         self._controller = None
         self._loop = None
         self._streaming_text = ""
