@@ -198,7 +198,16 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
 
         # Initialize controller and loop
         self._controller = AgentController(self._session)
-        self._loop = AgentLoop(self._controller, context, self._session.last_mode)
+
+        from agent.model_profile import ModelProfile
+        weak = False
+        if _config.WEAK_MODEL_MODE == "on":
+            weak = True
+        elif _config.WEAK_MODEL_MODE == "auto":
+            weak = ModelProfile.from_model_name(_config.MODEL_NAME).use_weak_prompt
+
+        self._loop = AgentLoop(self._controller, context, self._session.last_mode,
+                               weak_prompt=weak)
         self._mode = self._session.last_mode
 
         self._store.save_if_not_empty(self._session)

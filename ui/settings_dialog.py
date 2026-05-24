@@ -157,6 +157,14 @@ class SettingsDialog(QtWidgets.QDialog):
         self.spin_max_iter.setToolTip("Maximum agent loop iterations")
         agent_form.addRow("Max Iterations:", self.spin_max_iter)
 
+        self.combo_weak_mode = QtWidgets.QComboBox()
+        self.combo_weak_mode.addItems(["auto", "on", "off"])
+        self.combo_weak_mode.setToolTip(
+            "Weak model prompt mode. Auto: detect from model name. "
+            "On/Off: force enable/disable."
+        )
+        agent_form.addRow("Weak Model Mode:", self.combo_weak_mode)
+
         layout.addWidget(agent_group)
 
         # --- Buttons ---
@@ -208,6 +216,8 @@ class SettingsDialog(QtWidgets.QDialog):
         self.edit_model.setText(_config.MODEL_NAME)
         self.spin_max_tokens.setValue(_config.MAX_TOKENS)
         self.spin_max_iter.setValue(_config.MAX_ITERATIONS)
+        weak_idx = self.combo_weak_mode.findText(_config.WEAK_MODEL_MODE)
+        self.combo_weak_mode.setCurrentIndex(max(weak_idx, 0))
 
         # Match provider preset (by url + model)
         for i, p in enumerate(PROVIDER_PRESETS):
@@ -304,6 +314,7 @@ class SettingsDialog(QtWidgets.QDialog):
             "MODEL_NAME": model,
             "MAX_TOKENS": str(self.spin_max_tokens.value()),
             "MAX_ITERATIONS": str(self.spin_max_iter.value()),
+            "WEAK_MODEL_MODE": self.combo_weak_mode.currentText(),
         }
 
         _save_to_env(values)

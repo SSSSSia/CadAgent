@@ -21,7 +21,10 @@ from enum import Enum
 
 from agent.react_parser import parse_react_tool_calls
 from agent.tool_defs import TOOL_DEFINITIONS
-from agent.prompts import AGENT_SYSTEM_PROMPT, REACT_SYSTEM_PROMPT
+from agent.prompts import (
+    AGENT_SYSTEM_PROMPT, REACT_SYSTEM_PROMPT,
+    WEAK_AGENT_SYSTEM_PROMPT, WEAK_REACT_SYSTEM_PROMPT,
+)
 from core.token_budget import trim_messages, token_summary
 import core.config as _config
 from core.logger import log_info
@@ -76,13 +79,16 @@ class AgentLoop:
     No Qt or FreeCAD dependencies.
     """
 
-    def __init__(self, controller, context: str, last_mode: str = "auto"):
+    def __init__(self, controller, context: str, last_mode: str = "auto",
+                 weak_prompt: bool = False):
         self._controller = controller
         self._context = context
         self._mode: str = last_mode or "auto"
         self._iteration: int = 0
         self._stopped: bool = False
         self._start_time: float = time.time()
+        self._weak_prompt: bool = weak_prompt
+        self._recent_errors: list[str] = []
 
     @property
     def iteration(self) -> int:
@@ -105,7 +111,10 @@ class AgentLoop:
 
     def start(self, user_text: str) -> LoopAction:
         ctx = f"\nCURRENT DOCUMENT CONTEXT:\n{self._context}" if self._context else ""
-        system_content = AGENT_SYSTEM_PROMPT.replace("{context}", ctx)
+        if self._weak_prompt:
+            system_content = WEAK_AGENT_SYSTEM_PROMPT.replace("{context}", ctx)
+        else:
+            system_content = AGENT_SYSTEM_PROMPT.replace("{context}", ctx)
         self._controller.session.set_system_prompt(system_content)
         self._controller.session.add_user_message(user_text)
         log_info(f"Agent loop started: mode=auto, context={len(self._context)} chars")
@@ -173,7 +182,10 @@ class AgentLoop:
                 self._mode = "react"
                 self._controller.session.last_mode = "react"
                 ctx = f"\nCURRENT DOCUMENT CONTEXT:\n{self._context}" if self._context else ""
-                react_prompt = REACT_SYSTEM_PROMPT.replace("{context}", ctx)
+                if self._weak_prompt:
+                    react_prompt = WEAK_REACT_SYSTEM_PROMPT.replace("{context}", ctx)
+                else:
+                    react_prompt = REACT_SYSTEM_PROMPT.replace("{context}", ctx)
                 self._controller.session.set_system_prompt(react_prompt)
                 return LoopAction(
                     kind=LoopActionKind.EXECUTE_TOOLS,
@@ -226,12 +238,27 @@ class AgentLoop:
 
     def handle_tool_results(self, executions: list[ToolExecution]) -> LoopAction:
         for ex in executions:
+            result_text = ex.result
+
+            # Error dedup: warn if same error keeps recurring
+            if ex.is_error:
+                err_sig = ex.result[:60]
+                if any(err_sig[:40] in prev for prev in self._recent_errors):
+                    result_text = (
+                        ex.result
+                        + "\n\nWARNING: REPEATED ERROR. "
+                        "You MUST change your approach. Do NOT resubmit similar code."
+                    )
+                self._recent_errors.append(err_sig)
+                if len(self._recent_errors) > 3:
+                    self._recent_errors.pop(0)
+
             if self._mode == "react":
                 self._controller.session.add_user_message(
-                    f"[Tool Result for {ex.tool_name}]:\n{ex.result}"
+                    f"[Tool Result for {ex.tool_name}]:\n{result_text}"
                 )
             else:
-                self._controller.session.add_tool_result(ex.tool_id, ex.result)
+                self._controller.session.add_tool_result(ex.tool_id, result_text)
 
             if ex.is_error:
                 self._controller.result.errors.append(
