@@ -153,34 +153,47 @@ def error_hint(error: Exception, code: str) -> tuple[str, str | None]:
 
     elif e_type == "AttributeError":
         if "'NoneType'" in e_str:
-            # translate() assignment: shape = shape.translate(...)
-            pat_trans = re.compile(r'^(\s*)(\w+)\s*=\s*\2\.translate\s*\(', re.MULTILINE)
-            if pat_trans.search(code):
-                fixed_code = pat_trans.sub(r'\1\2.translate(', code)
+            # Check if this is a doc/object method on a None variable
+            _DOC_METHODS = (
+                "addObject", "recompute", "removeObject", "getObjectsByLabel",
+                "getObject", "save", "saveAs", "Label", "Objects", "Name",
+            )
+            attr_match = re.search(r"no attribute '(\w+)'", e_str)
+            if attr_match and attr_match.group(1) in _DOC_METHODS:
                 hints.append(
-                    "Hint: translate() modifies in-place and returns None. "
-                    "Removed the assignment."
+                    "Hint: A document variable (likely 'doc') is None — "
+                    "no active document exists. "
+                    "Create one first: doc = FreeCAD.newDocument('MyModel')"
                 )
             else:
-                # Boolean op without assignment: body.cut(hole)
-                pat_bool = re.compile(
-                    r'^(\s*)(\w+)\.(' + _BOOL_OPS + r')\s*\((.+?)\)\s*$', re.MULTILINE
-                )
-                if pat_bool.search(code):
-                    def _fix(m):
-                        indent, var, op, args = m.group(1), m.group(2), m.group(3), m.group(4)
-                        return f'{indent}{var} = {var}.{op}({args})'
-                    fixed_code = pat_bool.sub(_fix, code)
+                # translate() assignment: shape = shape.translate(...)
+                pat_trans = re.compile(r'^(\s*)(\w+)\s*=\s*\2\.translate\s*\(', re.MULTILINE)
+                if pat_trans.search(code):
+                    fixed_code = pat_trans.sub(r'\1\2.translate(', code)
                     hints.append(
-                        "Hint: Boolean ops (cut/fuse/common) return NEW shapes. "
-                        "Added assignment for the result."
+                        "Hint: translate() modifies in-place and returns None. "
+                        "Removed the assignment."
                     )
                 else:
-                    hints.append(
-                        "Hint: A method returned None instead of a shape. "
-                        "translate() modifies in-place (returns None). "
-                        "Boolean ops return NEW shapes — assign the result."
+                    # Boolean op without assignment: body.cut(hole)
+                    pat_bool = re.compile(
+                        r'^(\s*)(\w+)\.(' + _BOOL_OPS + r')\s*\((.+?)\)\s*$', re.MULTILINE
                     )
+                    if pat_bool.search(code):
+                        def _fix(m):
+                            indent, var, op, args = m.group(1), m.group(2), m.group(3), m.group(4)
+                            return f'{indent}{var} = {var}.{op}({args})'
+                        fixed_code = pat_bool.sub(_fix, code)
+                        hints.append(
+                            "Hint: Boolean ops (cut/fuse/common) return NEW shapes. "
+                            "Added assignment for the result."
+                        )
+                    else:
+                        hints.append(
+                            "Hint: A method returned None instead of a shape. "
+                            "translate() modifies in-place (returns None). "
+                            "Boolean ops return NEW shapes — assign the result."
+                        )
         elif "vector" in e_str.lower() and "freecad" in code.lower():
             pat_vec = re.compile(r'FreeCAD\.vector\s*\(', re.IGNORECASE)
             fixed_code = pat_vec.sub('FreeCAD.Vector(', code)

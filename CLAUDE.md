@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 本文件为 Claude Code (claude.ai/code) 在本仓库中工作时提供指导。
 
 ## 项目概述
@@ -23,23 +25,40 @@ pytest tests/test_token_budget.py::test_trim_preserves_system_prompt
 
 ## 架构
 
-### Agent 循环（`ui/panel.py` 中的状态机）
+### Agent 循环（双层拆分）
 
-核心流程：用户输入 → LLM 推理 → 工具调用 → 观察结果 → 再次推理 → 循环。
+Agent 循环的核心逻辑拆分为两层：
 
-状态机在两个线程间交替：
-1. **后台 QThread**（`_LlmCallThread`）：通过 SSE 流式接收 LLM API 响应
-2. **主线程**：执行工具（`exec()` 执行 FreeCAD 代码）— 因为 FreeCAD API 调用必须在主线程执行
+1. **`agent/loop.py`（`AgentLoop`）** — 纯逻辑状态机，返回 `LoopAction` 指令。无 Qt、无 FreeCAD 依赖。拥有迭代计数、模式（auto/tool_calling/react）、停止标志、计时。不拥有线程或 UI。包含错误去重：连续相同错误自动附加 WARNING 提示 LLM 改变策略。
 
-通过 Signal/Slot 连接：`chunkReady` → 流式显示，`streamDone` → 路由响应，`error` → 中止。
+2. **`ui/panel.py`（`AgentPanel` + `_LlmCallThread`）** — 线程编排层。解读 `LoopAction` 并执行：启动后台 QThread 流式调用 LLM → 主线程执行工具（`exec()` 执行 FreeCAD 代码）→ 再次调用 LLM。
+
+数据流：
+```
+用户输入 → AgentPanel._on_send()
+  → 收集文档上下文（doc_analyzer）
+  → AgentLoop.start() → LoopAction(CALL_LLM)
+  → _LlmCallThread（后台） → call_llm_streaming()
+  → streamDone 信号 → AgentLoop.handle_stream_done() → LoopAction
+    → EXECUTE_TOOLS: _execute_tools() → dispatch_tool() → AgentLoop.handle_tool_results() → 循环
+    → FINISH: _finish()
+```
 
 ### 双模式 LLM 调用
 
-在首次 LLM 响应时，面板自动检测模型能力：
+在首次 LLM 响应时，`AgentLoop` 自动检测模型能力：
 - **Tool Calling 模式**：模型在 API 响应中返回原生 `tool_calls` → 直接使用
 - **ReAct XML 模式**：模型在文本中返回 `<tool name="...">...</tool>` 标签 → 由 `react_parser.py` 解析 → 转换为相同的内部格式
 
 如果首次调用 `finish_reason == "stop"`、无 `tool_calls` 但含 `<tool>` 标签，则切换到 ReAct 模式并重新下发系统提示。ReAct 模式下工具结果以 user 消息发送（而非 `role="tool"`），因为模型不理解该角色。
+
+### 模型能力检测
+
+`agent/model_profile.py` 的 `ModelProfile.from_model_name()` 通过正则匹配模型名称来判断是否使用弱模型提示词。默认策略保守：所有模型默认视为弱模型，仅明确匹配的 2025 H2+ 前沿模型（GPT-4.1、Claude Opus/Sonnet 4、Gemini 2.5、DeepSeek R2、GLM-5、Qwen Max/72B、Kimi K2）使用完整提示词。
+
+### 工具注册与分发
+
+`agent/tool_dispatch.py` 实现注册式路由：工具在 `agent/tools.py` 中通过 `@register_tool(name)` 装饰器注册自身，`dispatch_tool(name, args_json)` 查表调用。纯 Python，无 FreeCAD 依赖。
 
 ### 面板拆分（`ui/panel.py`）
 
@@ -51,34 +70,26 @@ pytest tests/test_token_budget.py::test_trim_preserves_system_prompt
 
 所有 mixin 通过 `self`（`AgentPanel` 实例）共享状态。
 
-### 数据流
-
-```
-用户输入 → AgentPanel._on_send()
-  → 收集文档上下文（doc_analyzer）
-  → 设置系统提示（prompts.py，含 {context} 占位符）
-  → AgentPanel._call_llm()
-    → trim_messages() 裁剪 token 预算
-    → _LlmCallThread（后台） → call_llm_streaming()
-    → streamDone 信号 → _handle_llm_response()
-      → 有 tool_calls：_execute_tools() → dispatch_tool() → 循环回 _call_llm()
-      → stop / 无工具：_finish()
-```
-
 ### 模块职责
 
 | 模块 | 职责 |
 |------|------|
 | `InitGui.py` | FreeCAD 工作台注册。方法体中**必须使用局部导入**，因为 FreeCAD 通过 `exec()` 加载此文件。 |
+| `agent/loop.py` | 纯逻辑状态机（`AgentLoop`），返回 `LoopAction` 指令。无 Qt/FreeCAD 依赖。 |
 | `agent/controller.py` | 共享状态容器（session + result + mode），供 UI 驱动的 Agent 循环使用。本身不是循环。 |
-| `agent/tools.py` | 工具实现。`dispatch_tool()` 按名称路由。每个工具接收 JSON 参数字符串，返回结果字符串。`execute_code` 执行 validate→fix→exec→hint 流水线（见下文）并在执行前创建快照。含参数化设计支持：参数提取、替换、`update_parameter`/`list_parameters` 工具。 |
+| `agent/tools.py` | 工具实现。通过 `@register_tool` 注册。每个工具接收 JSON 参数字符串，返回结果字符串。`execute_code` 执行 validate→fix→exec→hint 流水线（见下文）并在执行前创建快照。含参数化设计支持。 |
+| `agent/tool_dispatch.py` | 纯路由：`register_tool()` 注册、`dispatch_tool()` 按名称查表调用。无 FreeCAD 依赖。 |
 | `agent/tool_defs.py` | OpenAI function calling API 的 JSON Schema 定义。 |
+| `agent/model_profile.py` | 模型能力检测：`ModelProfile.from_model_name()` 判断是否使用弱模型提示词。纯正则，无外部依赖。 |
 | `agent/code_fixes.py` | 弱模型兼容：`pre_validate_code()`（compile 检查）、`auto_fix_code()`（3 种模式：translate 赋值、布尔运算赋值、缺少 recompute）、`error_hint()`（按异常类型生成可操作提示）。无 FreeCAD 导入，可独立测试。 |
-| `agent/prompts.py` | 两套提示词：`AGENT_SYSTEM_PROMPT`（Tool Calling）和 `REACT_SYSTEM_PROMPT`（XML 标签）。均含 `{context}` 占位符用于插入文档几何信息和参数表。另有弱模型变体和遗留的 `SYSTEM_PROMPT_*` 用于单次模式。 |
+| `agent/prompts.py` | 两套提示词：`AGENT_SYSTEM_PROMPT`（Tool Calling）和 `REACT_SYSTEM_PROMPT`（XML 标签）。均含 `{context}` 占位符用于插入文档几何信息和参数表。另有弱模型变体（`WEAK_*`）。 |
+| `agent/react_parser.py` | 从 LLM 文本输出中解析 `<tool name="...">...</tool>` XML 标签，转为标准 tool_calls 格式。无 FreeCAD 依赖。 |
 | `core/llm_client.py` | 三个入口：`call_llm_with_tools()`（非流式）、`call_llm_streaming()`（SSE 生成器）、`generate_freecad_code()`（遗留单次）。 |
 | `core/session.py` | `ChatSession` — 有序消息列表，含 system/user/assistant/tool 角色。含 `parameters` 参数表和 `parametric_code` 参数化代码存储。支持序列化/反序列化。 |
 | `core/session_store.py` | JSON 文件持久化，存储在 `<FreeCAD 用户数据>/CadAgent/sessions/` 下。 |
-| `core/doc_analyzer.py` | 从 FreeCAD 文档提取包围盒、体积、质心、圆柱特征、平面等信息，以文本形式提供给 LLM 作为上下文。 |
+| `core/doc_analyzer.py` | 从 FreeCAD 文档提取包围盒、体积、质心、圆柱特征、平面等信息。依赖 `geometry_analyzer.py` 做纯数据分析。 |
+| `core/geometry_analyzer.py` | 纯数据结构的几何分析（dataclass），无 FreeCAD 导入。`ShapeInfo`、`FaceInfo` 等数据类。 |
+| `core/text_utils.py` | 文本工具：`strip_markdown()` 移除 Markdown 代码围栏。 |
 | `core/snapshot.py` | 基于 `.FCStd` 文件的撤销栈（最多 10 个）。`take_snapshot()` 在每次 `execute_code` 前调用，`restore_latest_snapshot()` 用于撤销。 |
 | `core/token_budget.py` | Token 估算（中文 ~1.5 字符/token，英文 ~4 字符/token）。`trim_messages()` 保留系统提示 + 最近 6 条消息，原子性移除工具调用对，必要时摘要中间历史。 |
 | `core/logger.py` | 双通道日志：FreeCAD.Console + `cadagent.log` 文件。提供 `log_info`、`log_warning`、`log_error`。 |

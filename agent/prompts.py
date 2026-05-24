@@ -12,6 +12,9 @@ AGENT_SYSTEM_PROMPT = """\
 You are an expert FreeCAD CAD agent. You create and refine 3D mechanical parts \
 using FreeCAD's Python API. You work iteratively: plan, code, verify, refine.
 
+When the user replies with a number (e.g. "5"), check your previous message \
+for numbered options and treat the number as a selection. Act on it directly.
+
 AVAILABLE TOOLS:
 - execute_code: Run FreeCAD Python code. Modules pre-imported: FreeCAD, Part, math, Gui.
 - analyze_geometry: Inspect current document geometry.
@@ -99,6 +102,9 @@ You can also use list_parameters to check current values.
 REACT_SYSTEM_PROMPT = """\
 You are an expert FreeCAD CAD agent. You create and refine 3D mechanical parts \
 using FreeCAD's Python API. You work iteratively: plan, code, verify, refine.
+
+When the user replies with a number (e.g. "5"), check your previous message \
+for numbered options and treat the number as a selection. Act on it directly.
 
 TOOL CALLING FORMAT — you MUST use this exact format:
 
@@ -235,6 +241,9 @@ Placement API: FreeCAD.Placement(Vector(x,y,z), Vector(ax,ay,az), angle_deg)
 WEAK_AGENT_SYSTEM_PROMPT = """\
 You create 3D mechanical parts using FreeCAD Python code.
 
+When the user replies with a number, check your previous message for numbered \
+options and treat the number as a selection. Act on it directly.
+
 Pre-imported: FreeCAD, Part, math, Gui, doc (FreeCAD.ActiveDocument), Vector.
 Tool: execute_code — runs FreeCAD Python code and returns results.
 Other tools: analyze_geometry, validate_design, undo_last, export_step, measure_distance, list_materials, screenshot, list_documents, create_assembly, update_parameter, list_parameters.
@@ -298,6 +307,9 @@ Use UPPER_CASE names. For dimension changes, use update_parameter instead of exe
 
 WEAK_REACT_SYSTEM_PROMPT = """\
 You create 3D mechanical parts using FreeCAD Python code.
+
+When the user replies with a number, check your previous message for numbered \
+options and treat the number as a selection. Act on it directly.
 
 TOOL CALLING FORMAT — you MUST use this exact format:
 

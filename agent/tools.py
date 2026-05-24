@@ -210,6 +210,23 @@ def _tool_execute_code(args_json: str) -> str:
             + "\n".join(f"  - {f}" for f in fixes) + "\n"
         )
 
+    # Auto-create document when none exists and code uses doc.XXX
+    doc_is_none = (target_doc is None) and (FreeCAD.ActiveDocument is None)
+    if doc_is_none and "doc." in code and "newDocument" not in code:
+        doc_create_line = 'doc = FreeCAD.newDocument("CadAgentModel")\n'
+        code = doc_create_line + code
+        fixes.append("Auto-created document (no active document found)")
+        if not fix_notice:
+            fix_notice = (
+                "Note: Auto-fixes applied:\n"
+                + "\n".join(f"  - {f}" for f in fixes) + "\n"
+            )
+        else:
+            fix_notice = (
+                "Note: Auto-fixes applied:\n"
+                + "\n".join(f"  - {f}" for f in fixes) + "\n"
+            )
+
     stdout_capture = io.StringIO()
 
     namespace = {
