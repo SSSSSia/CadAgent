@@ -121,7 +121,26 @@ def _tool_execute_code(args_json: str) -> str:
     except Exception as e:
         tb = traceback.format_exc()
         post_state = _safe_analyze()
-        hint = error_hint(e, code)
+        hint, fixed_code = error_hint(e, code)
+
+        # Auto-retry with fixed code if available
+        if fixed_code:
+            try:
+                with contextlib.redirect_stdout(stdout_capture):
+                    exec(fixed_code, namespace)
+                post_state = _safe_analyze()
+                parts = [
+                    f"SUCCESS (auto-corrected): Original error was {type(e).__name__}: {e}",
+                    f"Auto-fix: {hint}",
+                ]
+                stdout_text = stdout_capture.getvalue()
+                if stdout_text:
+                    parts.append(f"Stdout:\n{stdout_text}")
+                parts.append(f"Document state:\n{post_state}")
+                return "\n".join(parts)
+            except Exception:
+                pass  # auto-retry failed, fall through to error report
+
         parts = [f"ERROR: {type(e).__name__}: {e}", f"Traceback:\n{tb}"]
         if fix_notice:
             parts.append(fix_notice.rstrip())

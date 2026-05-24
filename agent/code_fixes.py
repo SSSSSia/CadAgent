@@ -55,39 +55,167 @@ def auto_fix_code(code: str) -> tuple[str, list[str]]:
         code = code.rstrip() + '\ndoc.recompute()\n'
         fixes.append("Added missing doc.recompute() at the end")
 
+    # Fix 4: Bare makeBox/makeCylinder/... without Part. prefix
+    pat4 = re.compile(r'(?<!\w)(?<!\.)(makeBox|makeCylinder|makeCone|makeSphere|makeTorus)\s*\(')
+    new_code = pat4.sub(r'Part.\1(', code)
+    if new_code != code:
+        fixes.append("Added missing 'Part.' prefix to primitive constructor(s)")
+        code = new_code
+
+    # Fix 5: FreeCAD.vector (lowercase v) → FreeCAD.Vector
+    pat5 = re.compile(r'FreeCAD\.vector\s*\(', re.IGNORECASE)
+    new_code = pat5.sub('FreeCAD.Vector(', code)
+    if new_code != code:
+        fixes.append("Fixed FreeCAD.vector → FreeCAD.Vector (case-sensitive)")
+        code = new_code
+
+    # Fix 6: doc.addObject(...) without assignment → _obj_N = doc.addObject(...)
+    _addobj_counter = 0
+    pat6 = re.compile(r'^(\s*)(doc\.addObject\s*\()', re.MULTILINE)
+
+    def _fix_addobj(m):
+        nonlocal _addobj_counter
+        indent, call = m.group(1), m.group(2)
+        # Check if already assigned (line starts with var = ...)
+        line_start = m.start()
+        prefix = code[:line_start]
+        last_newline = prefix.rfind('\n')
+        preceding = prefix[last_newline + 1:] if last_newline >= 0 else prefix
+        if '=' in preceding and preceding.strip():
+            return m.group(0)  # already has assignment
+        _addobj_counter += 1
+        fixes.append(f"Assigned doc.addObject() result to _obj_{_addobj_counter}")
+        return f'{indent}_obj_{_addobj_counter} = {call}'
+    new_code = pat6.sub(_fix_addobj, code)
+    if new_code != code:
+        code = new_code
+
+    # Fix 7: Residual markdown fences after strip_markdown
+    if code.strip().startswith('```') or code.strip().endswith('```'):
+        from core.text_utils import strip_markdown
+        stripped = strip_markdown(code)
+        if stripped != code:
+            fixes.append("Removed residual markdown code fences")
+            code = stripped
+
+    # Fix 8: Multi-arg boolean ops like body.cut(a, b) → body.cut(a).cut(b)
+    pat8 = re.compile(
+        r'(\w+)\s*=\s*(\w+)\.(cut|fuse|common)\s*\(\s*(\w+)\s*,\s*(\w+)\s*\)'
+    )
+    def _fix_multi_bool(m):
+        lhs, base, op, a, b = m.group(1), m.group(2), m.group(3), m.group(4), m.group(5)
+        fixes.append(f"Split {base}.{op}({a}, {b}) → chained {op} calls (boolean ops take one arg)")
+        return f'{lhs} = {base}.{op}({a}).{op}({b})'
+    new_code = pat8.sub(_fix_multi_bool, code)
+    if new_code != code:
+        code = new_code
+
+    # Fix 9: shape.Placement = ... (Part shapes don't have Placement)
+    pat9 = re.compile(r'^\s*\w+\.Placement\s*=.*$', re.MULTILINE)
+    new_code = pat9.sub('', code)
+    if new_code != code:
+        fixes.append("Removed .Placement assignment (Part shapes use translate(), not Placement)")
+        code = new_code
+
     return code, fixes
 
 
-def error_hint(error: Exception, code: str) -> str:
-    """Generate an actionable hint based on the error type and context."""
+def error_hint(error: Exception, code: str) -> tuple[str, str | None]:
+    """Generate an actionable hint and optional auto-fix code.
+
+    Returns (hint_text, fixed_code_or_None). When fixed_code is not None,
+    the caller can attempt to re-execute it automatically.
+    """
     hints = []
     e_type = type(error).__name__
     e_str = str(error)
+    fixed_code = None
+
+    _MAKE_FNS = ("makeBox", "makeCylinder", "makeCone", "makeSphere", "makeTorus")
 
     if e_type == "NameError":
-        hints.append(
-            "Hint: A variable is used before being defined. "
-            "Pre-imported names: FreeCAD, Part, math, Gui, doc, Vector, App. "
-            "Make sure you assign the result of each operation to a variable."
-        )
+        # Check if the undefined name is a bare Part constructor
+        for fn in _MAKE_FNS:
+            if fn in e_str:
+                pat = re.compile(r'(?<!\w)(?<!\.)' + fn + r'\s*\(')
+                fixed_code = pat.sub(f'Part.{fn}(', code)
+                if fixed_code != code:
+                    hints.append(f"Hint: '{fn}' is not a standalone function. Use Part.{fn}(...).")
+                else:
+                    fixed_code = None
+                break
+        if not hints:
+            hints.append(
+                "Hint: A variable is used before being defined. "
+                "Pre-imported names: FreeCAD, Part, math, Gui, doc, Vector, App. "
+                "Make sure you assign the result of each operation to a variable."
+            )
+
     elif e_type == "AttributeError":
         if "'NoneType'" in e_str:
-            hints.append(
-                "Hint: A method returned None instead of a shape. "
-                "translate() modifies in-place (returns None). "
-                "Boolean ops (cut/fuse/common) return NEW shapes — assign the result."
-            )
+            # translate() assignment: shape = shape.translate(...)
+            pat_trans = re.compile(r'^(\s*)(\w+)\s*=\s*\2\.translate\s*\(', re.MULTILINE)
+            if pat_trans.search(code):
+                fixed_code = pat_trans.sub(r'\1\2.translate(', code)
+                hints.append(
+                    "Hint: translate() modifies in-place and returns None. "
+                    "Removed the assignment."
+                )
+            else:
+                # Boolean op without assignment: body.cut(hole)
+                pat_bool = re.compile(
+                    r'^(\s*)(\w+)\.(' + _BOOL_OPS + r')\s*\((.+?)\)\s*$', re.MULTILINE
+                )
+                if pat_bool.search(code):
+                    def _fix(m):
+                        indent, var, op, args = m.group(1), m.group(2), m.group(3), m.group(4)
+                        return f'{indent}{var} = {var}.{op}({args})'
+                    fixed_code = pat_bool.sub(_fix, code)
+                    hints.append(
+                        "Hint: Boolean ops (cut/fuse/common) return NEW shapes. "
+                        "Added assignment for the result."
+                    )
+                else:
+                    hints.append(
+                        "Hint: A method returned None instead of a shape. "
+                        "translate() modifies in-place (returns None). "
+                        "Boolean ops return NEW shapes — assign the result."
+                    )
+        elif "vector" in e_str.lower() and "freecad" in code.lower():
+            pat_vec = re.compile(r'FreeCAD\.vector\s*\(', re.IGNORECASE)
+            fixed_code = pat_vec.sub('FreeCAD.Vector(', code)
+            if fixed_code != code:
+                hints.append("Hint: FreeCAD.Vector has a capital V. Fixed FreeCAD.vector → FreeCAD.Vector.")
+            else:
+                fixed_code = None
+                hints.append(
+                    "Hint: Check API names: Part.makeBox, Part.makeCylinder, "
+                    "FreeCAD.Vector, doc.addObject, obj.Shape."
+                )
         else:
             hints.append(
                 "Hint: Check API names: Part.makeBox, Part.makeCylinder, "
                 "FreeCAD.Vector, doc.addObject, obj.Shape."
             )
+
     elif e_type == "TypeError":
         if "translate" in code:
-            hints.append(
-                "Hint: translate() takes a FreeCAD.Vector, not separate x,y,z. "
-                "Use shape.translate(FreeCAD.Vector(x, y, z))."
-            )
+            # translate called with separate args instead of Vector
+            pat_t = re.compile(r'\.translate\s*\(\s*([^)]+)\)')
+            m = pat_t.search(code)
+            if m and 'Vector' not in m.group(1) and 'FreeCAD' not in m.group(1):
+                args = m.group(1).strip()
+                fixed_code = pat_t.sub(f'.translate(FreeCAD.Vector({args}))', code)
+                hints.append(
+                    "Hint: translate() takes a FreeCAD.Vector, not separate x,y,z. "
+                    "Wrapped args in Vector()."
+                )
+            else:
+                hints.append(
+                    "Hint: translate() takes a FreeCAD.Vector, not separate x,y,z. "
+                    "Use shape.translate(FreeCAD.Vector(x, y, z))."
+                )
+
     elif "OCC" in e_type or "BRep" in e_type:
         hints.append(
             "Hint: Boolean operation failed. Try: "
@@ -95,4 +223,4 @@ def error_hint(error: Exception, code: str) -> str:
             "(2) try a different boolean order."
         )
 
-    return "\n".join(hints)
+    return "\n".join(hints), fixed_code
