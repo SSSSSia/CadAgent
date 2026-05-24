@@ -29,6 +29,29 @@ from agent.tool_dispatch import register_tool, dispatch_tool  # noqa: F401
 
 
 # ---------------------------------------------------------------------------
+# Document resolution helper
+# ---------------------------------------------------------------------------
+
+def _resolve_doc(doc_name: str | None):
+    """Resolve a document name to a FreeCAD.Document.
+
+    Returns FreeCAD.ActiveDocument if doc_name is None or empty.
+    Returns None if the named document does not exist.
+    """
+    if not doc_name:
+        return FreeCAD.ActiveDocument
+    return FreeCAD.getDocument(doc_name)
+
+
+def _doc_list_str() -> str:
+    """Return comma-separated list of open document names."""
+    try:
+        return ", ".join(FreeCAD.listDocuments().keys())
+    except Exception:
+        return ""
+
+
+# ---------------------------------------------------------------------------
 # Restricted __builtins__ for exec() sandbox (CODE-1)
 # ---------------------------------------------------------------------------
 SAFE_BUILTINS = {
@@ -109,11 +132,17 @@ def _tool_execute_code(args_json: str) -> str:
     args = json.loads(args_json)
     code = args["code"].strip()
     description = args.get("description", "")
+    doc_name = args.get("document", "")
 
     code = strip_markdown(code)
 
     if not code:
         return "ERROR: Empty code block."
+
+    # Resolve target document
+    target_doc = _resolve_doc(doc_name)
+    if doc_name and target_doc is None:
+        return f"ERROR: Document '{doc_name}' not found. Available: {_doc_list_str()}"
 
     # Pre-validate syntax
     ok, syntax_err = pre_validate_code(code)
@@ -141,7 +170,7 @@ def _tool_execute_code(args_json: str) -> str:
         "Part": Part,
         "math": math,
         "Gui": Gui,
-        "doc": FreeCAD.ActiveDocument,
+        "doc": target_doc if target_doc else FreeCAD.ActiveDocument,
         "__builtins__": SAFE_BUILTINS,
         "Vector": FreeCAD.Vector,
         "App": FreeCAD,
@@ -154,28 +183,35 @@ def _tool_execute_code(args_json: str) -> str:
     try:
         # Snapshot before execution (so user can undo)
         try:
-            from core.snapshot import take_snapshot
-            take_snapshot()
+            if doc_name and target_doc:
+                from core.snapshot import take_snapshot_for_doc
+                take_snapshot_for_doc(target_doc)
+            else:
+                from core.snapshot import take_snapshot
+                take_snapshot()
         except Exception as e:
             log_warning(f"Snapshot failed, undo unavailable: {e}")
 
-        pre_state = _safe_analyze()
+        pre_state = _safe_analyze(target_doc)
 
         with contextlib.redirect_stdout(stdout_capture):
             exec(code, namespace)
 
-        post_exec_warnings = _post_exec_validate(FreeCAD.ActiveDocument)
-        orphan_names = _detect_orphan_shapes(namespace, FreeCAD.ActiveDocument)
+        exec_doc = target_doc or FreeCAD.ActiveDocument
+        post_exec_warnings = _post_exec_validate(exec_doc)
+        orphan_names = _detect_orphan_shapes(namespace, exec_doc)
         if orphan_names:
             post_exec_warnings.append(
                 f"Orphan shapes detected: {', '.join(orphan_names)} — "
                 f"these Part shapes were created but not added to the document. "
                 f"Use doc.addObject('Part::Feature', 'Name') and obj.Shape = shape to register them."
             )
-        post_state = _safe_analyze()
+        post_state = _safe_analyze(exec_doc)
         delta = _compute_delta(pre_state, post_state)
 
         parts = [f"SUCCESS: Code executed without errors."]
+        if doc_name:
+            parts.append(f"Target document: '{doc_name}'")
         if fix_notice:
             parts.append(fix_notice.rstrip())
         stdout_text = stdout_capture.getvalue()
@@ -189,7 +225,7 @@ def _tool_execute_code(args_json: str) -> str:
 
     except Exception as e:
         tb = traceback.format_exc()
-        post_state = _safe_analyze()
+        post_state = _safe_analyze(target_doc)
         hint, fixed_code = error_hint(e, code)
 
         # Auto-retry with fixed code if available
@@ -197,20 +233,23 @@ def _tool_execute_code(args_json: str) -> str:
             try:
                 with contextlib.redirect_stdout(stdout_capture):
                     exec(fixed_code, namespace)
-                post_exec_warnings = _post_exec_validate(FreeCAD.ActiveDocument)
-                orphan_names = _detect_orphan_shapes(namespace, FreeCAD.ActiveDocument)
+                exec_doc = target_doc or FreeCAD.ActiveDocument
+                post_exec_warnings = _post_exec_validate(exec_doc)
+                orphan_names = _detect_orphan_shapes(namespace, exec_doc)
                 if orphan_names:
                     post_exec_warnings.append(
                         f"Orphan shapes detected: {', '.join(orphan_names)} — "
                         f"these Part shapes were created but not added to the document. "
                         f"Use doc.addObject('Part::Feature', 'Name') and obj.Shape = shape to register them."
                     )
-                post_state = _safe_analyze()
+                post_state = _safe_analyze(exec_doc)
                 delta = _compute_delta(pre_state, post_state)
                 parts = [
                     f"SUCCESS (auto-corrected): Original error was {type(e).__name__}: {e}",
                     f"Auto-fix: {hint}",
                 ]
+                if doc_name:
+                    parts.append(f"Target document: '{doc_name}'")
                 stdout_text = stdout_capture.getvalue()
                 if stdout_text:
                     parts.append(f"Stdout:\n{stdout_text}")
@@ -222,7 +261,7 @@ def _tool_execute_code(args_json: str) -> str:
             except Exception:
                 pass  # auto-retry failed, fall through to error report
 
-        post_state = _safe_analyze()
+        post_state = _safe_analyze(target_doc)
         delta = _compute_delta(pre_state, post_state)
         parts = [f"ERROR: {type(e).__name__}: {e}", f"Traceback:\n{tb}"]
         if fix_notice:
@@ -242,8 +281,15 @@ def _tool_analyze_geometry(args_json: str) -> str:
     """Analyze current FreeCAD document geometry."""
     args = json.loads(args_json) if args_json.strip() else {}
     focus = args.get("focus", "all")
+    doc_name = args.get("document", "")
 
-    result = analyze_document(FreeCAD.ActiveDocument)
+    doc = _resolve_doc(doc_name)
+    if doc is None:
+        if doc_name:
+            return f"ERROR: Document '{doc_name}' not found. Available: {_doc_list_str()}"
+        return "No active document. Create one first with FreeCAD.newDocument()."
+
+    result = analyze_document(doc)
     if not result or "(No active document)" in result:
         return "No active document. Create one first with FreeCAD.newDocument()."
 
@@ -264,9 +310,12 @@ def _tool_validate_design(args_json: str) -> str:
     """Validate current design against stated requirements."""
     args = json.loads(args_json)
     requirements = args.get("requirements", "")
+    doc_name = args.get("document", "")
 
-    doc = FreeCAD.ActiveDocument
+    doc = _resolve_doc(doc_name)
     if doc is None:
+        if doc_name:
+            return f"FAIL: Document '{doc_name}' not found. Available: {_doc_list_str()}"
         return "FAIL: No active document."
 
     issues = []
@@ -348,9 +397,12 @@ def _tool_export_step(args_json: str) -> str:
     args = json.loads(args_json)
     filename = args["filename"]
     fmt = args.get("format", "step")
+    doc_name = args.get("document", "")
 
-    doc = FreeCAD.ActiveDocument
+    doc = _resolve_doc(doc_name)
     if doc is None:
+        if doc_name:
+            return f"ERROR: Document '{doc_name}' not found. Available: {_doc_list_str()}"
         return "ERROR: No active document to export."
 
     ext = os.path.splitext(filename)[1].lower()
@@ -412,9 +464,12 @@ def _tool_measure_distance(args_json: str) -> str:
     elem1_str = args["element1"]
     elem2_str = args["element2"]
     measure_type = args.get("measure_type", "distance")
+    doc_name = args.get("document", "")
 
-    doc = FreeCAD.ActiveDocument
+    doc = _resolve_doc(doc_name)
     if doc is None:
+        if doc_name:
+            return f"ERROR: Document '{doc_name}' not found. Available: {_doc_list_str()}"
         return "ERROR: No active document."
 
     try:
@@ -545,6 +600,108 @@ def _tool_screenshot(args_json: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Tool: list_documents
+# ---------------------------------------------------------------------------
+
+def _tool_list_documents(args_json: str) -> str:
+    """List all open FreeCAD documents."""
+    args = json.loads(args_json) if args_json.strip() else {}
+    include_geometry = args.get("include_geometry", False)
+
+    docs = FreeCAD.listDocuments()
+    if not docs:
+        return "No documents open."
+
+    active_name = FreeCAD.ActiveDocument.Name if FreeCAD.ActiveDocument else ""
+    lines = []
+    for name, doc in docs.items():
+        obj_count = len(doc.Objects)
+        shape_count = sum(
+            1 for o in doc.Objects
+            if hasattr(o, "Shape") and o.Shape and not o.Shape.isNull()
+        )
+        marker = " (active)" if name == active_name else ""
+        lines.append(f"- '{name}'{marker}: {obj_count} objects ({shape_count} with shapes)")
+        if include_geometry:
+            geo = analyze_document(doc)
+            for geo_line in geo.split("\n")[1:]:
+                lines.append(f"  {geo_line}")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Tool: create_assembly
+# ---------------------------------------------------------------------------
+
+def _tool_create_assembly(args_json: str) -> str:
+    """Create a new assembly document with parts copied from other documents."""
+    args = json.loads(args_json)
+    name = args["name"]
+    parts = args.get("parts", [])
+
+    # Check for name conflict
+    existing = FreeCAD.listDocuments()
+    actual_name = name
+    suffix = 1
+    while actual_name in existing:
+        actual_name = f"{name}_{suffix}"
+        suffix += 1
+
+    asm_doc = FreeCAD.newDocument(actual_name)
+
+    placed = []
+    errors = []
+
+    for part_spec in parts:
+        src_doc_name = part_spec.get("source_document", "")
+        obj_label = part_spec.get("object_label", "")
+        position = part_spec.get("position", [0, 0, 0])
+        rotation = part_spec.get("rotation", None)
+
+        src_doc = _resolve_doc(src_doc_name)
+        if src_doc is None:
+            errors.append(f"Source document '{src_doc_name}' not found")
+            continue
+
+        src_objs = src_doc.getObjectsByLabel(obj_label)
+        if not src_objs:
+            errors.append(f"Object '{obj_label}' not found in '{src_doc_name}'")
+            continue
+        src_obj = src_objs[0]
+
+        new_obj = asm_doc.copyObject(src_obj, True)
+
+        pos = FreeCAD.Vector(*position)
+        if rotation:
+            axis = FreeCAD.Vector(*rotation.get("axis", [0, 0, 1]))
+            angle = rotation.get("angle_deg", 0)
+            new_obj.Placement = FreeCAD.Placement(pos, axis, angle)
+        else:
+            new_obj.Placement = FreeCAD.Placement(pos, FreeCAD.Vector(0, 0, 1), 0)
+
+        placed.append(
+            f"'{obj_label}' from '{src_doc_name}' at "
+            f"({position[0]:.1f}, {position[1]:.1f}, {position[2]:.1f})"
+        )
+
+    asm_doc.recompute()
+
+    parts_line = "\n".join(f"  - {p}" for p in placed) if placed else "  (none)"
+    error_line = "\n".join(f"  - {e}" for e in errors) if errors else ""
+
+    result_parts = [
+        f"SUCCESS: Assembly document '{actual_name}' created with {len(placed)} part(s).",
+        f"Parts placed:\n{parts_line}",
+    ]
+    if errors:
+        result_parts.append(f"Errors:\n{error_line}")
+
+    result_parts.append(f"Assembly state:\n{_safe_analyze(asm_doc)}")
+    return "\n".join(result_parts)
+
+
+# ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
 
@@ -556,12 +713,15 @@ register_tool("export_step", _tool_export_step)
 register_tool("measure_distance", _tool_measure_distance)
 register_tool("list_materials", _tool_list_materials)
 register_tool("screenshot", _tool_screenshot)
+register_tool("list_documents", _tool_list_documents)
+register_tool("create_assembly", _tool_create_assembly)
 
 
-def _safe_analyze() -> str:
+def _safe_analyze(doc=None) -> str:
     """Safely analyze document, returning error string on failure."""
     try:
-        doc = FreeCAD.ActiveDocument
+        if doc is None:
+            doc = FreeCAD.ActiveDocument
         if doc:
             return analyze_document(doc)
         return "(no active document)"

@@ -21,6 +21,18 @@ AVAILABLE TOOLS:
 - measure_distance: Measure distance or angle between elements. Args: element1, element2 (labels or "point:x,y,z"), measure_type ("distance"/"angle").
 - list_materials: List engineering material properties (density, yield, modulus). Args: optional category filter.
 - screenshot: Capture 3D viewport as PNG image. Args: optional save_path, width, height.
+- list_documents: List all open FreeCAD documents with object counts. Args: optional include_geometry (bool).
+- create_assembly: Create assembly doc by copying parts from other documents with Placement. Args: name (required), parts[] (source_document, object_label, position [x,y,z], optional rotation {axis, angle_deg}).
+
+ASSEMBLY DESIGN MODE — when the user asks to create an assembly or multiple parts:
+1. Create each part in its own document: doc = FreeCAD.newDocument("PartName")
+2. Verify each part with analyze_geometry(document="PartName")
+3. When all parts are ready, call list_documents to confirm all are open
+4. Call create_assembly to combine all parts into one assembly document with positions
+5. Use measure_distance (with document="AssemblyName") to verify clearances
+
+All tools with a "document" parameter can target a specific document instead of the active one.
+Placement API: FreeCAD.Placement(Vector(x,y,z), Vector(ax,ay,az), angle_deg)
 
 WORKFLOW — follow these steps for EVERY design:
 1. Read requirements. FIRST, output a design plan as plain text (no tool call), \
@@ -111,6 +123,14 @@ TOOL CALLING FORMAT — you MUST use this exact format:
 {}
 </tool>
 
+<tool name="list_documents">
+{"include_geometry": false}
+</tool>
+
+<tool name="create_assembly">
+{"name": "MyAssembly", "parts": [{"source_document": "Base", "object_label": "Body", "position": [0, 0, 0], "rotation": {"axis": [0, 0, 1], "angle_deg": 45}}]}
+</tool>
+
 Available tools:
 - execute_code: Run FreeCAD Python code (FreeCAD, Part, math, Gui pre-imported)
 - analyze_geometry: Inspect current document geometry (no args needed, use {})
@@ -120,6 +140,8 @@ Available tools:
 - measure_distance: Measure distance or angle between elements (args: element1, element2, measure_type)
 - list_materials: List engineering material properties (args: optional category)
 - screenshot: Capture 3D viewport as PNG (no args needed, use {})
+- list_documents: List all open FreeCAD documents (args: optional include_geometry bool)
+- create_assembly: Create assembly by copying parts with Placement (args: name, parts[{source_document, object_label, position, rotation}])
 
 WORKFLOW — follow these steps for EVERY design:
 1. Read requirements. FIRST, output a design plan as plain text (no <tool> tags), \
@@ -164,6 +186,16 @@ Part API Quick Reference:
 - shape.translate(Vector) IN-PLACE, a.cut(b) NEW, a.fuse(b) NEW
 - FreeCAD.Vector(x,y,z)
 
+ASSEMBLY DESIGN MODE — when the user asks to create an assembly or multiple parts:
+1. Create each part in its own document: doc = FreeCAD.newDocument("PartName")
+2. Verify each part with analyze_geometry(document="PartName")
+3. When all parts are ready, call list_documents to confirm all are open
+4. Call create_assembly to combine all parts into one assembly document with positions
+5. Use measure_distance (with document="AssemblyName") to verify clearances
+
+All tools with a "document" parameter can target a specific document instead of the active one.
+Placement API: FreeCAD.Placement(Vector(x,y,z), Vector(ax,ay,az), angle_deg)
+
 {context}"""
 
 # ---------------------------------------------------------------------------
@@ -175,7 +207,7 @@ You create 3D mechanical parts using FreeCAD Python code.
 
 Pre-imported: FreeCAD, Part, math, Gui, doc (FreeCAD.ActiveDocument), Vector.
 Tool: execute_code — runs FreeCAD Python code and returns results.
-Other tools: analyze_geometry, validate_design, undo_last, export_step, measure_distance, list_materials, screenshot.
+Other tools: analyze_geometry, validate_design, undo_last, export_step, measure_distance, list_materials, screenshot, list_documents, create_assembly.
 
 WORKFLOW:
 1. Write a brief plan (2-3 sentences max).
@@ -222,6 +254,11 @@ API:
 - a.cut(b) NEW   a.fuse(b) NEW   a.common(b) NEW
 - shape.translate(Vector) IN-PLACE   Vector(x,y,z)
 
+ASSEMBLY: Create parts in separate docs (doc = FreeCAD.newDocument("name")), \
+then use create_assembly to combine them with positions.
+Tools with "document" param can target specific docs. \
+Placement: FreeCAD.Placement(Vector(x,y,z), Vector(ax,ay,az), angle_deg)
+
 {context}"""
 
 WEAK_REACT_SYSTEM_PROMPT = """\
@@ -235,7 +272,7 @@ TOOL CALLING FORMAT — you MUST use this exact format:
 
 Pre-imported: FreeCAD, Part, math, Gui, doc (FreeCAD.ActiveDocument), Vector.
 Available tool: execute_code — runs FreeCAD Python code and returns results.
-Other tools: analyze_geometry, validate_design, undo_last, export_step, measure_distance, list_materials, screenshot.
+Other tools: analyze_geometry, validate_design, undo_last, export_step, measure_distance, list_materials, screenshot, list_documents, create_assembly.
 
 WORKFLOW:
 1. Write a brief plan (2-3 sentences max).
@@ -282,6 +319,11 @@ API:
 - Part.makeSphere(r)   Part.makeTorus(r1,r2)
 - a.cut(b) NEW   a.fuse(b) NEW   a.common(b) NEW
 - shape.translate(Vector) IN-PLACE   Vector(x,y,z)
+
+ASSEMBLY: Create parts in separate docs (doc = FreeCAD.newDocument("name")), \
+then use create_assembly to combine them with positions.
+Tools with "document" param can target specific docs. \
+Placement: FreeCAD.Placement(Vector(x,y,z), Vector(ax,ay,az), angle_deg)
 
 {context}"""
 

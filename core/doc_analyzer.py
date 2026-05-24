@@ -106,3 +106,22 @@ def analyze_document(doc=None) -> str:
         lines.append(describe_shape(info))
 
     return "\n".join(lines)
+
+
+def analyze_all_documents() -> str:
+    """Analyze all open FreeCAD documents and return combined context."""
+    docs = FreeCAD.listDocuments()
+    if not docs:
+        return "(No documents open)"
+
+    active_name = FreeCAD.ActiveDocument.Name if FreeCAD.ActiveDocument else ""
+    lines = []
+    for name, doc in docs.items():
+        marker = " [ACTIVE]" if name == active_name else ""
+        lines.append(f"=== Document: '{name}'{marker} ===")
+        doc_analysis = analyze_document(doc)
+        for line in doc_analysis.split("\n")[1:]:
+            lines.append(line)
+        lines.append("")
+
+    return "\n".join(lines)

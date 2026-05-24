@@ -25,6 +25,10 @@ TOOL_DEFINITIONS = [
                     "description": {
                         "type": "string",
                         "description": "Brief description of what this code does"
+                    },
+                    "document": {
+                        "type": "string",
+                        "description": "Optional target document name. Defaults to FreeCAD.ActiveDocument. Use for cross-document operations."
                     }
                 },
                 "required": ["code", "description"]
@@ -47,6 +51,10 @@ TOOL_DEFINITIONS = [
                         "type": "string",
                         "description": "Aspect to focus on",
                         "enum": ["all", "dimensions", "features"],
+                    },
+                    "document": {
+                        "type": "string",
+                        "description": "Optional target document name. Defaults to FreeCAD.ActiveDocument."
                     }
                 }
             }
@@ -67,6 +75,10 @@ TOOL_DEFINITIONS = [
                     "requirements": {
                         "type": "string",
                         "description": "The user's design requirements to validate against"
+                    },
+                    "document": {
+                        "type": "string",
+                        "description": "Optional target document name. Defaults to FreeCAD.ActiveDocument."
                     }
                 },
                 "required": ["requirements"]
@@ -109,6 +121,10 @@ TOOL_DEFINITIONS = [
                         "type": "string",
                         "description": "Export format",
                         "enum": ["step", "iges"],
+                    },
+                    "document": {
+                        "type": "string",
+                        "description": "Optional target document name. Defaults to FreeCAD.ActiveDocument."
                     }
                 },
                 "required": ["filename"]
@@ -139,6 +155,10 @@ TOOL_DEFINITIONS = [
                         "type": "string",
                         "description": "Type of measurement",
                         "enum": ["distance", "angle"],
+                    },
+                    "document": {
+                        "type": "string",
+                        "description": "Optional target document name. Defaults to FreeCAD.ActiveDocument."
                     }
                 },
                 "required": ["element1", "element2"]
@@ -189,6 +209,85 @@ TOOL_DEFINITIONS = [
                         "description": "Image height in pixels (100-4096, default 600)",
                     }
                 }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_documents",
+            "description": (
+                "List all open FreeCAD documents with their names, object counts, "
+                "and shape counts. Use before assembly operations to identify available "
+                "documents and parts."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "include_geometry": {
+                        "type": "boolean",
+                        "description": "Whether to include geometry summary for each document (default: false)"
+                    }
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_assembly",
+            "description": (
+                "Create a new FreeCAD document as an assembly container, "
+                "copy parts from existing documents, and position them using Placement. "
+                "Use to combine multiple parts into an assembly."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Name for the new assembly document"
+                    },
+                    "parts": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "source_document": {
+                                    "type": "string",
+                                    "description": "Name of source document to copy from"
+                                },
+                                "object_label": {
+                                    "type": "string",
+                                    "description": "Label of object to copy"
+                                },
+                                "position": {
+                                    "type": "array",
+                                    "items": {"type": "number"},
+                                    "description": "[x, y, z] position in mm"
+                                },
+                                "rotation": {
+                                    "type": "object",
+                                    "description": "Rotation: axis [x,y,z] and angle in degrees",
+                                    "properties": {
+                                        "axis": {
+                                            "type": "array",
+                                            "items": {"type": "number"},
+                                            "description": "Rotation axis [x, y, z]"
+                                        },
+                                        "angle_deg": {
+                                            "type": "number",
+                                            "description": "Rotation angle in degrees"
+                                        }
+                                    }
+                                }
+                            },
+                            "required": ["source_document", "object_label", "position"]
+                        },
+                        "description": "List of parts to place in the assembly"
+                    }
+                },
+                "required": ["name"]
             }
         }
     },

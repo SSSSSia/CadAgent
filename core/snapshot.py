@@ -74,17 +74,18 @@ class SnapshotManager:
 
     # --- Core operations ---
 
-    def take(self) -> str | None:
-        """Save a snapshot of the active FreeCAD document.
+    def take(self, doc=None) -> str | None:
+        """Save a snapshot of the specified or active FreeCAD document.
 
-        Returns the snapshot file path, or None if no active document.
+        Returns the snapshot file path, or None if no document available.
         """
         try:
             import FreeCAD
         except ImportError:
             return None
 
-        doc = FreeCAD.ActiveDocument
+        if doc is None:
+            doc = FreeCAD.ActiveDocument
         if doc is None:
             return None
 
@@ -227,3 +228,8 @@ def restore_latest_snapshot() -> str:
 
 def cleanup_all_snapshots() -> None:
     _default_manager.cleanup_all()
+
+
+def take_snapshot_for_doc(doc) -> str | None:
+    """Take a snapshot of a specific document (not necessarily active)."""
+    return _default_manager.take(doc)

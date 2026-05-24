@@ -191,7 +191,13 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         doc = FreeCAD.ActiveDocument
         if doc:
             try:
-                context = analyze_document(doc)
+                # If multiple documents are open, include all of them
+                all_docs = FreeCAD.listDocuments()
+                if len(all_docs) > 1:
+                    from core.doc_analyzer import analyze_all_documents
+                    context = analyze_all_documents()
+                else:
+                    context = analyze_document(doc)
             except Exception as e:
                 log_warning(f"Document analysis failed: {e}")
                 context = ""
