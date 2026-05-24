@@ -90,4 +90,106 @@ TOOL_DEFINITIONS = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "export_step",
+            "description": (
+                "Export current FreeCAD document to STEP or IGES file format. "
+                "Use to save geometry for manufacturing or exchange with other CAD software."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "Output file path. Extension should match format (.step/.stp or .iges/.igs)."
+                    },
+                    "format": {
+                        "type": "string",
+                        "description": "Export format",
+                        "enum": ["step", "iges"],
+                    }
+                },
+                "required": ["filename"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "measure_distance",
+            "description": (
+                "Measure distance or angle between two geometric elements in the current document. "
+                "Elements can be object labels (e.g. 'Body') or point coordinates (e.g. 'point:x,y,z'). "
+                "Use to verify clearances, check mating gaps, or confirm dimensions."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "element1": {
+                        "type": "string",
+                        "description": "First element: object label (e.g. 'Housing') or point as 'point:x,y,z'"
+                    },
+                    "element2": {
+                        "type": "string",
+                        "description": "Second element: same format as element1"
+                    },
+                    "measure_type": {
+                        "type": "string",
+                        "description": "Type of measurement",
+                        "enum": ["distance", "angle"],
+                    }
+                },
+                "required": ["element1", "element2"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_materials",
+            "description": (
+                "List common engineering materials with density, yield strength, and elastic modulus. "
+                "Use to look up material properties for weight estimation or structural analysis."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "description": "Optional category filter",
+                        "enum": ["steel", "aluminum", "titanium", "copper", "plastic", "all"],
+                    }
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "screenshot",
+            "description": (
+                "Capture the current FreeCAD 3D viewport as a PNG image. "
+                "Use to save a visual record of the current design state."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "save_path": {
+                        "type": "string",
+                        "description": "File path to save the screenshot (PNG). Auto-generated in temp dir if omitted."
+                    },
+                    "width": {
+                        "type": "integer",
+                        "description": "Image width in pixels (100-4096, default 800)",
+                    },
+                    "height": {
+                        "type": "integer",
+                        "description": "Image height in pixels (100-4096, default 600)",
+                    }
+                }
+            }
+        }
+    },
 ]

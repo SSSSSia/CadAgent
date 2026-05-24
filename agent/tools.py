@@ -9,7 +9,10 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import re
+import tempfile
+import time
 import traceback
 
 import FreeCAD
@@ -313,6 +316,235 @@ def _tool_undo_last(args_json: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Materials reference table
+# ---------------------------------------------------------------------------
+
+_MATERIALS_TABLE = [
+    # (name, category, density_kg_m3, yield_strength_MPa, elastic_modulus_GPa)
+    ("AISI 1045 Steel", "steel", 7850, 530, 200),
+    ("AISI 304 Stainless", "steel", 8000, 215, 193),
+    ("AISI 4140 Alloy Steel", "steel", 7850, 655, 205),
+    ("AISI 1018 Mild Steel", "steel", 7870, 370, 205),
+    ("6061-T6 Aluminum", "aluminum", 2700, 276, 68.9),
+    ("7075-T6 Aluminum", "aluminum", 2810, 503, 71.7),
+    ("2024-T3 Aluminum", "aluminum", 2780, 345, 73.1),
+    ("Ti-6Al-4V Titanium", "titanium", 4430, 880, 114),
+    ("Grade 2 Titanium", "titanium", 4510, 275, 103),
+    ("C110 Copper", "copper", 8960, 220, 117),
+    ("C36000 Brass", "copper", 8530, 310, 97),
+    ("ABS Plastic", "plastic", 1040, 43, 2.3),
+    ("Nylon 6/6", "plastic", 1140, 82, 2.9),
+    ("Polycarbonate", "plastic", 1200, 62, 2.4),
+    ("PEEK", "plastic", 1310, 91, 3.6),
+]
+
+
+# ---------------------------------------------------------------------------
+# Tool: export_step
+# ---------------------------------------------------------------------------
+
+def _tool_export_step(args_json: str) -> str:
+    """Export current document to STEP or IGES file."""
+    args = json.loads(args_json)
+    filename = args["filename"]
+    fmt = args.get("format", "step")
+
+    doc = FreeCAD.ActiveDocument
+    if doc is None:
+        return "ERROR: No active document to export."
+
+    ext = os.path.splitext(filename)[1].lower()
+    if not ext:
+        filename += ".step" if fmt == "step" else ".iges"
+    elif fmt == "iges" and ext not in (".iges", ".igs"):
+        return "ERROR: Format is 'iges' but filename extension is not .iges/.igs"
+    elif fmt == "step" and ext not in (".step", ".stp"):
+        return "ERROR: Format is 'step' but filename extension is not .step/.stp"
+
+    parent = os.path.dirname(filename)
+    if parent and not os.path.isdir(parent):
+        return f"ERROR: Directory does not exist: {parent}"
+
+    try:
+        import Import
+        Import.export(doc.Objects, filename)
+        return (
+            f"SUCCESS: Exported {len(doc.Objects)} objects to {filename}\n"
+            f"Format: {fmt.upper()}\n"
+            f"File size: {os.path.getsize(filename)} bytes"
+        )
+    except Exception as e:
+        try:
+            shapes = [o for o in doc.Objects
+                      if hasattr(o, "Shape") and o.Shape and not o.Shape.isNull()]
+            if not shapes:
+                return f"ERROR: No shape objects to export. Original error: {e}"
+            Part.export(shapes, filename)
+            return (
+                f"SUCCESS: Exported {len(shapes)} shapes to {filename} (Part.export fallback)\n"
+                f"Format: {fmt.upper()}\n"
+                f"File size: {os.path.getsize(filename)} bytes"
+            )
+        except Exception as e2:
+            return f"ERROR: Export failed: {type(e2).__name__}: {e2}"
+
+
+# ---------------------------------------------------------------------------
+# Tool: measure_distance
+# ---------------------------------------------------------------------------
+
+def _resolve_element(elem_str, doc):
+    """Resolve element string to a Part.Shape or FreeCAD.Vector."""
+    if elem_str.startswith("point:"):
+        parts = elem_str[6:].split(",")
+        if len(parts) != 3:
+            raise ValueError(f"Invalid point format: {elem_str}. Use 'point:x,y,z'")
+        return FreeCAD.Vector(float(parts[0]), float(parts[1]), float(parts[2]))
+    objs = doc.getObjectsByLabel(elem_str)
+    if objs and hasattr(objs[0], "Shape") and objs[0].Shape and not objs[0].Shape.isNull():
+        return objs[0].Shape
+    raise ValueError(f"Object not found or has no valid shape: {elem_str}")
+
+
+def _tool_measure_distance(args_json: str) -> str:
+    """Measure distance or angle between two geometric elements."""
+    args = json.loads(args_json)
+    elem1_str = args["element1"]
+    elem2_str = args["element2"]
+    measure_type = args.get("measure_type", "distance")
+
+    doc = FreeCAD.ActiveDocument
+    if doc is None:
+        return "ERROR: No active document."
+
+    try:
+        elem1 = _resolve_element(elem1_str, doc)
+        elem2 = _resolve_element(elem2_str, doc)
+    except ValueError as e:
+        return f"ERROR: {e}"
+
+    try:
+        if measure_type == "distance":
+            if isinstance(elem1, Part.Shape) and isinstance(elem2, Part.Shape):
+                dist, pairs, _ = elem1.distToShape(elem2)
+                result = f"Distance: {dist:.4f} mm"
+                if pairs:
+                    p1, p2 = pairs[0][0], pairs[0][1]
+                    result += (
+                        f"\nNearest points: ({p1.x:.2f}, {p1.y:.2f}, {p1.z:.2f}) "
+                        f"<-> ({p2.x:.2f}, {p2.y:.2f}, {p2.z:.2f})"
+                    )
+                return result
+            if isinstance(elem1, Part.Shape) and isinstance(elem2, FreeCAD.Vector):
+                dist = elem1.distToShape(Part.Vertex(elem2))
+                return f"Distance: {dist[0]:.4f} mm"
+            if isinstance(elem1, FreeCAD.Vector) and isinstance(elem2, Part.Shape):
+                dist = elem2.distToShape(Part.Vertex(elem1))
+                return f"Distance: {dist[0]:.4f} mm"
+            if isinstance(elem1, FreeCAD.Vector) and isinstance(elem2, FreeCAD.Vector):
+                dist = (elem1 - elem2).Length
+                return f"Distance: {dist:.4f} mm"
+
+        elif measure_type == "angle":
+            def _get_center(e):
+                if isinstance(e, FreeCAD.Vector):
+                    return e
+                return e.CenterOfMass if hasattr(e, "CenterOfMass") else e.BoundBox.Center
+
+            c1 = _get_center(elem1)
+            c2 = _get_center(elem2)
+            direction = c2 - c1
+            if direction.Length < 1e-10:
+                return "ERROR: Elements are at the same position, cannot compute angle."
+            z_axis = FreeCAD.Vector(0, 0, 1)
+            cos_angle = max(-1, min(1, direction.normalize().dot(z_axis)))
+            angle_rad = math.acos(cos_angle)
+            return f"Angle: {math.degrees(angle_rad):.2f} degrees (between connecting line and Z-axis)"
+
+        return f"ERROR: Unknown measure_type: {measure_type}"
+
+    except Exception as e:
+        return f"ERROR: Measurement failed: {type(e).__name__}: {e}"
+
+
+# ---------------------------------------------------------------------------
+# Tool: list_materials
+# ---------------------------------------------------------------------------
+
+def _tool_list_materials(args_json: str) -> str:
+    """List common engineering materials with properties."""
+    args = json.loads(args_json) if args_json.strip() else {}
+    category = args.get("category", "all")
+
+    filtered = _MATERIALS_TABLE
+    if category != "all":
+        filtered = [m for m in _MATERIALS_TABLE if m[1] == category]
+
+    if not filtered:
+        return (
+            f"No materials found for category: {category}\n"
+            "Available categories: steel, aluminum, titanium, copper, plastic, all"
+        )
+
+    lines = [
+        f"{'Material':<28} {'Density':>10} {'Yield':>10} {'Elastic':>10}",
+        f"{'':_<28} {'kg/m3':>10} {'MPa':>10} {'GPa':>10}",
+    ]
+    for name, cat, density, yield_s, elastic in filtered:
+        lines.append(f"{name:<28} {density:>10.0f} {yield_s:>10.0f} {elastic:>10.1f}")
+
+    lines.append(f"\nTotal: {len(filtered)} materials")
+    if category == "all":
+        lines.append("Filter by category: steel, aluminum, titanium, copper, plastic")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Tool: screenshot
+# ---------------------------------------------------------------------------
+
+def _tool_screenshot(args_json: str) -> str:
+    """Capture the current FreeCAD 3D viewport as a PNG image."""
+    args = json.loads(args_json) if args_json.strip() else {}
+    save_path = args.get("save_path", "")
+    width = max(100, min(4096, int(args.get("width", 800))))
+    height = max(100, min(4096, int(args.get("height", 600))))
+
+    if not save_path:
+        temp_dir = tempfile.gettempdir()
+        save_path = os.path.join(temp_dir, f"cadagent_screenshot_{int(time.time())}.png")
+
+    if not save_path.lower().endswith(".png"):
+        save_path += ".png"
+
+    parent = os.path.dirname(save_path)
+    if parent and not os.path.isdir(parent):
+        return f"ERROR: Directory does not exist: {parent}"
+
+    try:
+        gui_doc = Gui.activeDocument()
+        if gui_doc is None:
+            return "ERROR: No active document view. Open a document first."
+
+        view = gui_doc.activeView()
+        if view is None:
+            return "ERROR: No active 3D view available."
+
+        view.saveImage(save_path, width, height)
+
+        file_size = os.path.getsize(save_path)
+        return (
+            f"SUCCESS: Screenshot saved.\n"
+            f"Path: {save_path}\n"
+            f"Resolution: {width}x{height}\n"
+            f"File size: {file_size} bytes"
+        )
+    except Exception as e:
+        return f"ERROR: Screenshot failed: {type(e).__name__}: {e}"
+
+
+# ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
 
@@ -320,6 +552,10 @@ register_tool("execute_code", _tool_execute_code)
 register_tool("analyze_geometry", _tool_analyze_geometry)
 register_tool("validate_design", _tool_validate_design)
 register_tool("undo_last", _tool_undo_last)
+register_tool("export_step", _tool_export_step)
+register_tool("measure_distance", _tool_measure_distance)
+register_tool("list_materials", _tool_list_materials)
+register_tool("screenshot", _tool_screenshot)
 
 
 def _safe_analyze() -> str:

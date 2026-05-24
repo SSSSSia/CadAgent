@@ -17,6 +17,10 @@ AVAILABLE TOOLS:
 - analyze_geometry: Inspect current document geometry.
 - validate_design: Check design against requirements.
 - undo_last: Undo last execute_code by restoring document to pre-execution state.
+- export_step: Export document to STEP/IGES file. Args: filename (required), format ("step"/"iges").
+- measure_distance: Measure distance or angle between elements. Args: element1, element2 (labels or "point:x,y,z"), measure_type ("distance"/"angle").
+- list_materials: List engineering material properties (density, yield, modulus). Args: optional category filter.
+- screenshot: Capture 3D viewport as PNG image. Args: optional save_path, width, height.
 
 WORKFLOW — follow these steps for EVERY design:
 1. Read requirements. FIRST, output a design plan as plain text (no tool call), \
@@ -91,11 +95,31 @@ TOOL CALLING FORMAT — you MUST use this exact format:
 {}
 </tool>
 
+<tool name="export_step">
+{"filename": "/path/to/part.step", "format": "step"}
+</tool>
+
+<tool name="measure_distance">
+{"element1": "Body", "element2": "point:10,20,30", "measure_type": "distance"}
+</tool>
+
+<tool name="list_materials">
+{"category": "steel"}
+</tool>
+
+<tool name="screenshot">
+{}
+</tool>
+
 Available tools:
 - execute_code: Run FreeCAD Python code (FreeCAD, Part, math, Gui pre-imported)
 - analyze_geometry: Inspect current document geometry (no args needed, use {})
 - validate_design: Check design against requirements
 - undo_last: Undo last execute_code, restore document snapshot (no args needed, use {})
+- export_step: Export document to STEP/IGES file (args: filename, format)
+- measure_distance: Measure distance or angle between elements (args: element1, element2, measure_type)
+- list_materials: List engineering material properties (args: optional category)
+- screenshot: Capture 3D viewport as PNG (no args needed, use {})
 
 WORKFLOW — follow these steps for EVERY design:
 1. Read requirements. FIRST, output a design plan as plain text (no <tool> tags), \
@@ -151,6 +175,7 @@ You create 3D mechanical parts using FreeCAD Python code.
 
 Pre-imported: FreeCAD, Part, math, Gui, doc (FreeCAD.ActiveDocument), Vector.
 Tool: execute_code — runs FreeCAD Python code and returns results.
+Other tools: analyze_geometry, validate_design, undo_last, export_step, measure_distance, list_materials, screenshot.
 
 WORKFLOW:
 1. Write a brief plan (2-3 sentences max).
@@ -210,6 +235,7 @@ TOOL CALLING FORMAT — you MUST use this exact format:
 
 Pre-imported: FreeCAD, Part, math, Gui, doc (FreeCAD.ActiveDocument), Vector.
 Available tool: execute_code — runs FreeCAD Python code and returns results.
+Other tools: analyze_geometry, validate_design, undo_last, export_step, measure_distance, list_materials, screenshot.
 
 WORKFLOW:
 1. Write a brief plan (2-3 sentences max).
