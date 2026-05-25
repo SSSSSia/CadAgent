@@ -126,6 +126,8 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
 
     def __init__(self, parent=None):
         super().__init__("CadAgent", parent)
+        from agent.tools import clear_persistent_vars
+        clear_persistent_vars()
         self._session = ChatSession()
         self._current_session_id = self._session.session_id
         self._controller = None
@@ -360,10 +362,11 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
                 description=desc, result=tool_result, is_error=is_error,
             ))
 
-        # Sync parameters from tools to session
+        # Sync parameters and persistent vars from tools to session
         try:
-            from agent.tools import get_param_store
+            from agent.tools import get_param_store, get_persistent_vars
             self._controller.session.parameters = get_param_store()
+            self._controller.session.persistent_vars = get_persistent_vars()
         except Exception:
             pass
 
@@ -443,6 +446,8 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             self._llm_thread.quit()
             self._llm_thread.wait(3000)
         self._store.save_if_not_empty(self._session)
+        from agent.tools import clear_persistent_vars
+        clear_persistent_vars()
         from core.snapshot import cleanup_all_snapshots
         cleanup_all_snapshots()
         self._session = ChatSession()

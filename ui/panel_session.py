@@ -34,6 +34,8 @@ class _PanelSessionMixin:
                 self._refresh_session_list()
                 return
             self._store.save_if_not_empty(self._session)
+            from agent.tools import clear_persistent_vars
+            clear_persistent_vars()
             from core.session import ChatSession
             self._session = ChatSession()
             self._current_session_id = self._session.session_id
@@ -59,6 +61,8 @@ class _PanelSessionMixin:
             self._refresh_session_list()
             return
         self._store.save_if_not_empty(self._session)
+        from agent.tools import clear_persistent_vars
+        clear_persistent_vars()
         loaded = self._store.load(session_id)
         if loaded is None:
             self._append_system_msg("加载会话失败。")
@@ -68,11 +72,17 @@ class _PanelSessionMixin:
         self._current_session_id = loaded.session_id
         self._mode = loaded.last_mode
 
-        # Sync parameters from loaded session to tool store
+        # Sync parameters and persistent vars from loaded session to tool store
         if loaded.parameters:
             try:
                 from agent.tools import set_param_store
                 set_param_store(loaded.parameters)
+            except Exception:
+                pass
+        if loaded.persistent_vars:
+            try:
+                from agent.tools import set_persistent_vars
+                set_persistent_vars(loaded.persistent_vars)
             except Exception:
                 pass
 
@@ -167,6 +177,8 @@ class _PanelSessionMixin:
             return
 
         if is_active:
+            from agent.tools import clear_persistent_vars
+            clear_persistent_vars()
             from core.session import ChatSession
             self._session = ChatSession()
             self._current_session_id = self._session.session_id

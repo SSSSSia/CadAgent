@@ -35,7 +35,43 @@ from agent.tool_dispatch import register_tool, dispatch_tool  # noqa: F401
 _PARAM_STORE: dict[str, float | int] = {}
 _PARAMETRIC_CODE: str = ""
 
+# Variables persisted between execute_code calls so LLM can reference
+# values defined in earlier iterations (e.g. CUP_DIAMETER from step 1).
+_PERSISTENT_VARS: dict = {}
+_BUILTIN_NAMES = frozenset({
+    "FreeCAD", "Part", "math", "Gui", "doc", "Vector", "App",
+    "pi", "sin", "cos", "sqrt", "__builtins__",
+})
+
+# Only these types are safe to persist — no FreeCAD C++ object references.
+_PERSISTABLE_TYPES = (int, float, str, bool, type(None))
+
 _PARAM_PATTERN = re.compile(r'^([A-Z][A-Z0-9_]*)\s*=\s*([-+]?[\d.]+)\s*$')
+
+
+def _save_user_vars(namespace: dict) -> None:
+    """Copy safe user-defined variables from exec namespace into _PERSISTENT_VARS."""
+    for name, value in namespace.items():
+        if name.startswith("_") or name in _BUILTIN_NAMES:
+            continue
+        if isinstance(value, _PERSISTABLE_TYPES):
+            _PERSISTENT_VARS[name] = value
+
+
+def clear_persistent_vars() -> None:
+    """Clear all persisted variables (call on new session)."""
+    _PERSISTENT_VARS.clear()
+
+
+def get_persistent_vars() -> dict:
+    """Return a copy of persistent vars (for session serialization)."""
+    return dict(_PERSISTENT_VARS)
+
+
+def set_persistent_vars(vars: dict) -> None:
+    """Restore persistent vars (for session deserialization)."""
+    _PERSISTENT_VARS.clear()
+    _PERSISTENT_VARS.update(vars)
 
 
 def _extract_parameters(code: str) -> dict:
@@ -243,6 +279,8 @@ def _tool_execute_code(args_json: str) -> str:
         "cos": math.cos,
         "sqrt": math.sqrt,
     }
+    # Inject variables from previous execute_code calls
+    namespace.update(_PERSISTENT_VARS)
 
     try:
         # Snapshot before execution (so user can undo)
@@ -260,6 +298,9 @@ def _tool_execute_code(args_json: str) -> str:
 
         with contextlib.redirect_stdout(stdout_capture):
             exec(code, namespace)
+
+        # Persist user-defined variables for subsequent execute_code calls
+        _save_user_vars(namespace)
 
         exec_doc = target_doc or FreeCAD.ActiveDocument
         post_exec_warnings = _post_exec_validate(exec_doc)
@@ -306,6 +347,8 @@ def _tool_execute_code(args_json: str) -> str:
             try:
                 with contextlib.redirect_stdout(stdout_capture):
                     exec(fixed_code, namespace)
+                # Persist user-defined variables after auto-retry success
+                _save_user_vars(namespace)
                 exec_doc = target_doc or FreeCAD.ActiveDocument
                 post_exec_warnings = _post_exec_validate(exec_doc)
                 orphan_names = _detect_orphan_shapes(namespace, exec_doc)
