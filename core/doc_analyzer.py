@@ -68,6 +68,7 @@ def _extract_face_info(face) -> FaceInfo:
 def _extract_shape_info(shape) -> ShapeInfo:
     bb = shape.BoundBox
     com = getattr(shape, "CenterOfMass", None)
+    solid_list = shape.Solids
     return ShapeInfo(
         bound_box={
             "XMin": bb.XMin, "XMax": bb.XMax,
@@ -79,9 +80,11 @@ def _extract_shape_info(shape) -> ShapeInfo:
         edges=len(shape.Edges),
         vertices=len(shape.Vertexes),
         center_of_mass=(com.x, com.y, com.z) if com else None,
+        shape_type=shape.ShapeType,
+        solid_count=len(solid_list),
         solids=[
             SolidInfo(faces=[_extract_face_info(f) for f in solid.Faces])
-            for solid in shape.Solids
+            for solid in solid_list
         ],
     )
 

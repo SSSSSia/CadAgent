@@ -12,6 +12,7 @@ from core.geometry_analyzer import (
     detect_conical_faces, detect_spherical_faces,
     detect_helical_faces, detect_hole_patterns,
     detect_symmetry, detect_wall_thickness,
+    detect_topology_issues,
 )
 
 
@@ -406,3 +407,71 @@ def test_describe_shape_symmetry():
 def test_describe_shape_thin_wall():
     text = describe_shape(_thin_wall_shape())
     assert "Thin-wall" in text
+
+
+# ---- detect_topology_issues ----
+
+def test_topology_issues_ok():
+    info = ShapeInfo(solid_count=1, shape_type="Solid")
+    assert detect_topology_issues(info) == []
+
+
+def test_topology_issues_no_solids():
+    info = ShapeInfo(solid_count=0, shape_type="Shell")
+    issues = detect_topology_issues(info)
+    assert len(issues) >= 1
+    assert "no solid components" in issues[0].lower() or "No solid" in issues[0]
+
+
+def test_topology_issues_multi_solid():
+    info = ShapeInfo(solid_count=3, shape_type="Compound")
+    issues = detect_topology_issues(info)
+    assert len(issues) >= 1
+    assert "3 disconnected" in issues[0]
+
+
+def test_topology_issues_compound():
+    info = ShapeInfo(solid_count=1, shape_type="Compound")
+    issues = detect_topology_issues(info)
+    assert any("Compound" in i for i in issues)
+
+
+# ---- describe_shape with topology ----
+
+def test_describe_shape_single_solid_ok():
+    info = ShapeInfo(
+        bound_box={"XMin": 0, "XMax": 10, "YMin": 0, "YMax": 10, "ZMin": 0, "ZMax": 10},
+        volume=1000.0, faces=6, edges=12, vertices=8,
+        solid_count=1, shape_type="Solid",
+        solids=[SolidInfo(faces=[
+            FaceInfo(geom_type="Plane", area=100.0, normal=(1, 0, 0)),
+        ])],
+    )
+    text = describe_shape(info)
+    assert "single manifold solid" in text
+
+
+def test_describe_shape_multi_solid_warning():
+    info = ShapeInfo(
+        bound_box={"XMin": 0, "XMax": 20, "YMin": 0, "YMax": 10, "ZMin": 0, "ZMax": 10},
+        volume=2000.0, faces=12, edges=24, vertices=16,
+        solid_count=2, shape_type="Compound",
+        solids=[
+            SolidInfo(faces=[FaceInfo(geom_type="Plane", area=100.0)]),
+            SolidInfo(faces=[FaceInfo(geom_type="Plane", area=100.0)]),
+        ],
+    )
+    text = describe_shape(info)
+    assert "2 disconnected solids" in text or "disconnected" in text.lower()
+    assert "fuse()" in text.lower()
+
+
+def test_describe_shape_no_solids_warning():
+    info = ShapeInfo(
+        bound_box={"XMin": 0, "XMax": 10, "YMin": 0, "YMax": 10, "ZMin": 0, "ZMax": 10},
+        volume=0.0, faces=0, edges=0, vertices=0,
+        solid_count=0, shape_type="Shell",
+        solids=[],
+    )
+    text = describe_shape(info)
+    assert "no solid components" in text.lower() or "Topology warnings" in text

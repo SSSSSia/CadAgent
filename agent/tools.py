@@ -166,6 +166,34 @@ SAFE_BUILTINS = {
 # Post-execution shape validation
 # ---------------------------------------------------------------------------
 
+def _check_solid_topology(shape, label: str) -> list[str]:
+    """Check shape for topology issues: disconnected solids, shell integrity."""
+    warnings = []
+    try:
+        solid_count = len(shape.Solids)
+        if solid_count == 0:
+            warnings.append(
+                f"Object '{label}' has NO solid components — not a valid solid"
+            )
+        elif solid_count > 1:
+            warnings.append(
+                f"Object '{label}' has {solid_count} DISCONNECTED solids — "
+                f"parts not fused. Use fuse() with 0.5mm overlap."
+            )
+        elif solid_count == 1:
+            try:
+                shell_count = len(shape.Solids[0].Shells)
+                if shell_count > 1:
+                    warnings.append(
+                        f"Object '{label}' solid has {shell_count} shells — "
+                        f"non-manifold geometry from failed boolean"
+                    )
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return warnings
+
 def _post_exec_validate(doc) -> list[str]:
     """Post-execution geometric validation. Returns warning strings."""
     import core.config as _config
@@ -183,6 +211,7 @@ def _post_exec_validate(doc) -> list[str]:
             bb = obj.Shape.BoundBox
             if bb.XLength < _config.VALIDATE_DIMENSION_THRESHOLD or bb.YLength < _config.VALIDATE_DIMENSION_THRESHOLD or bb.ZLength < _config.VALIDATE_DIMENSION_THRESHOLD:
                 warnings.append(f"Object '{obj.Label}' has degenerate dimensions: {bb.XLength:.3f} x {bb.YLength:.3f} x {bb.ZLength:.3f}")
+            warnings.extend(_check_solid_topology(obj.Shape, obj.Label))
         except Exception:
             continue
     return warnings
@@ -474,6 +503,29 @@ def _tool_validate_design(args_json: str) -> str:
                 f"Object '{obj.Label}' has degenerate bounding box: "
                 f"{bb.XLength:.1f} x {bb.YLength:.1f} x {bb.ZLength:.1f}"
             )
+
+        # Check: single manifold solid
+        try:
+            solid_count = len(obj.Shape.Solids)
+            if solid_count == 0:
+                issues.append(f"Object '{obj.Label}' has no solid components.")
+            elif solid_count > 1:
+                issues.append(
+                    f"Object '{obj.Label}' has {solid_count} disconnected solids — "
+                    f"expected single manifold. Fuse with 0.5mm overlap."
+                )
+            elif solid_count == 1:
+                try:
+                    shell_count = len(obj.Shape.Solids[0].Shells)
+                    if shell_count > 1:
+                        issues.append(
+                            f"Object '{obj.Label}' has {shell_count} shells — "
+                            f"non-manifold geometry."
+                        )
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     if issues:
         return f"Issues found ({len(issues)}):\n" + "\n".join(f"- {i}" for i in issues)

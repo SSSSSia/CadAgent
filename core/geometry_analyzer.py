@@ -33,6 +33,8 @@ class ShapeInfo:
     vertices: int = 0
     center_of_mass: tuple | None = None
     solids: list[SolidInfo] = field(default_factory=list)
+    shape_type: str = ""         # "Solid", "Compound", "Shell", etc.
+    solid_count: int = 0         # number of disconnected solids
 
 
 def infer_shape_type(info: ShapeInfo) -> str | None:
@@ -371,6 +373,21 @@ def detect_wall_thickness(
     return result
 
 
+def detect_topology_issues(info: ShapeInfo) -> list[str]:
+    """Detect topology problems like disconnected solids."""
+    issues = []
+    if info.solid_count == 0:
+        issues.append("No solid components — shape is not a valid solid")
+    elif info.solid_count > 1:
+        issues.append(
+            f"{info.solid_count} disconnected solids — parts not fused. "
+            f"Use fuse() with 0.5mm overlap."
+        )
+    if info.shape_type == "Compound":
+        issues.append("Shape is a Compound (not a Solid) — boolean may not have merged")
+    return issues
+
+
 def describe_shape(info: ShapeInfo) -> str:
     lines = []
     bb = info.bound_box
@@ -400,6 +417,14 @@ def describe_shape(info: ShapeInfo) -> str:
     shape_type = infer_shape_type(info)
     if shape_type:
         lines.append(f"  Inferred type: {shape_type}")
+
+    topo_issues = detect_topology_issues(info)
+    if topo_issues:
+        lines.append("  Topology warnings:")
+        for issue in topo_issues:
+            lines.append(f"    - {issue}")
+    elif info.solid_count == 1:
+        lines.append("  Topology: single manifold solid (OK)")
 
     cylinders = []
     for solid in info.solids:

@@ -76,12 +76,26 @@ visually or internally without it.
 5. Repeating the same code that just failed — always change something \
 before retrying.
 
+GEOMETRIC QUALITY — every final design MUST be a single manifold solid:
+1. ALL parts must be fused into ONE solid. After every fuse(), the result \
+must have exactly 1 solid component. Disconnected pieces = broken model.
+2. For hollow objects (cups, tubes, housings): create outer shape, then inner \
+shape, then cut inner from outer. Example: cup = outer_cyl.cut(inner_cyl)
+3. For handles, tubes, and sweep features: use Part.Wire + Part.BRepOffsetAPI.makePipe \
+to create a solid sweep along a path. Do NOT stack primitives to approximate curves.
+4. Keep designs simple. Do NOT add decorations, stripes, or fillets until the \
+core body is verified as a single solid with analyze_geometry.
+5. After fuse() operations: if the result has >1 solid, the shapes did not overlap. \
+Add at least 0.5mm overlap between parts before fusing.
+
 Part API Quick Reference:
 - Part.makeBox(x,y,z)      box from origin +X +Y +Z
 - Part.makeCylinder(r,h)    along Z axis, from 0 to h
 - Part.makeCone(r1,r2,h)
 - Part.makeSphere(r)
 - Part.makeTorus(r1,r2)
+- Part.Wire([vertex1, vertex2, ...])       wire from Vertex list
+- Part.BRepOffsetAPI.makePipe(wire, profile)  sweep profile along wire path
 - shape.translate(FreeCAD.Vector(x,y,z))   IN-PLACE
 - a.cut(b)                  NEW shape A minus B
 - a.fuse(b)                 NEW shape A union B
@@ -207,9 +221,23 @@ visually or internally without it.
 5. Repeating the same code that just failed — always change something \
 before retrying.
 
+GEOMETRIC QUALITY — every final design MUST be a single manifold solid:
+1. ALL parts must be fused into ONE solid. After every fuse(), the result \
+must have exactly 1 solid component. Disconnected pieces = broken model.
+2. For hollow objects (cups, tubes, housings): create outer shape, then inner \
+shape, then cut inner from outer. Example: cup = outer_cyl.cut(inner_cyl)
+3. For handles, tubes, and sweep features: use Part.Wire + Part.BRepOffsetAPI.makePipe \
+to create a solid sweep along a path. Do NOT stack primitives to approximate curves.
+4. Keep designs simple. Do NOT add decorations, stripes, or fillets until the \
+core body is verified as a single solid with analyze_geometry.
+5. After fuse() operations: if the result has >1 solid, the shapes did not overlap. \
+Add at least 0.5mm overlap between parts before fusing.
+
 Part API Quick Reference:
 - Part.makeBox(x,y,z), Part.makeCylinder(r,h), Part.makeCone(r1,r2,h)
 - Part.makeSphere(r), Part.makeTorus(r1,r2)
+- Part.Wire([vertex1, vertex2, ...])       wire from Vertex list
+- Part.BRepOffsetAPI.makePipe(wire, profile)  sweep profile along wire path
 - shape.translate(Vector) IN-PLACE, a.cut(b) NEW, a.fuse(b) NEW
 - FreeCAD.Vector(x,y,z)
 
@@ -262,6 +290,13 @@ RULES:
 - All dimensions in mm. No fillet/chamfer.
 - Use Vector(x,y,z) for positions (not FreeCAD.Vector — both work, Vector is shorter)
 
+QUALITY RULES:
+- Every design must be ONE connected solid (not separate pieces). \
+Fuse all parts together. Shapes must overlap by 0.5mm before fuse().
+- For hollow objects (cups, tubes): outer.cut(inner) to create walls.
+- For handles/tubes: use Part.Wire + Part.BRepOffsetAPI.makePipe (pipe along path).
+- No decorations until core body is verified. Keep it simple.
+
 EXAMPLE — flanged cylinder with 4 bolt holes:
 doc = FreeCAD.newDocument("Design")
 body = Part.makeCylinder(100, 360)
@@ -287,9 +322,31 @@ obj = doc.addObject("Part::Feature", "Bracket")
 obj.Shape = bracket
 doc.recompute()
 
+EXAMPLE — simple mug (hollow cup with handle):
+doc = FreeCAD.newDocument("Design")
+OUTER_R = 35
+INNER_R = 32
+HEIGHT = 90
+outer = Part.makeCylinder(OUTER_R, HEIGHT)
+inner = Part.makeCylinder(INNER_R, HEIGHT - 3)
+inner.translate(Vector(0, 0, 3))
+cup = outer.cut(inner)
+arc_pts = []
+for i in range(13):
+    a = math.pi * i / 12
+    arc_pts.append(Vector(OUTER_R + 12*math.sin(a), 0, 15 + 12*(1-math.cos(a))))
+wire = Part.Wire([Part.Vertex(p) for p in arc_pts])
+profile = Part.Wire([Part.Vertex(Vector(0,0,0)), Part.Vertex(Vector(0,4,0))])
+handle = Part.BRepOffsetAPI.makePipe(wire, profile)
+cup = cup.fuse(handle)
+obj = doc.addObject("Part::Feature", "Mug")
+obj.Shape = cup
+doc.recompute()
+
 API:
 - Part.makeBox(x,y,z)  Part.makeCylinder(r,h)  Part.makeCone(r1,r2,h)
 - Part.makeSphere(r)   Part.makeTorus(r1,r2)
+- Part.Wire([v1,v2,...])  Part.BRepOffsetAPI.makePipe(wire, profile)
 - a.cut(b) NEW   a.fuse(b) NEW   a.common(b) NEW
 - shape.translate(Vector) IN-PLACE   Vector(x,y,z)
 
@@ -336,6 +393,11 @@ RULES:
 - All dimensions in mm. No fillet/chamfer.
 - Use Vector(x,y,z) for positions (not FreeCAD.Vector — both work, Vector is shorter)
 
+QUALITY RULES:
+- Every design must be ONE connected solid. Fuse all parts. Overlap by 0.5mm.
+- Hollow objects: outer.cut(inner). Handles: Part.Wire + Part.BRepOffsetAPI.makePipe.
+- No decorations until core body is verified.
+
 EXAMPLE — flanged cylinder with 4 bolt holes:
 doc = FreeCAD.newDocument("Design")
 body = Part.makeCylinder(100, 360)
@@ -361,9 +423,31 @@ obj = doc.addObject("Part::Feature", "Bracket")
 obj.Shape = bracket
 doc.recompute()
 
+EXAMPLE — simple mug (hollow cup with handle):
+doc = FreeCAD.newDocument("Design")
+OUTER_R = 35
+INNER_R = 32
+HEIGHT = 90
+outer = Part.makeCylinder(OUTER_R, HEIGHT)
+inner = Part.makeCylinder(INNER_R, HEIGHT - 3)
+inner.translate(Vector(0, 0, 3))
+cup = outer.cut(inner)
+arc_pts = []
+for i in range(13):
+    a = math.pi * i / 12
+    arc_pts.append(Vector(OUTER_R + 12*math.sin(a), 0, 15 + 12*(1-math.cos(a))))
+wire = Part.Wire([Part.Vertex(p) for p in arc_pts])
+profile = Part.Wire([Part.Vertex(Vector(0,0,0)), Part.Vertex(Vector(0,4,0))])
+handle = Part.BRepOffsetAPI.makePipe(wire, profile)
+cup = cup.fuse(handle)
+obj = doc.addObject("Part::Feature", "Mug")
+obj.Shape = cup
+doc.recompute()
+
 API:
 - Part.makeBox(x,y,z)  Part.makeCylinder(r,h)  Part.makeCone(r1,r2,h)
 - Part.makeSphere(r)   Part.makeTorus(r1,r2)
+- Part.Wire([v1,v2,...])  Part.BRepOffsetAPI.makePipe(wire, profile)
 - a.cut(b) NEW   a.fuse(b) NEW   a.common(b) NEW
 - shape.translate(Vector) IN-PLACE   Vector(x,y,z)
 
@@ -412,6 +496,12 @@ Part API:
 - a.fuse(b)                 NEW shape A+B
 - a.common(b)               NEW shape intersection
 - FreeCAD.Vector(x,y,z)
+- Part.Wire([v1,v2,...])    wire from Vertex list
+- Part.BRepOffsetAPI.makePipe(wire, profile)  sweep along path
+
+QUALITY: Result must be a single manifold solid. For hollow parts: outer.cut(inner). \
+Fuse all parts together with 0.5mm overlap. No decorations. \
+Handles: Part.Wire + Part.BRepOffsetAPI.makePipe.
 
 EXAMPLE - flanged cylinder with bolt holes:
 doc = FreeCAD.newDocument("Design")
