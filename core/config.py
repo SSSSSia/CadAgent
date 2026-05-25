@@ -32,7 +32,6 @@ class Config:
         self.LLM_TIMEOUT: int = 0
         self.VALIDATE_VOLUME_THRESHOLD: float = 0.01
         self.VALIDATE_DIMENSION_THRESHOLD: float = 0.001
-        self.WEAK_MODEL_MODE: str = "auto"
         self._cfg: dict = {}
         self.refresh()
 
@@ -47,7 +46,6 @@ class Config:
         self.MAX_SNAPSHOTS = int(os.environ.get("MAX_SNAPSHOTS", "10"))
         self.MAX_CONTEXT_TOKENS = int(os.environ.get("MAX_CONTEXT_TOKENS", "24000"))
         self.LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", "180"))
-        self.WEAK_MODEL_MODE = os.environ.get("WEAK_MODEL_MODE", "auto").lower()
         return dict(self._cfg)
 
 
@@ -87,14 +85,13 @@ MAX_CONTEXT_TOKENS = _default_config.MAX_CONTEXT_TOKENS
 LLM_TIMEOUT = _default_config.LLM_TIMEOUT
 VALIDATE_VOLUME_THRESHOLD = _default_config.VALIDATE_VOLUME_THRESHOLD
 VALIDATE_DIMENSION_THRESHOLD = _default_config.VALIDATE_DIMENSION_THRESHOLD
-WEAK_MODEL_MODE = _default_config.WEAK_MODEL_MODE
 
 
 def _refresh_constants():
     """Re-derive module-level constants from the default Config instance."""
     global API_BASE_URL, API_KEY, MODEL_NAME, MAX_TOKENS
     global MAX_ITERATIONS, MAX_SNAPSHOTS, MAX_CONTEXT_TOKENS, LLM_TIMEOUT
-    global VALIDATE_VOLUME_THRESHOLD, VALIDATE_DIMENSION_THRESHOLD, WEAK_MODEL_MODE
+    global VALIDATE_VOLUME_THRESHOLD, VALIDATE_DIMENSION_THRESHOLD
     _default_config.refresh()
     API_BASE_URL = _default_config.API_BASE_URL
     API_KEY = _default_config.API_KEY
@@ -106,7 +103,6 @@ def _refresh_constants():
     LLM_TIMEOUT = _default_config.LLM_TIMEOUT
     VALIDATE_VOLUME_THRESHOLD = _default_config.VALIDATE_VOLUME_THRESHOLD
     VALIDATE_DIMENSION_THRESHOLD = _default_config.VALIDATE_DIMENSION_THRESHOLD
-    WEAK_MODEL_MODE = _default_config.WEAK_MODEL_MODE
 
 
 def reload(new_values: dict = None) -> dict:

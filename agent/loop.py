@@ -21,10 +21,7 @@ from enum import Enum
 
 from agent.react_parser import parse_react_tool_calls
 from agent.tool_defs import TOOL_DEFINITIONS
-from agent.prompts import (
-    AGENT_SYSTEM_PROMPT, REACT_SYSTEM_PROMPT,
-    WEAK_AGENT_SYSTEM_PROMPT, WEAK_REACT_SYSTEM_PROMPT,
-)
+from agent.prompts import AGENT_SYSTEM_PROMPT, REACT_SYSTEM_PROMPT
 from core.token_budget import trim_messages, token_summary
 import core.config as _config
 from core.logger import log_info
@@ -79,15 +76,13 @@ class AgentLoop:
     No Qt or FreeCAD dependencies.
     """
 
-    def __init__(self, controller, context: str, last_mode: str = "auto",
-                 weak_prompt: bool = False):
+    def __init__(self, controller, context: str, last_mode: str = "auto"):
         self._controller = controller
         self._context = context
         self._mode: str = last_mode or "auto"
         self._iteration: int = 0
         self._stopped: bool = False
         self._start_time: float = time.time()
-        self._weak_prompt: bool = weak_prompt
         self._recent_errors: list[str] = []
 
     @property
@@ -111,10 +106,7 @@ class AgentLoop:
 
     def start(self, user_text: str) -> LoopAction:
         ctx = self._build_context()
-        if self._weak_prompt:
-            system_content = WEAK_AGENT_SYSTEM_PROMPT.replace("{context}", ctx)
-        else:
-            system_content = AGENT_SYSTEM_PROMPT.replace("{context}", ctx)
+        system_content = AGENT_SYSTEM_PROMPT.replace("{context}", ctx)
         self._controller.session.set_system_prompt(system_content)
         self._controller.session.add_user_message(user_text)
         log_info(f"Agent loop started: mode=auto, context={len(self._context)} chars")
@@ -199,10 +191,7 @@ class AgentLoop:
                 self._mode = "react"
                 self._controller.session.last_mode = "react"
                 ctx = self._build_context()
-                if self._weak_prompt:
-                    react_prompt = WEAK_REACT_SYSTEM_PROMPT.replace("{context}", ctx)
-                else:
-                    react_prompt = REACT_SYSTEM_PROMPT.replace("{context}", ctx)
+                react_prompt = REACT_SYSTEM_PROMPT.replace("{context}", ctx)
                 self._controller.session.set_system_prompt(react_prompt)
                 return LoopAction(
                     kind=LoopActionKind.EXECUTE_TOOLS,

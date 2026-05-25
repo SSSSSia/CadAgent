@@ -94,8 +94,7 @@ CadAgent/
 │   ├── __init__.py
 │   ├── controller.py     # Agent 控制器（会话状态、运行结果）
 │   ├── loop.py           # 纯逻辑状态机（AgentLoop），返回 LoopAction 指令
-│   ├── model_profile.py  # 模型能力检测（弱模型/强模型提示词切换）
-│   ├── prompts.py        # 系统提示词（Tool Calling + ReAct + 弱模型变体）
+│   ├── prompts.py        # 系统提示词（Tool Calling + ReAct）
 │   ├── react_parser.py   # ReAct XML 标签解析器
 │   ├── tool_defs.py      # 工具 JSON Schema 定义（LLM function calling）
 │   ├── tool_dispatch.py  # 注册式工具路由分发

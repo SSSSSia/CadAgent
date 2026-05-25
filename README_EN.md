@@ -94,8 +94,7 @@ CadAgent/
 │   ├── __init__.py
 │   ├── controller.py     # Agent controller (session state, run results)
 │   ├── loop.py           # Pure-logic state machine (AgentLoop), returns LoopAction
-│   ├── model_profile.py  # Model capability detection (weak/strong prompt switching)
-│   ├── prompts.py        # System prompts (Tool Calling + ReAct + weak model variants)
+│   ├── prompts.py        # System prompts (Tool Calling + ReAct)
 │   ├── react_parser.py   # ReAct XML tag parser
 │   ├── tool_defs.py      # Tool JSON Schema definitions (LLM function calling)
 │   ├── tool_dispatch.py  # Registry-based tool routing and dispatch

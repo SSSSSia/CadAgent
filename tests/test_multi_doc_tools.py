@@ -17,8 +17,6 @@ from agent.tool_defs import TOOL_DEFINITIONS
 from agent.prompts import (
     AGENT_SYSTEM_PROMPT,
     REACT_SYSTEM_PROMPT,
-    WEAK_AGENT_SYSTEM_PROMPT,
-    WEAK_REACT_SYSTEM_PROMPT,
 )
 
 # Load snapshot module without FreeCAD
@@ -141,23 +139,9 @@ def test_react_prompt_has_xml_examples():
     assert '<tool name="create_assembly">' in REACT_SYSTEM_PROMPT
 
 
-def test_weak_agent_prompt_has_assembly():
-    assert "create_assembly" in WEAK_AGENT_SYSTEM_PROMPT
-    assert "list_documents" in WEAK_AGENT_SYSTEM_PROMPT
-    assert "ASSEMBLY" in WEAK_AGENT_SYSTEM_PROMPT
-
-
-def test_weak_react_prompt_has_assembly():
-    assert "create_assembly" in WEAK_REACT_SYSTEM_PROMPT
-    assert "list_documents" in WEAK_REACT_SYSTEM_PROMPT
-    assert "ASSEMBLY" in WEAK_REACT_SYSTEM_PROMPT
-
-
 def test_all_prompts_have_context_placeholder():
     assert "{context}" in AGENT_SYSTEM_PROMPT
     assert "{context}" in REACT_SYSTEM_PROMPT
-    assert "{context}" in WEAK_AGENT_SYSTEM_PROMPT
-    assert "{context}" in WEAK_REACT_SYSTEM_PROMPT
 
 
 # ---------------------------------------------------------------------------

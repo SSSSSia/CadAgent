@@ -21,7 +21,9 @@ pytest tests/test_react_parser.py
 pytest tests/test_token_budget.py::test_trim_preserves_system_prompt
 ```
 
-测试使用 `importlib.util.spec_from_file_location` 加载导入了 FreeCAD 的模块，从而完全避免 FreeCAD 依赖。为 `react_parser`、`token_budget`、`chat_renderer`、`config`、`session`、`code_fixes` 编写新测试时应遵循相同模式。
+测试使用 `importlib.util.spec_from_file_location` 加载导入了 FreeCAD 的模块，从而完全避免 FreeCAD 依赖。部分测试（如 `test_parametric`、`test_delta_analysis`）在测试文件中复制被测函数以避免导入 FreeCAD 依赖模块。为新模块编写测试时应遵循相同模式。
+
+当前测试文件：`test_react_parser`、`test_token_budget`、`test_chat_renderer`、`test_config`、`test_session`、`test_code_fixes`、`test_geometry_analyzer`、`test_agent_loop`、`test_tool_dispatch`、`test_parametric`、`test_delta_analysis`、`test_multi_doc_tools`、`test_snapshot`、`test_text_utils`。
 
 ## 架构
 
@@ -52,13 +54,35 @@ Agent 循环的核心逻辑拆分为两层：
 
 如果首次调用 `finish_reason == "stop"`、无 `tool_calls` 但含 `<tool>` 标签，则切换到 ReAct 模式并重新下发系统提示。ReAct 模式下工具结果以 user 消息发送（而非 `role="tool"`），因为模型不理解该角色。
 
-### 模型能力检测
-
-`agent/model_profile.py` 的 `ModelProfile.from_model_name()` 通过正则匹配模型名称来判断是否使用弱模型提示词。默认策略保守：所有模型默认视为弱模型，仅明确匹配的 2025 H2+ 前沿模型（GPT-4.1、Claude Opus/Sonnet 4、Gemini 2.5、DeepSeek R2、GLM-5、Qwen Max/72B、Kimi K2）使用完整提示词。
-
 ### 工具注册与分发
 
-`agent/tool_dispatch.py` 实现注册式路由：工具在 `agent/tools.py` 中通过 `@register_tool(name)` 装饰器注册自身，`dispatch_tool(name, args_json)` 查表调用。纯 Python，无 FreeCAD 依赖。
+`agent/tool_dispatch.py` 实现注册式路由：工具在 `agent/tools.py` 文件末尾通过 `register_tool(name, fn)` 调用注册，`dispatch_tool(name, args_json)` 查表调用。纯 Python，无 FreeCAD 依赖。
+
+### 工具列表（12 个）
+
+| 工具名 | 功能 |
+|--------|------|
+| `execute_code` | 执行 FreeCAD Python 代码，含验证→修复→执行→提示流水线。支持可选 `document` 参数指定目标文档。 |
+| `analyze_geometry` | 分析当前文档几何（包围盒、体积、质心等） |
+| `validate_design` | 验证设计：体积非零、尺寸合理、实心拓扑检查、孤立形状检测 |
+| `undo_last` | 撤销上次 `execute_code`（从快照栈恢复） |
+| `export_step` | 导出为 STEP/IGES 文件 |
+| `measure_distance` | 测量两元素间距离或角度 |
+| `list_materials` | 列出常用工程材料属性 |
+| `screenshot` | 截取 3D 视口为 PNG |
+| `list_documents` | 列出所有打开的 FreeCAD 文档 |
+| `create_assembly` | 从多个文档创建装配体 |
+| `update_parameter` | 更新参数化设计参数并重新执行 |
+| `list_parameters` | 列出当前参数化设计参数 |
+
+### 参数化设计
+
+`agent/tools.py` 中的参数化模块通过模块级变量管理状态：
+- `_PARAM_STORE` / `_PARAMETRIC_CODE`：存储参数和参数化代码
+- `_EXEC_NAMESPACE`：跨 `execute_code` 调用持久化的命名空间，LLM 可引用前次迭代定义的变量
+- `_PARAM_PATTERN`：匹配 `UPPER_CASE = number` 形式的参数定义
+- `update_parameter` / `list_parameters` 工具提供参数更新和查看接口
+- `ChatSession` 含 `parameters` 和 `parametric_code` 字段，支持会话级参数持久化
 
 ### 面板拆分（`ui/panel.py`）
 
@@ -77,20 +101,18 @@ Agent 循环的核心逻辑拆分为两层：
 | `InitGui.py` | FreeCAD 工作台注册。方法体中**必须使用局部导入**，因为 FreeCAD 通过 `exec()` 加载此文件。 |
 | `agent/loop.py` | 纯逻辑状态机（`AgentLoop`），返回 `LoopAction` 指令。无 Qt/FreeCAD 依赖。 |
 | `agent/controller.py` | 共享状态容器（session + result + mode），供 UI 驱动的 Agent 循环使用。本身不是循环。 |
-| `agent/tools.py` | 工具实现。通过 `@register_tool` 注册。每个工具接收 JSON 参数字符串，返回结果字符串。`execute_code` 执行 validate→fix→exec→hint 流水线（见下文）并在执行前创建快照。含参数化设计支持。 |
+| `agent/tools.py` | 12 个工具实现（`_tool_*` 函数），在文件末尾通过 `register_tool(name, fn)` 注册。每个工具接收 JSON 参数字符串，返回结果字符串。`execute_code` 执行 validate→fix→exec→hint 流水线（见下文）并在执行前创建快照。含参数化设计和多文档支持。 |
 | `agent/tool_dispatch.py` | 纯路由：`register_tool()` 注册、`dispatch_tool()` 按名称查表调用。无 FreeCAD 依赖。 |
 | `agent/tool_defs.py` | OpenAI function calling API 的 JSON Schema 定义。 |
-| `agent/model_profile.py` | 模型能力检测：`ModelProfile.from_model_name()` 判断是否使用弱模型提示词。纯正则，无外部依赖。 |
-| `agent/code_fixes.py` | 弱模型兼容：`pre_validate_code()`（compile 检查）、`auto_fix_code()`（3 种模式：translate 赋值、布尔运算赋值、缺少 recompute）、`error_hint()`（按异常类型生成可操作提示）。无 FreeCAD 导入，可独立测试。 |
-| `agent/prompts.py` | 两套提示词：`AGENT_SYSTEM_PROMPT`（Tool Calling）和 `REACT_SYSTEM_PROMPT`（XML 标签）。均含 `{context}` 占位符用于插入文档几何信息和参数表。另有弱模型变体（`WEAK_*`）。 |
+| `agent/code_fixes.py` | 代码验证与自动修复：`pre_validate_code()`（compile 检查）、`auto_fix_code()`（translate 赋值、布尔运算赋值、缺少 recompute 等）、`error_hint()`（按异常类型生成可操作提示）。无 FreeCAD 导入，可独立测试。 |
+| `agent/prompts.py` | 系统提示词：`AGENT_SYSTEM_PROMPT`（Tool Calling）和 `REACT_SYSTEM_PROMPT`（XML 标签）。均含 `{context}` 占位符用于插入文档几何信息和参数表。 |
 | `agent/react_parser.py` | 从 LLM 文本输出中解析 `<tool name="...">...</tool>` XML 标签，转为标准 tool_calls 格式。无 FreeCAD 依赖。 |
 | `core/llm_client.py` | 三个入口：`call_llm_with_tools()`（非流式）、`call_llm_streaming()`（SSE 生成器）、`generate_freecad_code()`（遗留单次）。 |
-| `core/session.py` | `ChatSession` — 有序消息列表，含 system/user/assistant/tool 角色。含 `parameters` 参数表和 `parametric_code` 参数化代码存储。支持序列化/反序列化。 |
-| `core/session_store.py` | JSON 文件持久化，存储在 `<FreeCAD 用户数据>/CadAgent/sessions/` 下。 |
-| `core/doc_analyzer.py` | 从 FreeCAD 文档提取包围盒、体积、质心、圆柱特征、平面等信息。依赖 `geometry_analyzer.py` 做纯数据分析。 |
+| `core/session.py` | `ChatSession` — 有序消息列表，含 system/user/assistant/tool 角色。含 `parameters` 参数表和 `parametric_code` 参数化代码存储。支持序列化/反序列化。`session_store.py` 持久化到 `<FreeCAD 用户数据>/CadAgent/sessions/`。 |
+| `core/doc_analyzer.py` | 从 FreeCAD 文档提取包围盒、体积、质心、圆柱/圆锥/球体特征、平面、孔阵、对称性等信息。依赖 `geometry_analyzer.py` 做纯数据分析。 |
 | `core/geometry_analyzer.py` | 纯数据结构的几何分析（dataclass），无 FreeCAD 导入。`ShapeInfo`、`FaceInfo` 等数据类。 |
 | `core/text_utils.py` | 文本工具：`strip_markdown()` 移除 Markdown 代码围栏。 |
-| `core/snapshot.py` | 基于 `.FCStd` 文件的撤销栈（最多 10 个）。`take_snapshot()` 在每次 `execute_code` 前调用，`restore_latest_snapshot()` 用于撤销。 |
+| `core/snapshot.py` | 基于 `.FCStd` 文件的撤销栈（最多 10 个）。`take_snapshot()` / `take_snapshot_for_doc()` 在每次 `execute_code` 前调用，`restore_latest_snapshot()` 用于撤销。 |
 | `core/token_budget.py` | Token 估算（中文 ~1.5 字符/token，英文 ~4 字符/token）。`trim_messages()` 保留系统提示 + 最近 6 条消息，原子性移除工具调用对，必要时摘要中间历史。 |
 | `core/logger.py` | 双通道日志：FreeCAD.Console + `cadagent.log` 文件。提供 `log_info`、`log_warning`、`log_error`。 |
 | `ui/chat_renderer.py` | Markdown → HTML，基于占位符的管道（代码块 → 表格 → 转义 → 行内格式 → 还原）。 |
@@ -108,17 +130,24 @@ Agent 循环的核心逻辑拆分为两层：
 
 - **路径要求**：文件夹必须命名为 `CadAgent` 并放在 FreeCAD 的 `Mod/` 目录下。`sys.path` 在 `InitGui.py` 中手动修补。
 
-### Exec 沙箱与弱模型流水线
+### Exec 沙箱与代码验证流水线
 
 `agent/tools.py` 中的 `execute_code` 工具通过安全流水线运行 LLM 生成的代码：
 
 1. `strip_markdown(code)` — 移除 Markdown 围栏
-2. `pre_validate_code(code)` — `compile()` 检查，在执行前拒绝语法错误
-3. `auto_fix_code(code)` — 3 种自动修复：移除 `translate()` 的赋值（返回 None）、为布尔运算添加赋值（`cut`/`fuse`/`common`）、追加缺失的 `doc.recompute()`
-4. `exec(code, namespace)` — 在受限沙箱中执行：
+2. `_resolve_doc(doc_name)` — 解析目标文档（支持多文档）
+3. `pre_validate_code(code)` — `compile()` 检查，在执行前拒绝语法错误
+4. `auto_fix_code(code)` — 3 种自动修复：移除 `translate()` 的赋值（返回 None）、为布尔运算添加赋值（`cut`/`fuse`/`common`）、追加缺失的 `doc.recompute()`
+5. 自动创建文档：若无活动文档且代码引用 `doc.`，自动插入 `newDocument()`
+6. `take_snapshot()` — 执行前创建快照（支持撤销）
+7. `exec(code, namespace)` — 在受限沙箱中执行：
    - `SAFE_BUILTINS` 白名单（不含 `os`、`sys`、`subprocess`、`open`、`eval`、`exec`）
-   - 预注入命名空间：`FreeCAD`、`Part`、`math`、`Gui`、`doc`（当前活动文档）、`Vector`、`App`、`pi`、`sin`、`cos`、`sqrt`
-5. 出错时：`error_hint(exception, code)` 根据异常类型生成可操作的提示
+   - 预注入命名空间：`FreeCAD`、`Part`、`math`、`Gui`、`doc`（目标或活动文档）、`Vector`、`App`、`pi`、`sin`、`cos`、`sqrt`
+   - 从 `_EXEC_NAMESPACE` 注入前次迭代的变量（含 FreeCAD 形状对象）
+8. `_post_exec_validate(doc)` — 执行后几何验证：体积非零、尺寸合理、实心拓扑、孤立形状检测
+9. `_compute_delta(pre, post)` — 计算执行前后文档状态变化
+10. `_extract_parameters(code)` — 提取 `UPPER_CASE = number` 参数定义
+11. 出错时：`error_hint(exception, code)` 生成提示，若返回 `fixed_code` 则自动重试
 
 修改 `SAFE_BUILTINS` 时，需同步更新 `agent/prompts.py` 告知 LLM 可用的内建函数。
 

@@ -124,6 +124,27 @@ Part API Quick Reference:
 - a.common(b)               NEW shape intersection
 - FreeCAD.Vector(x,y,z)
 
+CURVED SURFACE API — for smooth/organic shapes, loft, and revolution:
+- Part.makeLoft([wire1, wire2, ...], solid=True)  loft (smooth transition) between profiles
+  wires MUST be same type (all closed or all open), and listed in order.
+  Example: create 2 circles at different Z heights and loft between them:
+    c1 = Part.Wire([Part.Circle().Center=Vector(0,0,0); c.Radius=R; ...])
+    Simplified: w1 = Part.Wire([Part.Circle().Radius=5].toShape()])
+  Correct pattern:
+    c1 = Part.Circle(); c1.Radius = 10; c1.Center = Vector(0,0,0)
+    c2 = Part.Circle(); c2.Radius = 20; c2.Center = Vector(0,0,50)
+    loft = Part.makeLoft([Part.Wire([c1.toShape()]), Part.Wire([c2.toShape()])], True)
+  Use makeLoft for: nozzles, transitions, tapered tubes, car body panels, smooth housings.
+- Part.BSplineCurve()  smooth curve through control points
+    bs = Part.BSplineCurve()
+    bs.interpolate([Vector(0,0,0), Vector(10,5,0), Vector(20,0,0)])
+    edge = bs.toShape()
+  Use for smooth handle paths, decorative curves, organic profiles.
+- Revolution (solid of revolution around Z axis from 0 to angle):
+    wire = ... (closed profile in XZ plane)
+    solid = wire.revolve(Vector(0,0,0), Vector(0,0,1), 360)
+  Use for: vases, bowls, pulleys, axisymmetric parts.
+
 PARAMETRIC DESIGN — for every design, define key dimensions as named constants at the top:
   OD = 200          # outer diameter
   HEIGHT = 360      # total height
@@ -285,6 +306,23 @@ Part API Quick Reference:
 - shape.translate(Vector) IN-PLACE, a.cut(b) NEW, a.fuse(b) NEW
 - FreeCAD.Vector(x,y,z)
 
+CURVED SURFACE API — for smooth/organic shapes, loft, and revolution:
+- Part.makeLoft([wire1, wire2, ...], solid=True)  loft between profiles
+  Correct pattern:
+    c1 = Part.Circle(); c1.Radius = 10; c1.Center = Vector(0,0,0)
+    c2 = Part.Circle(); c2.Radius = 20; c2.Center = Vector(0,0,50)
+    loft = Part.makeLoft([Part.Wire([c1.toShape()]), Part.Wire([c2.toShape()])], True)
+  Use for: nozzles, transitions, tapered tubes, smooth housings.
+- Part.BSplineCurve()  smooth curve through control points
+    bs = Part.BSplineCurve()
+    bs.interpolate([Vector(0,0,0), Vector(10,5,0), Vector(20,0,0)])
+    edge = bs.toShape()
+  Use for smooth handle paths, organic profiles.
+- Revolution:
+    wire = ... (closed profile in XZ plane)
+    solid = wire.revolve(Vector(0,0,0), Vector(0,0,1), 360)
+  Use for: vases, bowls, pulleys, axisymmetric parts.
+
 PARAMETRIC DESIGN — for every design, define key dimensions as named constants at the top:
   OD = 200          # outer diameter
   HEIGHT = 360      # total height
@@ -303,228 +341,6 @@ ASSEMBLY DESIGN MODE — when the user asks to create an assembly or multiple pa
 
 All tools with a "document" parameter can target a specific document instead of the active one.
 Placement API: FreeCAD.Placement(Vector(x,y,z), Vector(ax,ay,az), angle_deg)
-
-{context}"""
-
-# ---------------------------------------------------------------------------
-# Weak model prompts (simplified rules + few-shot examples)
-# ---------------------------------------------------------------------------
-
-WEAK_AGENT_SYSTEM_PROMPT = """\
-You create 3D mechanical parts using FreeCAD Python code.
-
-When the user replies with a number, check your previous message for numbered \
-options and treat the number as a selection. Act on it directly.
-
-Pre-imported: FreeCAD, Part, math, Gui, doc (FreeCAD.ActiveDocument), Vector.
-Tool: execute_code — runs FreeCAD Python code and returns results.
-Other tools: analyze_geometry, validate_design, undo_last, export_step, measure_distance, list_materials, screenshot, list_documents, create_assembly, update_parameter, list_parameters.
-
-WORKFLOW:
-1. Write a brief plan (2-3 sentences max).
-2. Execute code ONE phase at a time. End EVERY code block with: doc.recompute()
-3. Read the result. If error -> fix and retry. If success -> next phase or finish.
-
-RULES:
-- New document: doc = FreeCAD.newDocument("Design")
-- Existing document: doc is already set (use it directly)
-- Boolean ops return NEW shapes: result = body.cut(hole)
-- translate() modifies IN-PLACE (returns None): shape.translate(Vector(1,2,3))
-- Add to document: obj = doc.addObject("Part::Feature", "Name"); obj.Shape = shape
-- All dimensions in mm. No fillet/chamfer.
-- Use Vector(x,y,z) for positions (not FreeCAD.Vector — both work, Vector is shorter)
-- Variables PERSIST between execute_code calls. If iteration 1 creates 'cup', \
-use 'cup' directly in iteration 2. Do NOT use getObjectsByLabel — causes Null shape.
-
-QUALITY RULES:
-- Every design must be ONE connected solid (not separate pieces). \
-Fuse all parts together. Shapes must overlap by 0.5mm before fuse().
-- For hollow objects (cups, tubes): outer.cut(inner) to create walls.
-- For handles: use wire.makePipe() with circular profile along arc. \
-NEVER use makeBox for handles. After makePipe: if handle.Solids: \
-handle = handle.Solids[0]. See mug example below.
-- No decorations until core body is verified. Keep it simple.
-
-EXAMPLE — flanged cylinder with 4 bolt holes:
-doc = FreeCAD.newDocument("Design")
-body = Part.makeCylinder(100, 360)
-flange = Part.makeCylinder(125, 20)
-flange.translate(Vector(0, 0, 360))
-outer = body.fuse(flange)
-for i in range(4):
-    a = 2 * math.pi * i / 4
-    h = Part.makeCylinder(5, 25)
-    h.translate(Vector(115*math.cos(a), 115*math.sin(a), 360))
-    outer = outer.cut(h)
-obj = doc.addObject("Part::Feature", "Part")
-obj.Shape = outer
-doc.recompute()
-
-EXAMPLE — L-bracket:
-doc = FreeCAD.newDocument("Design")
-base = Part.makeBox(100, 60, 10)
-vert = Part.makeBox(10, 60, 80)
-vert.translate(Vector(0, 0, 10))
-bracket = base.fuse(vert)
-obj = doc.addObject("Part::Feature", "Bracket")
-obj.Shape = bracket
-doc.recompute()
-
-EXAMPLE — simple mug (hollow cup with curved handle):
-doc = FreeCAD.newDocument("Design")
-OUTER_R = 35
-INNER_R = 32
-HEIGHT = 90
-outer = Part.makeCylinder(OUTER_R, HEIGHT)
-inner = Part.makeCylinder(INNER_R, HEIGHT - 5)
-inner.translate(Vector(0, 0, 5))
-cup = outer.cut(inner)
-p1 = Vector(OUTER_R, 0, 15)
-p2 = Vector(OUTER_R + 15, 0, 30)
-p3 = Vector(OUTER_R, 0, 45)
-arc = Part.Arc(p1, p2, p3)
-path = Part.Wire([arc.toShape()])
-c = Part.Circle()
-c.Center = p1
-c.Radius = 4
-handle = path.makePipe(Part.Wire([c.toShape()]))
-if len(handle.Solids) > 0:
-    handle = handle.Solids[0]
-cup = cup.fuse(handle)
-if len(cup.Solids) > 1:
-    cup = cup.Solids[0]
-obj = doc.addObject("Part::Feature", "Mug")
-obj.Shape = cup
-doc.recompute()
-
-API:
-- Part.makeBox(x,y,z)  Part.makeCylinder(r,h)  Part.makeCone(r1,r2,h)
-- Part.makeSphere(r)   Part.makeTorus(r1,r2)
-- Part.Arc(p1,p2,p3).toShape()  Part.Circle().Center/.Radius/.toShape()
-- Part.Wire([edge,...]) from Edges   path_wire.makePipe(profile)
-- a.cut(b) NEW   a.fuse(b) NEW   a.common(b) NEW
-- shape.translate(Vector) IN-PLACE   Vector(x,y,z)
-
-ASSEMBLY: Create parts in separate docs (doc = FreeCAD.newDocument("name")), \
-then use create_assembly to combine them with positions.
-Tools with "document" param can target specific docs. \
-Placement: FreeCAD.Placement(Vector(x,y,z), Vector(ax,ay,az), angle_deg)
-
-PARAMETRIC DESIGN — define key dimensions as named constants at the top of execute_code:
-  OD = 200          # outer diameter
-  HEIGHT = 360      # total height
-Use UPPER_CASE names. For dimension changes, use update_parameter instead of execute_code.
-
-{context}"""
-
-WEAK_REACT_SYSTEM_PROMPT = """\
-You create 3D mechanical parts using FreeCAD Python code.
-
-When the user replies with a number, check your previous message for numbered \
-options and treat the number as a selection. Act on it directly.
-
-TOOL CALLING FORMAT — you MUST use this exact format:
-
-<tool name="execute_code">
-{"code": "your code here", "description": "what it does"}
-</tool>
-
-Pre-imported: FreeCAD, Part, math, Gui, doc (FreeCAD.ActiveDocument), Vector.
-Available tool: execute_code — runs FreeCAD Python code and returns results.
-Other tools: analyze_geometry, validate_design, undo_last, export_step, measure_distance, list_materials, screenshot, list_documents, create_assembly, update_parameter, list_parameters.
-
-WORKFLOW:
-1. Write a brief plan (2-3 sentences max).
-2. Execute code ONE phase at a time. End EVERY code block with: doc.recompute()
-3. Read the result. If error -> fix and retry. If success -> next phase or finish.
-4. When done, respond with plain text summary WITHOUT any <tool> tags.
-
-RULES:
-- New document: doc = FreeCAD.newDocument("Design")
-- Existing document: doc is already set (use it directly)
-- Boolean ops return NEW shapes: result = body.cut(hole)
-- translate() modifies IN-PLACE (returns None): shape.translate(Vector(1,2,3))
-- Add to document: obj = doc.addObject("Part::Feature", "Name"); obj.Shape = shape
-- All dimensions in mm. No fillet/chamfer.
-- Use Vector(x,y,z) for positions (not FreeCAD.Vector — both work, Vector is shorter)
-- Variables PERSIST between execute_code calls. If iteration 1 creates 'cup', \
-use 'cup' directly in iteration 2. Do NOT use getObjectsByLabel — causes Null shape.
-
-QUALITY RULES:
-- Every design must be ONE connected solid. Fuse all parts. Overlap by 0.5mm.
-- Hollow objects: outer.cut(inner). Handles: wire.makePipe() with circular profile. \
-NEVER use makeBox for handles. After makePipe: if handle.Solids: handle = handle.Solids[0].
-- No decorations until core body is verified.
-
-EXAMPLE — flanged cylinder with 4 bolt holes:
-doc = FreeCAD.newDocument("Design")
-body = Part.makeCylinder(100, 360)
-flange = Part.makeCylinder(125, 20)
-flange.translate(Vector(0, 0, 360))
-outer = body.fuse(flange)
-for i in range(4):
-    a = 2 * math.pi * i / 4
-    h = Part.makeCylinder(5, 25)
-    h.translate(Vector(115*math.cos(a), 115*math.sin(a), 360))
-    outer = outer.cut(h)
-obj = doc.addObject("Part::Feature", "Part")
-obj.Shape = outer
-doc.recompute()
-
-EXAMPLE — L-bracket:
-doc = FreeCAD.newDocument("Design")
-base = Part.makeBox(100, 60, 10)
-vert = Part.makeBox(10, 60, 80)
-vert.translate(Vector(0, 0, 10))
-bracket = base.fuse(vert)
-obj = doc.addObject("Part::Feature", "Bracket")
-obj.Shape = bracket
-doc.recompute()
-
-EXAMPLE — simple mug (hollow cup with curved handle):
-doc = FreeCAD.newDocument("Design")
-OUTER_R = 35
-INNER_R = 32
-HEIGHT = 90
-outer = Part.makeCylinder(OUTER_R, HEIGHT)
-inner = Part.makeCylinder(INNER_R, HEIGHT - 5)
-inner.translate(Vector(0, 0, 5))
-cup = outer.cut(inner)
-p1 = Vector(OUTER_R, 0, 15)
-p2 = Vector(OUTER_R + 15, 0, 30)
-p3 = Vector(OUTER_R, 0, 45)
-arc = Part.Arc(p1, p2, p3)
-path = Part.Wire([arc.toShape()])
-c = Part.Circle()
-c.Center = p1
-c.Radius = 4
-handle = path.makePipe(Part.Wire([c.toShape()]))
-if len(handle.Solids) > 0:
-    handle = handle.Solids[0]
-cup = cup.fuse(handle)
-if len(cup.Solids) > 1:
-    cup = cup.Solids[0]
-obj = doc.addObject("Part::Feature", "Mug")
-obj.Shape = cup
-doc.recompute()
-
-API:
-- Part.makeBox(x,y,z)  Part.makeCylinder(r,h)  Part.makeCone(r1,r2,h)
-- Part.makeSphere(r)   Part.makeTorus(r1,r2)
-- Part.Arc(p1,p2,p3).toShape()  Part.Circle().Center/.Radius/.toShape()
-- Part.Wire([edge,...]) from Edges   path_wire.makePipe(profile)
-- a.cut(b) NEW   a.fuse(b) NEW   a.common(b) NEW
-- shape.translate(Vector) IN-PLACE   Vector(x,y,z)
-
-ASSEMBLY: Create parts in separate docs (doc = FreeCAD.newDocument("name")), \
-then use create_assembly to combine them with positions.
-Tools with "document" param can target specific docs. \
-Placement: FreeCAD.Placement(Vector(x,y,z), Vector(ax,ay,az), angle_deg)
-
-PARAMETRIC DESIGN — define key dimensions as named constants at the top of execute_code:
-  OD = 200          # outer diameter
-  HEIGHT = 360      # total height
-Use UPPER_CASE names. For dimension changes, use update_parameter instead of execute_code.
 
 {context}"""
 
@@ -564,6 +380,19 @@ Part API:
 - Part.Arc(p1,p2,p3).toShape()   arc Edge through 3 points
 - Part.Circle().Center/.Radius/.toShape()   circular profile
 - Part.Wire([edge1,...])   wire from Edge list   path_wire.makePipe(profile)
+
+CURVED SURFACE API:
+- Part.makeLoft([wire1, wire2, ...], solid=True)  loft between profiles
+    c1 = Part.Circle(); c1.Radius = 10; c1.Center = Vector(0,0,0)
+    c2 = Part.Circle(); c2.Radius = 20; c2.Center = Vector(0,0,50)
+    loft = Part.makeLoft([Part.Wire([c1.toShape()]), Part.Wire([c2.toShape()])], True)
+- Part.BSplineCurve()  smooth curve through points
+    bs = Part.BSplineCurve()
+    bs.interpolate([Vector(0,0,0), Vector(10,5,0), Vector(20,0,0)])
+    edge = bs.toShape()
+- Revolution:
+    wire = ... (closed profile in XZ plane)
+    solid = wire.revolve(Vector(0,0,0), Vector(0,0,1), 360)
 
 QUALITY: Result must be a single manifold solid. For hollow parts: outer.cut(inner). \
 Fuse all parts together with 0.5mm overlap. No decorations. \
