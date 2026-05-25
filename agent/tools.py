@@ -35,43 +35,50 @@ from agent.tool_dispatch import register_tool, dispatch_tool  # noqa: F401
 _PARAM_STORE: dict[str, float | int] = {}
 _PARAMETRIC_CODE: str = ""
 
-# Variables persisted between execute_code calls so LLM can reference
-# values defined in earlier iterations (e.g. CUP_DIAMETER from step 1).
-_PERSISTENT_VARS: dict = {}
+# Namespace that persists across execute_code calls so the LLM can reference
+# variables (including FreeCAD shapes) defined in earlier iterations.
+_EXEC_NAMESPACE: dict = {}
 _BUILTIN_NAMES = frozenset({
     "FreeCAD", "Part", "math", "Gui", "doc", "Vector", "App",
     "pi", "sin", "cos", "sqrt", "__builtins__",
 })
 
-# Only these types are safe to persist — no FreeCAD C++ object references.
+# Only these types are safe to serialize to disk for session persistence.
 _PERSISTABLE_TYPES = (int, float, str, bool, type(None))
 
 _PARAM_PATTERN = re.compile(r'^([A-Z][A-Z0-9_]*)\s*=\s*([-+]?[\d.]+)\s*$')
 
 
 def _save_user_vars(namespace: dict) -> None:
-    """Copy safe user-defined variables from exec namespace into _PERSISTENT_VARS."""
+    """Copy all user-defined variables from exec namespace into _EXEC_NAMESPACE.
+
+    Keeps FreeCAD objects in memory so the next iteration can reference them.
+    Disk serialization (get_persistent_vars) filters to safe types.
+    """
     for name, value in namespace.items():
         if name.startswith("_") or name in _BUILTIN_NAMES:
             continue
-        if isinstance(value, _PERSISTABLE_TYPES):
-            _PERSISTENT_VARS[name] = value
+        _EXEC_NAMESPACE[name] = value
 
 
 def clear_persistent_vars() -> None:
     """Clear all persisted variables (call on new session)."""
-    _PERSISTENT_VARS.clear()
+    _EXEC_NAMESPACE.clear()
 
 
 def get_persistent_vars() -> dict:
-    """Return a copy of persistent vars (for session serialization)."""
-    return dict(_PERSISTENT_VARS)
+    """Return serializable subset of exec namespace (for session persistence to disk).
+
+    FreeCAD C++ objects are excluded — they can't be serialized and would be
+    stale after deserialization. Only primitive types survive disk round-trips.
+    """
+    return {k: v for k, v in _EXEC_NAMESPACE.items() if isinstance(v, _PERSISTABLE_TYPES)}
 
 
 def set_persistent_vars(vars: dict) -> None:
-    """Restore persistent vars (for session deserialization)."""
-    _PERSISTENT_VARS.clear()
-    _PERSISTENT_VARS.update(vars)
+    """Restore persistent vars (for session deserialization from disk)."""
+    _EXEC_NAMESPACE.clear()
+    _EXEC_NAMESPACE.update(vars)
 
 
 def _extract_parameters(code: str) -> dict:
@@ -279,8 +286,8 @@ def _tool_execute_code(args_json: str) -> str:
         "cos": math.cos,
         "sqrt": math.sqrt,
     }
-    # Inject variables from previous execute_code calls
-    namespace.update(_PERSISTENT_VARS)
+    # Inject variables from previous execute_code calls (includes FreeCAD objects)
+    namespace.update(_EXEC_NAMESPACE)
 
     try:
         # Snapshot before execution (so user can undo)
