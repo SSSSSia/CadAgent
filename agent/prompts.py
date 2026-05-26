@@ -28,7 +28,7 @@ CRITICAL RULES:
 - Pre-imported: FreeCAD, Part, math, Gui, doc (FreeCAD.ActiveDocument), Vector, App
 - For new documents: doc = FreeCAD.newDocument("Design")
 - Add shapes: obj = doc.addObject("Part::Feature", "Name"); obj.Shape = shape
-- All dimensions in mm. Avoid fillet/chamfer unless the part requires them.
+- All dimensions in mm. No fillet or chamfer — they cause topology errors.
 - Variables PERSIST between execute_code calls — reuse them directly.
 - Boolean ops (cut/fuse/common) return NEW shapes — MUST assign: body = body.cut(hole)
 - translate() modifies IN-PLACE, returns None — do NOT assign: shape.translate(v)
@@ -37,32 +37,23 @@ Part API Quick Reference:
 - Part.makeBox(x,y,z), Part.makeCylinder(r,h), Part.makeCone(r1,r2,h)
 - Part.makeSphere(r), Part.makeTorus(r1,r2)
 - Part.Ellipse(): e=Part.Ellipse(); e.MajorRadius=r1; e.MinorRadius=r2; edge=e.toShape()
-- Part.Wire([edge1,...]).makePipe(profile) sweeps along path
 - shape.translate(Vector) IN-PLACE, a.cut(b) NEW, a.fuse(b) NEW
 - FreeCAD.Vector(x,y,z)
 
-For handles/curved tubes, use revolve + extrude (more reliable than makePipe):
-  # Create handle profile as a polygon in XZ plane
-  handle_points = [
-    Vector(40, 0, 50),           # start at cup surface
-    Vector(100, 0, 50),          # go outward
-    Vector(100, 0, 90),          # go up
-    Vector(40, 0, 90)            # return to cup
-  ]
-  handle_poly = Part.makePolygon(handle_points)
-  handle = handle_poly.extrude(Vector(0, 16, 0))  # give it thickness
-  handle = handle.makeFillet(5, handle.Edges)     # round edges
-  mug_with_handle = mug.fuse(handle)
+For handles/curved tubes, use torus cut or polygon extrude:
+  # Method 1: Torus section (most reliable for curved handles)
+  handle_torus = Part.makeTorus(30, 6)  # R=30, tube_r=6
+  # Cut a section by subtracting two boxes
+  keeper = Part.makeBox(100, 100, 100)
+  keeper.translate(Vector(-50, -50, -50))
+  handle = handle_torus.common(keeper)  # or use .cut() to trim
+  handle.translate(Vector(cup_radius + 30, 0, cup_height/2))
 
-Alternatively, makePipe (advanced - requires careful profile placement):
-  arc = Part.Arc(Vector(r,0,h1), Vector(r+d,5,hmid), Vector(r,0,h2))  # mid point Y-offset to avoid collinearity
-  path = Part.Wire([arc.toShape()])
-  c = Part.Circle(); c.Radius = 5
-  # CRITICAL: offset profile center perpendicular to path plane
-  c.Center = path.Vertexes[0].Point + FreeCAD.Vector(0, -5, 0)
-  profile = Part.Wire([c.toShape()])
-  handle = path.makePipe(profile)
-  if handle.Solids: handle = handle.Solids[0]
+  # Method 2: Polygon extrude (for straight/angled handles)
+  handle_points = [Vector(40, 0, 50), Vector(80, 0, 50),
+                   Vector(80, 0, 90), Vector(40, 0, 90)]
+  handle = Part.makePolygon(handle_points).extrude(Vector(0, 12, 0))
+  mug = mug.fuse(handle)
 For hollow parts: outer.cut(inner). For axisymmetric: wire.revolve(origin, axis, 360).
 
 {context}"""
@@ -99,7 +90,7 @@ CRITICAL RULES:
 - Pre-imported: FreeCAD, Part, math, Gui, doc (FreeCAD.ActiveDocument), Vector, App
 - For new documents: doc = FreeCAD.newDocument("Design")
 - Add shapes: obj = doc.addObject("Part::Feature", "Name"); obj.Shape = shape
-- All dimensions in mm. Avoid fillet/chamfer unless the part requires them.
+- All dimensions in mm. No fillet or chamfer — they cause topology errors.
 - Variables PERSIST between execute_code calls — reuse them directly.
 - Boolean ops (cut/fuse/common) return NEW shapes — MUST assign: body = body.cut(hole)
 - translate() modifies IN-PLACE, returns None — do NOT assign: shape.translate(v)
@@ -108,32 +99,23 @@ Part API Quick Reference:
 - Part.makeBox(x,y,z), Part.makeCylinder(r,h), Part.makeCone(r1,r2,h)
 - Part.makeSphere(r), Part.makeTorus(r1,r2)
 - Part.Ellipse(): e=Part.Ellipse(); e.MajorRadius=r1; e.MinorRadius=r2; edge=e.toShape()
-- Part.Wire([edge1,...]).makePipe(profile) sweeps along path
 - shape.translate(Vector) IN-PLACE, a.cut(b) NEW, a.fuse(b) NEW
 - FreeCAD.Vector(x,y,z)
 
-For handles/curved tubes, use revolve + extrude (more reliable than makePipe):
-  # Create handle profile as a polygon in XZ plane
-  handle_points = [
-    Vector(40, 0, 50),           # start at cup surface
-    Vector(100, 0, 50),          # go outward
-    Vector(100, 0, 90),          # go up
-    Vector(40, 0, 90)            # return to cup
-  ]
-  handle_poly = Part.makePolygon(handle_points)
-  handle = handle_poly.extrude(Vector(0, 16, 0))  # give it thickness
-  handle = handle.makeFillet(5, handle.Edges)     # round edges
-  mug_with_handle = mug.fuse(handle)
+For handles/curved tubes, use torus cut or polygon extrude:
+  # Method 1: Torus section (most reliable for curved handles)
+  handle_torus = Part.makeTorus(30, 6)  # R=30, tube_r=6
+  # Cut a section by subtracting two boxes
+  keeper = Part.makeBox(100, 100, 100)
+  keeper.translate(Vector(-50, -50, -50))
+  handle = handle_torus.common(keeper)  # or use .cut() to trim
+  handle.translate(Vector(cup_radius + 30, 0, cup_height/2))
 
-Alternatively, makePipe (advanced - requires careful profile placement):
-  arc = Part.Arc(Vector(r,0,h1), Vector(r+d,5,hmid), Vector(r,0,h2))  # mid point Y-offset to avoid collinearity
-  path = Part.Wire([arc.toShape()])
-  c = Part.Circle(); c.Radius = 5
-  # CRITICAL: offset profile center perpendicular to path plane
-  c.Center = path.Vertexes[0].Point + FreeCAD.Vector(0, -5, 0)
-  profile = Part.Wire([c.toShape()])
-  handle = path.makePipe(profile)
-  if handle.Solids: handle = handle.Solids[0]
+  # Method 2: Polygon extrude (for straight/angled handles)
+  handle_points = [Vector(40, 0, 50), Vector(80, 0, 50),
+                   Vector(80, 0, 90), Vector(40, 0, 90)]
+  handle = Part.makePolygon(handle_points).extrude(Vector(0, 12, 0))
+  mug = mug.fuse(handle)
 For hollow parts: outer.cut(inner). For axisymmetric: wire.revolve(origin, axis, 360).
 
 {context}"""

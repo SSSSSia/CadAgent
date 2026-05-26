@@ -70,10 +70,10 @@ class _LlmCallThread(QtCore.QThread):
                     content += c
                     self.chunkReady.emit(c)
 
-                # Reasoning content (from models like GLM-5.1)
-                rc = delta.get("reasoning_content")
-                if rc:
-                    self.reasoningReady.emit(rc)
+                # Reasoning content — disabled (not shown in UI)
+                # rc = delta.get("reasoning_content")
+                # if rc:
+                #     self.reasoningReady.emit(rc)
 
                 # Tool calls accumulation
                 for tc in (delta.get("tool_calls") or []):
@@ -287,8 +287,8 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
                 self._remove_streaming_bubble()
                 bubble_start = None  # no bubble to insert before
 
-            # Render reasoning block before the finalized agent bubble
-            self._render_reasoning_block(insert_before_pos=bubble_start)
+            # Reasoning block — disabled
+            # self._render_reasoning_block(insert_before_pos=bubble_start)
             self._reasoning_text = ""
 
             has_streaming_text = bool(self._streaming_text and self._streaming_text.strip())

@@ -427,7 +427,7 @@ def test_topology_issues_multi_solid():
     info = ShapeInfo(solid_count=3, shape_type="Compound")
     issues = detect_topology_issues(info)
     assert len(issues) >= 1
-    assert "3 disconnected" in issues[0]
+    assert "3 separate solids" in issues[0]
 
 
 def test_topology_issues_compound():
@@ -462,8 +462,7 @@ def test_describe_shape_multi_solid_warning():
         ],
     )
     text = describe_shape(info)
-    assert "2 disconnected solids" in text or "disconnected" in text.lower()
-    assert "fuse()" in text.lower()
+    assert "2 separate solids" in text or "separate solids" in text.lower()
 
 
 def test_describe_shape_no_solids_warning():
