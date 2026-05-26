@@ -15,11 +15,8 @@ from core.logger import log_warning
 
 def _get_storage_dir() -> str:
     """Use project directory Mod/CadAgent/sessions for session storage."""
-    try:
-        import CadAgent
-        base = os.path.dirname(os.path.abspath(CadAgent.__file__))
-    except (ImportError, AttributeError):
-        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # Get the CadAgent module directory
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     session_dir = os.path.join(base, "sessions")
     os.makedirs(session_dir, exist_ok=True)
 

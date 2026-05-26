@@ -32,11 +32,7 @@ class SnapshotManager:
     def get_snapshot_dir() -> str:
         """Return the snapshot storage directory, creating it if needed."""
         # Use project directory Mod/CadAgent/snapshots
-        try:
-            import CadAgent
-            base = os.path.dirname(os.path.abspath(CadAgent.__file__))
-        except (ImportError, AttributeError):
-            base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         snap_dir = os.path.join(base, "snapshots")
         os.makedirs(snap_dir, exist_ok=True)
 
