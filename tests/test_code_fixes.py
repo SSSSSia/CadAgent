@@ -147,3 +147,27 @@ def test_makeellipse_error_hint():
     assert "Part.Ellipse()" in hint
     assert "MajorRadius" in hint
     assert fixed is None
+
+
+def test_occ_error_collinear_hint():
+    """OCCError with collinear points should give specific Arc hint."""
+    class OCCError(Exception):
+        pass
+    err = OCCError("Three points are collinear")
+    hint, fixed = error_hint(err, "arc = Part.Arc(p1, p2, p3)")
+    assert "collinear" in hint.lower() or "three points" in hint.lower()
+    assert "Part.Arc" in hint
+    assert "mid-point" in hint
+    assert fixed is None
+
+
+def test_occ_error_null_shape_hint():
+    """OCCError with Null shape should give makePipe specific hint."""
+    class OCCError(Exception):
+        pass
+    err = OCCError("Null shape")
+    hint, fixed = error_hint(err, "handle = path.makePipe(profile)")
+    assert "null" in hint.lower()
+    assert "makePipe" in hint
+    assert "coplanar" in hint or "perpendicular" in hint
+    assert fixed is None

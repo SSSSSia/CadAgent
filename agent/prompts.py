@@ -41,10 +41,25 @@ Part API Quick Reference:
 - shape.translate(Vector) IN-PLACE, a.cut(b) NEW, a.fuse(b) NEW
 - FreeCAD.Vector(x,y,z)
 
-For handles/curved tubes, use makePipe:
-  arc = Part.Arc(Vector(r,0,h1), Vector(r+d,0,hmid), Vector(r,0,h2))
+For handles/curved tubes, use revolve + extrude (more reliable than makePipe):
+  # Create handle profile as a polygon in XZ plane
+  handle_points = [
+    Vector(40, 0, 50),           # start at cup surface
+    Vector(100, 0, 50),          # go outward
+    Vector(100, 0, 90),          # go up
+    Vector(40, 0, 90)            # return to cup
+  ]
+  handle_poly = Part.makePolygon(handle_points)
+  handle = handle_poly.extrude(Vector(0, 16, 0))  # give it thickness
+  handle = handle.makeFillet(5, handle.Edges)     # round edges
+  mug_with_handle = mug.fuse(handle)
+
+Alternatively, makePipe (advanced - requires careful profile placement):
+  arc = Part.Arc(Vector(r,0,h1), Vector(r+d,5,hmid), Vector(r,0,h2))  # mid point Y-offset to avoid collinearity
   path = Part.Wire([arc.toShape()])
-  c = Part.Circle(); c.Radius = 5; c.Center = path.Vertices[0].Point
+  c = Part.Circle(); c.Radius = 5
+  # CRITICAL: offset profile center perpendicular to path plane
+  c.Center = path.Vertexes[0].Point + FreeCAD.Vector(0, -5, 0)
   profile = Part.Wire([c.toShape()])
   handle = path.makePipe(profile)
   if handle.Solids: handle = handle.Solids[0]
@@ -97,10 +112,25 @@ Part API Quick Reference:
 - shape.translate(Vector) IN-PLACE, a.cut(b) NEW, a.fuse(b) NEW
 - FreeCAD.Vector(x,y,z)
 
-For handles/curved tubes, use makePipe:
-  arc = Part.Arc(Vector(r,0,h1), Vector(r+d,0,hmid), Vector(r,0,h2))
+For handles/curved tubes, use revolve + extrude (more reliable than makePipe):
+  # Create handle profile as a polygon in XZ plane
+  handle_points = [
+    Vector(40, 0, 50),           # start at cup surface
+    Vector(100, 0, 50),          # go outward
+    Vector(100, 0, 90),          # go up
+    Vector(40, 0, 90)            # return to cup
+  ]
+  handle_poly = Part.makePolygon(handle_points)
+  handle = handle_poly.extrude(Vector(0, 16, 0))  # give it thickness
+  handle = handle.makeFillet(5, handle.Edges)     # round edges
+  mug_with_handle = mug.fuse(handle)
+
+Alternatively, makePipe (advanced - requires careful profile placement):
+  arc = Part.Arc(Vector(r,0,h1), Vector(r+d,5,hmid), Vector(r,0,h2))  # mid point Y-offset to avoid collinearity
   path = Part.Wire([arc.toShape()])
-  c = Part.Circle(); c.Radius = 5; c.Center = path.Vertices[0].Point
+  c = Part.Circle(); c.Radius = 5
+  # CRITICAL: offset profile center perpendicular to path plane
+  c.Center = path.Vertexes[0].Point + FreeCAD.Vector(0, -5, 0)
   profile = Part.Wire([c.toShape()])
   handle = path.makePipe(profile)
   if handle.Solids: handle = handle.Solids[0]

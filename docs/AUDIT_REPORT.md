@@ -245,3 +245,94 @@ WORKFLOW 第 1 步从 "Output a design plan as plain text (no tool call)" 改为
 2. **创建一个法兰盘**（多布尔运算）：验证布尔运算赋值学习
 3. **对比 Token 消耗**：修改前后用相同任务比较 context token 使用量
 4. **对比迭代次数**：修改前后用相同任务比较完成所需迭代数
+
+---
+
+## 6. 后续优化 (2026-05-26)
+
+### 背景
+
+Phase 1-4 修复后，用"创建马克杯"任务进行验证。结果：**精简到 3 工具后效果显著改善**——之前版本连正常手柄都做不出来，精简后第一次就成功做出了有手柄形状的马克杯。
+
+但验证日志（`log/cadagent.log`）暴露了新的可优化点。
+
+### 6.1 [中] 系统提示 makePipe 示例有缺陷
+
+**文件**: `agent/prompts.py:44-50`
+
+**问题**: 示例中 `c.Center = path.Vertices[0].Point` 将截面圆心放在路径起点，导致截面与路径共面（都在 Y=0 平面），`makePipe` 返回 Null shape。LLM 复制此示例导致 2 次失败。
+
+**修复** (2026-05-26):
+- 首选方案改为更可靠的 `revolve` + `extrude` 方法
+- `makePipe` 作为高级方案，修正：
+  - Arc 中间点加 Y 偏移避免三点共线：`Vector(r+d,5,hmid)`
+  - 截面圆心垂直偏移避免共面：`c.Center = path.Vertexes[0].Point + FreeCAD.Vector(0, -5, 0)`
+
+### 6.2 [中] OCCError 提示过于泛化
+
+**文件**: `agent/code_fixes.py:175-180`
+
+**问题**: `OCCError` 统一返回"布尔运算失败"提示，但 `Three points are collinear` 实际是 `Part.Arc` 输入问题，提示跑偏。
+
+**修复** (2026-05-26):
+- 增加 `collinear` 检测：提示 Arc 三点不共线，中间点需向外偏移
+- 增加 `Null shape` 检测：提示 makePipe 截面需与路径垂直
+
+### 6.3 [低] CLAUDE.md 与代码脱节
+
+**文件**: `CLAUDE.md`
+
+**问题**: 描述的是 12 工具架构，与当前 3 工具实现不一致。
+
+**修复** (2026-05-26):
+- 工具列表更新为 3 个，说明几何分析已整合到 `execute_code` 返回值
+- 移除 `auto_fix_code()`、`_post_exec_validate()`、`_compute_delta()` 等已删除函数的引用
+- 更新参数化设计说明，移除 `_PARAMETRIC_CODE`
+
+---
+
+## 7. 根因→修复对照表（更新）
+
+| 根因 | 严重度 | Phase | 修复状态 |
+|------|--------|-------|----------|
+| 1.1 auto-fix 静默修改，LLM 看不到 | 致命 | 1 | ✅ 已修复 |
+| 1.2 ReAct parser 无法解析多行代码 | 致命 | 4 | ✅ 已修复 |
+| 1.3 "先出方案"导致第一轮终止 | 致命 | 4 | ✅ 已修复 |
+| 1.4 未发送 tool_choice | 致命 | 4 | ✅ 已修复 |
+| 1.5 execute_code 返回过于冗长 | 严重 | 1,3 | ✅ 已修复 |
+| 1.6 系统提示词过于庞大 | 严重 | 2,3 | ✅ 已修复 |
+| 1.7 Token 截断过于激进 | 严重 | 4 | ✅ 已修复 |
+| 1.8 Fix 9 Placement 误删 | 中等 | 1,4 | ✅ 已修复 |
+| 1.9 Fix 6 逻辑缺陷 | 中等 | 1 | ✅ 已修复 |
+| 1.10 错误去重过于激进 | 中等 | 3 | ✅ 已修复 |
+| 1.11 摘要语言不匹配 | 低 | 3 | ✅ 已修复 |
+| 1.12 工具过多 + 死代码注册 | 低 | 3,4 | ✅ 已修复 |
+| 1.13 Temperature 不可配置 | 低 | 4 | ✅ 已修复 |
+| **6.1 makePipe 示例缺陷** | 中 | - | ✅ 已修复 (2026-05-26) |
+| **6.2 OCCError 提示泛化** | 中 | - | ✅ 已修复 (2026-05-26) |
+| **6.3 CLAUDE.md 脱节** | 低 | - | ✅ 已修复 (2026-05-26) |
+
+---
+
+## 8. 变更文件总清单（更新）
+
+| 文件 | Phase | 修改内容 |
+|------|-------|----------|
+| `agent/react_parser.py` | 4 | 3 处 json.loads 加 strict=False |
+| `agent/prompts.py` | 2,3,4 | 精简提示词 + 删除"先出方案"指令 |
+| `agent/prompts.py` | - | **修正 makePipe 示例（共面/共线问题）** |
+| `agent/code_fixes.py` | 1,4 | Fix 6 正则 + Fix 9 改为基于值检测 |
+| `agent/code_fixes.py` | - | **增加 OCCError collinear/Null shape 精准提示** |
+| `agent/tool_defs.py` | 3 | 从 12 个缩减到 3 个核心工具 |
+| `agent/tools.py` | 1,3,4 | 移除 Document state + 后验证管线 + 隐藏工具取消注册 |
+| `agent/loop.py` | 3 | 错误去重改为精确前缀匹配 |
+| `core/llm_client.py` | 4 | 加 tool_choice="auto" + temperature 可配 |
+| `core/token_budget.py` | 3,4 | 摘要改英文 + 截断阈值提升到 500 |
+| `core/config.py` | 4 | 增加 TEMPERATURE 配置 |
+| `CLAUDE.md` | - | **同步为 3 工具架构** |
+| `tests/test_code_fixes.py` | 1 | 更新 Fix 9 测试 |
+| `tests/test_code_fixes.py` | - | **新增 OCCError collinear/Null shape 测试** |
+| `tests/test_multi_doc_tools.py` | 3,4 | 重写为 3 工具测试 + 更新 workflow 断言 |
+| `tests/test_token_budget.py` | 3 | 更新摘要测试为英文 |
+
+测试覆盖：238 → **240** 个测试，全部通过。

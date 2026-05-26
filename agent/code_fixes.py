@@ -173,10 +173,24 @@ def error_hint(error: Exception, code: str) -> tuple[str, str | None]:
         return "\n".join(hints), None
 
     elif "OCC" in e_type or "BRep" in e_type:
-        hints.append(
-            "Hint: Boolean operation failed. Try: "
-            "(1) ensure shapes overlap by at least 0.1mm, "
-            "(2) try a different boolean order."
-        )
+        if "collinear" in e_str.lower() or "three points" in e_str.lower():
+            hints.append(
+                "Hint: Part.Arc requires 3 NON-collinear points. "
+                "Ensure the mid-point is NOT on the line between start and end. "
+                "For a handle arc, offset the mid-point outward (e.g., add Y-offset)."
+            )
+        elif "Null shape" in e_str or "null shape" in e_str.lower():
+            hints.append(
+                "Hint: Operation produced a null/empty shape. "
+                "For makePipe: profile Wire must be closed and not coplanar with path. "
+                "Offset the profile center perpendicular to the path plane (e.g., +Vector(0, -radius, 0)). "
+                "For extrude/revolve: check that the profile is valid and closed."
+            )
+        else:
+            hints.append(
+                "Hint: Boolean operation failed. Try: "
+                "(1) ensure shapes overlap by at least 0.1mm, "
+                "(2) try a different boolean order."
+            )
 
     return "\n".join(hints), fixed_code
