@@ -39,6 +39,30 @@ class SnapshotManager:
             base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         snap_dir = os.path.join(base, "snapshots")
         os.makedirs(snap_dir, exist_ok=True)
+
+        # Migrate from old FreeCAD user data directory
+        try:
+            import FreeCAD
+            old_base = FreeCAD.getUserAppDataDir()
+        except (ImportError, AttributeError):
+            old_base = None
+
+        if old_base:
+            old_dir = os.path.join(old_base, "CadAgent", "snapshots")
+            if os.path.isdir(old_dir) and not os.listdir(snap_dir):
+                # New dir is empty, migrate all snapshots
+                try:
+                    import shutil
+                    for f in os.listdir(old_dir):
+                        if f.endswith(".FCStd"):
+                            src = os.path.join(old_dir, f)
+                            dst = os.path.join(snap_dir, f)
+                            if not os.path.isfile(dst):
+                                shutil.copy2(src, dst)
+                    log_warning(f"Migrated snapshots from {old_dir} to {snap_dir}")
+                except OSError as e:
+                    log_warning(f"Failed to migrate snapshots: {e}")
+
         return snap_dir
 
     # --- Orphan cleanup ---

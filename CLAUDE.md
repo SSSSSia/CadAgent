@@ -108,11 +108,11 @@ Agent 循环的核心逻辑拆分为两层：
 | `agent/prompts.py` | 系统提示词：`AGENT_SYSTEM_PROMPT`（Tool Calling）和 `REACT_SYSTEM_PROMPT`（XML 标签）。均含 `{context}` 占位符用于插入文档几何信息和参数表。 |
 | `agent/react_parser.py` | 从 LLM 文本输出中解析 `<tool name="...">...</tool>` XML 标签，转为标准 tool_calls 格式。无 FreeCAD 依赖。 |
 | `core/llm_client.py` | 三个入口：`call_llm_with_tools()`（非流式）、`call_llm_streaming()`（SSE 生成器）、`generate_freecad_code()`（遗留单次）。 |
-| `core/session.py` | `ChatSession` — 有序消息列表，含 system/user/assistant/tool 角色。含 `parameters` 参数表和 `parametric_code` 参数化代码存储。支持序列化/反序列化。`session_store.py` 持久化到 `Mod/CadAgent/sessions/`。 |
+| `core/session.py` | `ChatSession` — 有序消息列表，含 system/user/assistant/tool 角色。含 `parameters` 参数表和 `parametric_code` 参数化代码存储。支持序列化/反序列化。`session_store.py` 持久化到 `Mod/CadAgent/sessions/`。**首次启动自动迁移旧会话**从 `AppData/Roaming/FreeCAD/v1-1/CadAgent/sessions/`。 |
 | `core/doc_analyzer.py` | 从 FreeCAD 文档提取包围盒、体积、质心、圆柱/圆锥/球体特征、平面、孔阵、对称性等信息。依赖 `geometry_analyzer.py` 做纯数据分析。 |
 | `core/geometry_analyzer.py` | 纯数据结构的几何分析（dataclass），无 FreeCAD 导入。`ShapeInfo`、`FaceInfo` 等数据类。 |
 | `core/text_utils.py` | 文本工具：`strip_markdown()` 移除 Markdown 代码围栏。 |
-| `core/snapshot.py` | 基于 `.FCStd` 文件的撤销栈（最多 10 个）。`take_snapshot()` / `take_snapshot_for_doc()` 在每次 `execute_code` 前调用，`restore_latest_snapshot()` 用于撤销。快照保存在 `Mod/CadAgent/snapshots/`。**注意**：孤儿快照（来自历史会话）不会自动清理，需手动删除。 |
+| `core/snapshot.py` | 基于 `.FCStd` 文件的撤销栈（最多 10 个）。`take_snapshot()` / `take_snapshot_for_doc()` 在每次 `execute_code` 前调用，`restore_latest_snapshot()` 用于撤销。快照保存在 `Mod/CadAgent/snapshots/`。**首次启动自动迁移旧快照**从 `AppData/Roaming/FreeCAD/v1-1/CadAgent/snapshots/`。 |
 | `core/token_budget.py` | Token 估算（中文 ~1.5 字符/token，英文 ~4 字符/token）。`trim_messages()` 保留系统提示 + 最近 6 条消息，原子性移除工具调用对，必要时摘要中间历史。 |
 | `core/logger.py` | 双通道日志：FreeCAD.Console + `Mod/CadAgent/log/cadagent.log` 文件。提供 `log_info`、`log_warning`、`log_error`。 |
 | `ui/chat_renderer.py` | Markdown → HTML，基于占位符的管道（代码块 → 表格 → 转义 → 行内格式 → 还原）。 |

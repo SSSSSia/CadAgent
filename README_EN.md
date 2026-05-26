@@ -136,7 +136,7 @@ CadAgent/
 - **Thread Safety** — LLM API calls run in a background QThread; FreeCAD API operations (tool execution) return to the main thread via Signal/Slot
 - **Standard Library Only** — HTTP requests use `urllib` — no external Python package dependencies
 - **Compatibility** — Automatically detects whether the model supports Tool Calling, falls back to ReAct XML tag mode when not supported; auto-detects model capability for prompt selection
-- **270 Automated Tests** — Covering core modules (react_parser, token_budget, chat_renderer, config, session, code_fixes, agent_loop, tool_dispatch, parametric, etc.)
+- **238 Automated Tests** — Covering core modules (react_parser, token_budget, chat_renderer, config, session, code_fixes, agent_loop, tool_dispatch, parametric, etc.)
 
 ## License
 
