@@ -46,11 +46,11 @@ Part API Quick Reference:
 - Part.makeBox(x,y,z), Part.makeCylinder(r,h), Part.makeCone(r1,r2,h)
 - Part.makeSphere(r), Part.makeTorus(r1,r2)
 - Part.Arc(p1,p2,p3).toShape(), Part.Circle().Center/.Radius
-- Part.Wire([edges]), path_wire.makePipe(profile)
+- Part.Wire([edge1,...]) wraps edges into wire; wire.makePipe(profile) sweeps along path (NOT edge.makePipe!)
 - shape.translate(Vector) IN-PLACE, a.cut(b) NEW, a.fuse(b) NEW
 - FreeCAD.Vector(x,y,z)
 
-For handles/curved tubes: use wire.makePipe() with circular profile along arc. \
+For handles/curved tubes: wire=Part.Wire([arc_edge]); pipe=wire.makePipe(profile). \
 For hollow parts: outer.cut(inner). For smooth transitions: Part.makeLoft(). \
 For axisymmetric parts: wire.revolve(Vector(0,0,0), Vector(0,0,1), 360).
 
@@ -144,11 +144,11 @@ Part API Quick Reference:
 - Part.makeBox(x,y,z), Part.makeCylinder(r,h), Part.makeCone(r1,r2,h)
 - Part.makeSphere(r), Part.makeTorus(r1,r2)
 - Part.Arc(p1,p2,p3).toShape(), Part.Circle().Center/.Radius
-- Part.Wire([edges]), path_wire.makePipe(profile)
+- Part.Wire([edge1,...]) wraps edges into wire; wire.makePipe(profile) sweeps along path (NOT edge.makePipe!)
 - shape.translate(Vector) IN-PLACE, a.cut(b) NEW, a.fuse(b) NEW
 - FreeCAD.Vector(x,y,z)
 
-For handles/curved tubes: use wire.makePipe() with circular profile along arc. \
+For handles/curved tubes: wire=Part.Wire([arc_edge]); pipe=wire.makePipe(profile). \
 For hollow parts: outer.cut(inner). For smooth transitions: Part.makeLoft(). \
 For axisymmetric parts: wire.revolve(Vector(0,0,0), Vector(0,0,1), 360).
 

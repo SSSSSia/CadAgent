@@ -220,11 +220,43 @@ def error_hint(error: Exception, code: str) -> tuple[str, str | None]:
                     "Hint: Check API names: Part.makeBox, Part.makeCylinder, "
                     "FreeCAD.Vector, doc.addObject, obj.Shape."
                 )
+        elif "makePipe" in e_str and "has no attribute" in e_str:
+            pat_pipe = re.compile(r'(\w+)\.makePipe\s*\((.+)\)')
+            m_pipe = pat_pipe.search(code)
+            if m_pipe:
+                var, profile = m_pipe.group(1), m_pipe.group(2)
+                fixed_code = code.replace(
+                    m_pipe.group(0),
+                    f'Part.Wire([{var}]).makePipe({profile})'
+                )
+                hints.append(
+                    "Hint: makePipe() is a method on Part.Wire, NOT on Part.Edge. "
+                    f"Wrapped edge in Wire: Part.Wire([{var}]).makePipe(...). "
+                    "Profile must be a Wire: c=Part.Circle(); c.Radius=r; "
+                    "profile=Part.Wire([c.toShape()])"
+                )
+            else:
+                hints.append(
+                    "Hint: makePipe() requires Part.Wire, not Part.Edge. "
+                    "Create wire first: wire=Part.Wire([edge]); pipe=wire.makePipe(profile)."
+                )
         else:
-            hints.append(
-                "Hint: Check API names: Part.makeBox, Part.makeCylinder, "
-                "FreeCAD.Vector, doc.addObject, obj.Shape."
-            )
+            attr_match = re.search(r"no attribute '(\w+)'", e_str)
+            type_match = re.search(r"'([^']+)' object", e_str)
+            if attr_match and type_match:
+                attr = attr_match.group(1)
+                obj_type = type_match.group(1)
+                hints.append(
+                    f"Hint: {obj_type} has no method '{attr}'. "
+                    "Check FreeCAD Part API. Common gotchas: "
+                    "makePipe/revolve need Wire not Edge, "
+                    "makeLoft needs list of Wires."
+                )
+            else:
+                hints.append(
+                    "Hint: Check API names: Part.makeBox, Part.makeCylinder, "
+                    "FreeCAD.Vector, doc.addObject, obj.Shape."
+                )
 
     elif e_type == "TypeError":
         if "translate" in code:

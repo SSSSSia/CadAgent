@@ -247,3 +247,29 @@ def test_combined_fix4_and_fix2():
     fixed, fixes = auto_fix_code(code)
     assert "Part.makeBox" in fixed
     assert "body = body.cut(box)" in fixed
+
+
+# ---- error_hint: makePipe ----
+
+def test_makepipe_error_hint_with_autofix():
+    err = AttributeError("'Part.Edge' object has no attribute 'makePipe'")
+    hint, fixed = error_hint(err, "handle = arc_edge.makePipe(profile)")
+    assert "Wire" in hint
+    assert "NOT" in hint
+    assert fixed is not None
+    assert "Part.Wire([arc_edge]).makePipe(profile)" in fixed
+
+
+def test_makepipe_error_hint_no_match_in_code():
+    err = AttributeError("'Part.Edge' object has no attribute 'makePipe'")
+    hint, fixed = error_hint(err, "x = 1\ny = 2")
+    assert "Wire" in hint
+    assert fixed is None
+
+
+def test_improved_generic_attribute_error():
+    err = AttributeError("'Part.Edge' object has no attribute 'makeLoft'")
+    hint, fixed = error_hint(err, "x = edge.makeLoft(wires)")
+    assert "makeLoft" in hint
+    assert "Edge" in hint
+    assert "Wire" in hint
