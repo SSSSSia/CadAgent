@@ -136,7 +136,7 @@ CadAgent/
 - **线程安全**：LLM API 调用在后台 QThread 中执行，FreeCAD API 操作（工具执行）通过 Signal/Slot 回到主线程
 - **纯标准库**：HTTP 请求使用 `urllib`，无外部 Python 包依赖
 - **兼容性**：自动检测模型是否支持 Tool Calling，不支持时回退到 ReAct XML 标签模式；自动检测模型能力切换完整/简化提示词
-- **270 个自动化测试**：覆盖核心模块（react_parser、token_budget、chat_renderer、config、session、code_fixes、agent_loop、tool_dispatch、parametric 等）
+- **238 个自动化测试**：覆盖核心模块（react_parser、token_budget、chat_renderer、config、session、code_fixes、agent_loop、tool_dispatch、parametric 等）
 
 ## 许可证
 

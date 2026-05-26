@@ -21,9 +21,9 @@ pytest tests/test_react_parser.py
 pytest tests/test_token_budget.py::test_trim_preserves_system_prompt
 ```
 
-测试使用 `importlib.util.spec_from_file_location` 加载导入了 FreeCAD 的模块，从而完全避免 FreeCAD 依赖。部分测试（如 `test_parametric`、`test_delta_analysis`）在测试文件中复制被测函数以避免导入 FreeCAD 依赖模块。为新模块编写测试时应遵循相同模式。
+测试使用 `importlib.util.spec_from_file_location` 加载导入了 FreeCAD 的模块，从而完全避免 FreeCAD 依赖。部分测试（如 `test_parametric`）在测试文件中复制被测函数以避免导入 FreeCAD 依赖模块。为新模块编写测试时应遵循相同模式。
 
-当前测试文件：`test_react_parser`、`test_token_budget`、`test_chat_renderer`、`test_config`、`test_session`、`test_code_fixes`、`test_geometry_analyzer`、`test_agent_loop`、`test_tool_dispatch`、`test_parametric`、`test_delta_analysis`、`test_multi_doc_tools`、`test_snapshot`、`test_text_utils`。
+当前测试文件：`test_react_parser`、`test_token_budget`、`test_chat_renderer`、`test_config`、`test_session`、`test_code_fixes`、`test_geometry_analyzer`、`test_agent_loop`、`test_tool_dispatch`、`test_parametric`、`test_multi_doc_tools`、`test_snapshot`、`test_text_utils`（共 238 个测试）。
 
 ## 架构
 
