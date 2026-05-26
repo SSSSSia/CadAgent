@@ -76,12 +76,14 @@ def auto_fix_code(code: str) -> tuple[str, list[str]]:
     def _fix_addobj(m):
         nonlocal _addobj_counter
         indent, call = m.group(1), m.group(2)
-        # Check if already assigned (line starts with var = ...)
+        # Check if already assigned: look for 'var =' pattern before the call on same line
         line_start = m.start()
         prefix = code[:line_start]
         last_newline = prefix.rfind('\n')
         preceding = prefix[last_newline + 1:] if last_newline >= 0 else prefix
-        if '=' in preceding and preceding.strip():
+        # Only consider it "already assigned" if the line starts with a variable assignment
+        # like "obj = doc.addObject(...)" — not just any '=' on the preceding part
+        if re.match(r'\s*\w+\s*=\s*$', preceding):
             return m.group(0)  # already has assignment
         _addobj_counter += 1
         fixes.append(f"Assigned doc.addObject() result to _obj_{_addobj_counter}")
@@ -110,11 +112,24 @@ def auto_fix_code(code: str) -> tuple[str, list[str]]:
     if new_code != code:
         code = new_code
 
-    # Fix 9: shape.Placement = ... (Part shapes don't have Placement)
-    pat9 = re.compile(r'^\s*\w+\.Placement\s*=.*$', re.MULTILINE)
-    new_code = pat9.sub('', code)
+    # Fix 9: shape.Placement = ... on Part.Shape (NOT on DocumentObject)
+    # Only remove when the variable looks like a Part shape (lowercase or known shape names),
+    # not when it's a DocumentObject (like obj, body, etc. assigned from doc.addObject)
+    pat9 = re.compile(r'^(\s*)(\w+)\.Placement\s*=\s*(.+)$', re.MULTILINE)
+
+    def _fix_placement(m):
+        indent, var, value = m.group(1), m.group(2), m.group(3)
+        # Skip if variable name looks like a DocumentObject (short, common names)
+        _doc_obj_names = {'obj', 'body', 'part', 'shape', 'box', 'cyl', 'hole'}
+        if var.lower() in _doc_obj_names:
+            return m.group(0)  # likely a DocumentObject, keep Placement
+        # If value contains FreeCAD.Placement, it's likely intentional
+        if 'FreeCAD.Placement' in value or 'Placement(' in value:
+            return m.group(0)  # intentional Placement assignment, keep
+        fixes.append(f"Removed {var}.Placement assignment (Part shapes use translate(), not Placement)")
+        return ''
+    new_code = pat9.sub(_fix_placement, code)
     if new_code != code:
-        fixes.append("Removed .Placement assignment (Part shapes use translate(), not Placement)")
         code = new_code
 
     return code, fixes

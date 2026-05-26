@@ -228,10 +228,12 @@ def test_fix8_multi_arg_fuse():
 
 
 def test_fix9_placement_assignment():
+    # FreeCAD.Placement assignments are now kept (valid for DocumentObjects)
     code = "shape.Placement = FreeCAD.Placement(FreeCAD.Vector(0,0,0), FreeCAD.Vector(0,0,1), 45)"
     fixed, fixes = auto_fix_code(code)
-    assert "Placement" not in fixed
-    assert any("Placement" in f for f in fixes)
+    # Should NOT remove — contains FreeCAD.Placement which is intentional
+    assert "Placement" in fixed
+    assert len(fixes) == 0
 
 
 def test_fix9_no_fix_no_placement():

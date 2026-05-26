@@ -178,7 +178,8 @@ def _check_solid_topology(shape, label: str) -> list[str]:
         elif solid_count > 1:
             warnings.append(
                 f"Object '{label}' has {solid_count} DISCONNECTED solids — "
-                f"parts not fused. Use fuse() with 0.5mm overlap."
+                f"parts not fused. Ensure shapes overlap by at least 0.5mm before fuse(). "
+                f"Fix: translate one part to create overlap, then fuse()."
             )
         elif solid_count == 1:
             try:
@@ -188,6 +189,17 @@ def _check_solid_topology(shape, label: str) -> list[str]:
                         f"Object '{label}' solid has {shell_count} shells — "
                         f"non-manifold geometry from failed boolean"
                     )
+            except Exception:
+                pass
+            # Check for Compound wrapping a single solid
+            try:
+                if shape.ShapeType == "Compound":
+                    warnings.append(
+                        f"Object '{label}' is a Compound wrapping 1 solid. "
+                        f"Fix: obj.Shape = obj.Shape.Solids[0] to extract the solid."
+                    )
+            except Exception:
+                pass
             except Exception:
                 pass
     except Exception:
@@ -274,13 +286,19 @@ def _tool_execute_code(args_json: str) -> str:
         )
 
     # Auto-fix common mistakes
+    original_code = code
     code, fixes = auto_fix_code(code)
     fix_notice = ""
     if fixes:
-        fix_notice = (
-            "Note: Auto-fixes applied:\n"
-            + "\n".join(f"  - {f}" for f in fixes) + "\n"
-        )
+        # Show the LLM what was changed so it can learn
+        fix_lines = ["Note: Auto-fixes applied:"]
+        for f in fixes:
+            fix_lines.append(f"  - {f}")
+        # Include the corrected code so the LLM sees the right syntax
+        fix_lines.append("Corrected code:")
+        for line in code.split('\n'):
+            fix_lines.append(f"  {line}")
+        fix_notice = "\n".join(fix_lines) + "\n"
 
     # Auto-create document when none exists and code uses doc.XXX
     doc_is_none = (target_doc is None) and (FreeCAD.ActiveDocument is None)
@@ -361,7 +379,6 @@ def _tool_execute_code(args_json: str) -> str:
         if post_exec_warnings:
             parts.append("WARNINGS:\n" + "\n".join(f"  - {w}" for w in post_exec_warnings))
         parts.append(f"Changes: {delta}")
-        parts.append(f"Document state:\n{post_state}")
 
         # Extract parametric definitions from code
         params = _extract_parameters(code)
@@ -399,7 +416,10 @@ def _tool_execute_code(args_json: str) -> str:
                 parts = [
                     f"SUCCESS (auto-corrected): Original error was {type(e).__name__}: {e}",
                     f"Auto-fix: {hint}",
+                    f"Corrected code:",
                 ]
+                for line in fixed_code.split('\n'):
+                    parts.append(f"  {line}")
                 if doc_name:
                     parts.append(f"Target document: '{doc_name}'")
                 stdout_text = stdout_capture.getvalue()
@@ -408,7 +428,6 @@ def _tool_execute_code(args_json: str) -> str:
                 if post_exec_warnings:
                     parts.append("WARNINGS:\n" + "\n".join(f"  - {w}" for w in post_exec_warnings))
                 parts.append(f"Changes: {delta}")
-                parts.append(f"Document state:\n{post_state}")
 
                 # Extract parametric definitions from code
                 params = _extract_parameters(code)
@@ -430,7 +449,6 @@ def _tool_execute_code(args_json: str) -> str:
         if hint:
             parts.append(hint)
         parts.append(f"Changes: {delta}")
-        parts.append(f"Document state after error:\n{post_state}")
         return "\n".join(parts)
 
 

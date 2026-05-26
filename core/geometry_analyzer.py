@@ -377,14 +377,22 @@ def detect_topology_issues(info: ShapeInfo) -> list[str]:
     """Detect topology problems like disconnected solids."""
     issues = []
     if info.solid_count == 0:
-        issues.append("No solid components — shape is not a valid solid")
+        issues.append(
+            "No solid components — shape is not a valid solid. "
+            "Fix: check that boolean inputs overlap. "
+            "For hollow objects: inner must be fully inside outer."
+        )
     elif info.solid_count > 1:
         issues.append(
             f"{info.solid_count} disconnected solids — parts not fused. "
-            f"Use fuse() with 0.5mm overlap."
+            f"Fix: translate to create at least 0.5mm overlap, then fuse(). "
+            f"Example: handle.translate(Vector(-1, 0, 0)); result = body.fuse(handle)"
         )
     if info.shape_type == "Compound":
-        issues.append("Shape is a Compound (not a Solid) — boolean may not have merged")
+        issues.append(
+            "Shape is a Compound (not a Solid) — boolean operation created a wrapper. "
+            "Fix: if len(result.Solids) == 1: result = result.Solids[0]"
+        )
     return issues
 
 

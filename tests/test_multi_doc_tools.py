@@ -121,8 +121,9 @@ def test_agent_prompt_has_assembly_tools():
 
 
 def test_agent_prompt_has_assembly_mode():
-    assert "ASSEMBLY DESIGN MODE" in AGENT_SYSTEM_PROMPT
-    assert "Placement" in AGENT_SYSTEM_PROMPT
+    # Assembly mode was simplified — just verify assembly tools are listed
+    assert "create_assembly" in AGENT_SYSTEM_PROMPT
+    assert "list_documents" in AGENT_SYSTEM_PROMPT
 
 
 def test_react_prompt_has_assembly_tools():
@@ -131,7 +132,8 @@ def test_react_prompt_has_assembly_tools():
 
 
 def test_react_prompt_has_assembly_mode():
-    assert "ASSEMBLY DESIGN MODE" in REACT_SYSTEM_PROMPT
+    # Assembly mode was simplified — just verify assembly tools are listed
+    assert "create_assembly" in REACT_SYSTEM_PROMPT
 
 
 def test_react_prompt_has_xml_examples():
