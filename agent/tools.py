@@ -224,23 +224,16 @@ def _tool_execute_code(args_json: str) -> str:
         if auto_created_doc:
             parts.append("Auto-created document 'CadAgentModel' (none was active).")
 
-        # Compact geometry feedback so LLM can verify its work
+        # Rich document state feedback — critical for LLM to verify and plan
         try:
+            from core.doc_analyzer import analyze_document
             target = target_doc or FreeCAD.ActiveDocument
-            if target and target.Objects:
-                shape_objs = [o for o in target.Objects
-                              if hasattr(o, "Shape") and o.Shape and not o.Shape.isNull()]
-                if shape_objs:
-                    geo_lines = []
-                    for obj in shape_objs:
-                        s = obj.Shape
-                        bb = s.BoundBox
-                        dims = f"{bb.XLength:.1f}x{bb.YLength:.1f}x{bb.ZLength:.1f}"
-                        vol = f", V={s.Volume:.0f}" if s.Volume > 0 else ""
-                        geo_lines.append(f"  {obj.Label}: {dims}mm{vol}")
-                    parts.append("Geometry:\n" + "\n".join(geo_lines))
+            if target:
+                doc_state = analyze_document(target)
+                if doc_state and "(No active document)" not in doc_state:
+                    parts.append(f"Document state:\n{doc_state}")
         except Exception:
-            pass  # geometry feedback is optional
+            pass
 
         stdout_text = stdout_capture.getvalue()
         if stdout_text:
@@ -258,14 +251,21 @@ def _tool_execute_code(args_json: str) -> str:
         hint, _ = error_hint(e, code)
 
         parts = [f"ERROR: {type(e).__name__}: {e}"]
-        # Show only last meaningful frame, not full traceback
-        tb_lines = tb.strip().split('\n')
-        if len(tb_lines) >= 2:
-            last_frame = tb_lines[-2].strip()
-            if last_frame:
-                parts.append(f"At: {last_frame}")
+        parts.append(f"Traceback:\n{tb}")
         if hint:
             parts.append(hint)
+
+        # Document state after error helps LLM understand what exists
+        try:
+            from core.doc_analyzer import analyze_document
+            target = target_doc or FreeCAD.ActiveDocument
+            if target:
+                doc_state = analyze_document(target)
+                if doc_state and "(No active document)" not in doc_state:
+                    parts.append(f"Document state after error:\n{doc_state}")
+        except Exception:
+            pass
+
         return "\n".join(parts)
 
 

@@ -36,6 +36,7 @@ CRITICAL RULES:
 Part API Quick Reference:
 - Part.makeBox(x,y,z), Part.makeCylinder(r,h), Part.makeCone(r1,r2,h)
 - Part.makeSphere(r), Part.makeTorus(r1,r2)
+- Part.Ellipse(): e=Part.Ellipse(); e.MajorRadius=r1; e.MinorRadius=r2; edge=e.toShape()
 - Part.Wire([edge1,...]).makePipe(profile) sweeps along path
 - shape.translate(Vector) IN-PLACE, a.cut(b) NEW, a.fuse(b) NEW
 - FreeCAD.Vector(x,y,z)
@@ -85,6 +86,7 @@ CRITICAL RULES:
 Part API Quick Reference:
 - Part.makeBox(x,y,z), Part.makeCylinder(r,h), Part.makeCone(r1,r2,h)
 - Part.makeSphere(r), Part.makeTorus(r1,r2)
+- Part.Ellipse(): e=Part.Ellipse(); e.MajorRadius=r1; e.MinorRadius=r2; edge=e.toShape()
 - Part.Wire([edge1,...]).makePipe(profile) sweeps along path
 - shape.translate(Vector) IN-PLACE, a.cut(b) NEW, a.fuse(b) NEW
 - FreeCAD.Vector(x,y,z)

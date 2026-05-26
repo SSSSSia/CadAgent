@@ -139,3 +139,11 @@ def test_improved_generic_attribute_error():
     assert "makeLoft" in hint
     assert "Edge" in hint
     assert "Wire" in hint
+
+
+def test_makeellipse_error_hint():
+    err = AttributeError("module 'Part' has no attribute 'makeEllipse'")
+    hint, fixed = error_hint(err, "e = Part.makeEllipse(50, 30)")
+    assert "Part.Ellipse()" in hint
+    assert "MajorRadius" in hint
+    assert fixed is None

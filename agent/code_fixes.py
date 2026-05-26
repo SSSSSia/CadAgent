@@ -164,6 +164,14 @@ def error_hint(error: Exception, code: str) -> tuple[str, str | None]:
                     "Use shape.translate(FreeCAD.Vector(x, y, z))."
                 )
 
+    if "makeEllipse" in e_str:
+        hints.append(
+            "Hint: Part.makeEllipse does NOT exist. Use Part.Ellipse() instead: "
+            "e = Part.Ellipse(); e.MajorRadius = r1; e.MinorRadius = r2; "
+            "edge = e.toShape(); wire = Part.Wire([edge])"
+        )
+        return "\n".join(hints), None
+
     elif "OCC" in e_type or "BRep" in e_type:
         hints.append(
             "Hint: Boolean operation failed. Try: "
