@@ -28,7 +28,7 @@ CRITICAL RULES:
 - Pre-imported: FreeCAD, Part, math, Gui, doc (FreeCAD.ActiveDocument), Vector, App
 - For new documents: doc = FreeCAD.newDocument("Design")
 - Add shapes: obj = doc.addObject("Part::Feature", "Name"); obj.Shape = shape
-- All dimensions in mm. No fillet or chamfer.
+- All dimensions in mm. Avoid fillet/chamfer unless the part requires them.
 - Variables PERSIST between execute_code calls — reuse them directly.
 - Boolean ops (cut/fuse/common) return NEW shapes — MUST assign: body = body.cut(hole)
 - translate() modifies IN-PLACE, returns None — do NOT assign: shape.translate(v)
@@ -77,7 +77,7 @@ CRITICAL RULES:
 - Pre-imported: FreeCAD, Part, math, Gui, doc (FreeCAD.ActiveDocument), Vector, App
 - For new documents: doc = FreeCAD.newDocument("Design")
 - Add shapes: obj = doc.addObject("Part::Feature", "Name"); obj.Shape = shape
-- All dimensions in mm. No fillet or chamfer.
+- All dimensions in mm. Avoid fillet/chamfer unless the part requires them.
 - Variables PERSIST between execute_code calls — reuse them directly.
 - Boolean ops (cut/fuse/common) return NEW shapes — MUST assign: body = body.cut(hole)
 - translate() modifies IN-PLACE, returns None — do NOT assign: shape.translate(v)
