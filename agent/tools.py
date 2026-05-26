@@ -160,6 +160,9 @@ def _tool_execute_code(args_json: str) -> str:
     if not code:
         return "ERROR: Empty code block."
 
+    # Log the code being executed
+    log_info(f"execute_code [{description or 'no desc'}]:\n{code}")
+
     # Resolve target document
     target_doc = _resolve_doc(doc_name)
     if doc_name and target_doc is None:
@@ -244,10 +247,13 @@ def _tool_execute_code(args_json: str) -> str:
         if params:
             _PARAM_STORE.update(params)
 
-        return "\n".join(parts)
+        result = "\n".join(parts)
+        log_info(f"execute_code result:\n{result}")
+        return result
 
     except Exception as e:
         tb = traceback.format_exc()
+        log_error(f"execute_code FAILED: {type(e).__name__}: {e}\n{tb}")
         hint, _ = error_hint(e, code)
 
         parts = [f"ERROR: {type(e).__name__}: {e}"]

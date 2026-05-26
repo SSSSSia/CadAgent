@@ -41,7 +41,13 @@ Part API Quick Reference:
 - shape.translate(Vector) IN-PLACE, a.cut(b) NEW, a.fuse(b) NEW
 - FreeCAD.Vector(x,y,z)
 
-For handles: wire=Part.Wire([arc_edge]); pipe=wire.makePipe(profile).
+For handles/curved tubes, use makePipe:
+  arc = Part.Arc(Vector(r,0,h1), Vector(r+d,0,hmid), Vector(r,0,h2))
+  path = Part.Wire([arc.toShape()])
+  c = Part.Circle(); c.Radius = 5; c.Center = path.Vertices[0].Point
+  profile = Part.Wire([c.toShape()])
+  handle = path.makePipe(profile)
+  if handle.Solids: handle = handle.Solids[0]
 For hollow parts: outer.cut(inner). For axisymmetric: wire.revolve(origin, axis, 360).
 
 {context}"""
@@ -91,7 +97,13 @@ Part API Quick Reference:
 - shape.translate(Vector) IN-PLACE, a.cut(b) NEW, a.fuse(b) NEW
 - FreeCAD.Vector(x,y,z)
 
-For handles: wire=Part.Wire([arc_edge]); pipe=wire.makePipe(profile).
+For handles/curved tubes, use makePipe:
+  arc = Part.Arc(Vector(r,0,h1), Vector(r+d,0,hmid), Vector(r,0,h2))
+  path = Part.Wire([arc.toShape()])
+  c = Part.Circle(); c.Radius = 5; c.Center = path.Vertices[0].Point
+  profile = Part.Wire([c.toShape()])
+  handle = path.makePipe(profile)
+  if handle.Solids: handle = handle.Solids[0]
 For hollow parts: outer.cut(inner). For axisymmetric: wire.revolve(origin, axis, 360).
 
 {context}"""
