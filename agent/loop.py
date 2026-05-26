@@ -248,15 +248,15 @@ class AgentLoop:
 
             # Error dedup: warn if same error keeps recurring
             if ex.is_error:
-                err_sig = ex.result[:60]
-                if any(err_sig[:40] in prev for prev in self._recent_errors):
+                err_sig = ex.result[:120]
+                if any(err_sig[:80] == prev[:80] for prev in self._recent_errors):
                     result_text = (
                         ex.result
                         + "\n\nWARNING: REPEATED ERROR. "
                         "You MUST change your approach. Do NOT resubmit similar code."
                     )
                 self._recent_errors.append(err_sig)
-                if len(self._recent_errors) > 3:
+                if len(self._recent_errors) > 5:
                     self._recent_errors.pop(0)
 
             if self._mode == "react":

@@ -1,8 +1,8 @@
-"""Tests for multi-document / assembly support (ROADMAP 7.3).
+"""Tests for core tool definitions and prompts.
 
 Tests cover:
 - Tool definition schemas (pure data, no FreeCAD)
-- Prompt assembly guidance presence
+- Prompt structure and context placeholder
 - Snapshot per-document support (no FreeCAD)
 """
 from __future__ import annotations
@@ -40,110 +40,103 @@ def _get_tool_def(name: str) -> dict:
     return {}
 
 
-def test_list_documents_definition():
-    td = _get_tool_def("list_documents")
-    assert td, "list_documents tool definition not found"
-    props = td["function"]["parameters"]["properties"]
-    assert "include_geometry" in props
-    assert props["include_geometry"]["type"] == "boolean"
-
-
-def test_create_assembly_definition():
-    td = _get_tool_def("create_assembly")
-    assert td, "create_assembly tool definition not found"
-    props = td["function"]["parameters"]["properties"]
-    assert "name" in props
-    assert "parts" in props
-    assert props["parts"]["type"] == "array"
-    # Check required fields
-    assert "name" in td["function"]["parameters"]["required"]
-
-
-def test_create_assembly_part_items_schema():
-    td = _get_tool_def("create_assembly")
-    parts_schema = td["function"]["parameters"]["properties"]["parts"]
-    item_props = parts_schema["items"]["properties"]
-    assert "source_document" in item_props
-    assert "object_label" in item_props
-    assert "position" in item_props
-    assert "rotation" in item_props
-    # position is array of numbers
-    assert item_props["position"]["type"] == "array"
-    assert item_props["position"]["items"]["type"] == "number"
-
-
-def test_execute_code_has_document_param():
+def test_execute_code_definition():
     td = _get_tool_def("execute_code")
+    assert td, "execute_code tool definition not found"
     props = td["function"]["parameters"]["properties"]
+    assert "code" in props
+    assert "description" in props
     assert "document" in props
+    assert props["code"]["type"] == "string"
     assert props["document"]["type"] == "string"
     # document is NOT required
     assert "document" not in td["function"]["parameters"]["required"]
+    # code and description ARE required
+    assert "code" in td["function"]["parameters"]["required"]
+    assert "description" in td["function"]["parameters"]["required"]
 
 
-def test_analyze_geometry_has_document_param():
-    td = _get_tool_def("analyze_geometry")
+def test_undo_last_definition():
+    td = _get_tool_def("undo_last")
+    assert td, "undo_last tool definition not found"
+    # undo_last has no required parameters
+    assert td["function"]["parameters"]["required"] == []
+
+
+def test_export_step_definition():
+    td = _get_tool_def("export_step")
+    assert td, "export_step tool definition not found"
     props = td["function"]["parameters"]["properties"]
+    assert "filename" in props
+    assert "format" in props
     assert "document" in props
-    assert props["document"]["type"] == "string"
-
-
-def test_validate_design_has_document_param():
-    td = _get_tool_def("validate_design")
-    props = td["function"]["parameters"]["properties"]
-    assert "document" in props
+    assert props["filename"]["type"] == "string"
+    # filename IS required
+    assert "filename" in td["function"]["parameters"]["required"]
 
 
 def test_export_step_has_document_param():
     td = _get_tool_def("export_step")
     props = td["function"]["parameters"]["properties"]
     assert "document" in props
-
-
-def test_measure_distance_has_document_param():
-    td = _get_tool_def("measure_distance")
-    props = td["function"]["parameters"]["properties"]
-    assert "document" in props
+    assert props["document"]["type"] == "string"
 
 
 def test_all_tools_count():
-    # 10 base tools + update_parameter + list_parameters = 12
-    assert len(TOOL_DEFINITIONS) == 12
+    # Simplified to 3 core tools: execute_code, undo_last, export_step
+    assert len(TOOL_DEFINITIONS) == 3
+
+
+def test_tool_names():
+    names = [td["function"]["name"] for td in TOOL_DEFINITIONS]
+    assert "execute_code" in names
+    assert "undo_last" in names
+    assert "export_step" in names
 
 
 # ---------------------------------------------------------------------------
-# Prompt assembly guidance tests
+# Prompt structure tests
 # ---------------------------------------------------------------------------
 
-def test_agent_prompt_has_assembly_tools():
-    assert "list_documents" in AGENT_SYSTEM_PROMPT
-    assert "create_assembly" in AGENT_SYSTEM_PROMPT
+def test_agent_prompt_has_core_tools():
+    # Verify the 3 core tools are mentioned
+    assert "execute_code" in AGENT_SYSTEM_PROMPT
+    assert "undo_last" in AGENT_SYSTEM_PROMPT
+    assert "export_step" in AGENT_SYSTEM_PROMPT
 
 
-def test_agent_prompt_has_assembly_mode():
-    # Assembly mode was simplified — just verify assembly tools are listed
-    assert "create_assembly" in AGENT_SYSTEM_PROMPT
-    assert "list_documents" in AGENT_SYSTEM_PROMPT
+def test_agent_prompt_workflow():
+    # Verify workflow mentions iterative building
+    assert "iteratively" in AGENT_SYSTEM_PROMPT
+    assert "WORKFLOW" in AGENT_SYSTEM_PROMPT
 
 
-def test_react_prompt_has_assembly_tools():
-    assert "list_documents" in REACT_SYSTEM_PROMPT
-    assert "create_assembly" in REACT_SYSTEM_PROMPT
-
-
-def test_react_prompt_has_assembly_mode():
-    # Assembly mode was simplified — just verify assembly tools are listed
-    assert "create_assembly" in REACT_SYSTEM_PROMPT
-
-
-def test_react_prompt_has_xml_examples():
-    assert '<tool name="list_documents">' in REACT_SYSTEM_PROMPT
-    assert '<tool name="create_assembly">' in REACT_SYSTEM_PROMPT
+def test_react_prompt_has_core_tools():
+    # Verify XML examples for the 3 core tools
+    assert '<tool name="execute_code">' in REACT_SYSTEM_PROMPT
+    assert '<tool name="undo_last">' in REACT_SYSTEM_PROMPT
+    assert '<tool name="export_step">' in REACT_SYSTEM_PROMPT
 
 
 def test_all_prompts_have_context_placeholder():
     assert "{context}" in AGENT_SYSTEM_PROMPT
     assert "{context}" in REACT_SYSTEM_PROMPT
+
+
+def test_agent_prompt_critical_rules():
+    # Verify critical rules section exists
+    assert "CRITICAL RULES" in AGENT_SYSTEM_PROMPT
+    assert "Variables PERSIST" in AGENT_SYSTEM_PROMPT
+    assert "Boolean ops" in AGENT_SYSTEM_PROMPT
+    assert "translate()" in AGENT_SYSTEM_PROMPT
+
+
+def test_react_prompt_critical_rules():
+    # Verify critical rules section exists in ReAct prompt too
+    assert "CRITICAL RULES" in REACT_SYSTEM_PROMPT
+    assert "Variables PERSIST" in REACT_SYSTEM_PROMPT
+    assert "Boolean ops" in REACT_SYSTEM_PROMPT
+    assert "translate()" in REACT_SYSTEM_PROMPT
 
 
 # ---------------------------------------------------------------------------

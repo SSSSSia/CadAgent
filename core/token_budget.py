@@ -145,7 +145,7 @@ def summarize_old_messages(messages: list[dict]) -> str:
     preserving key context without the full token cost.
     """
     if not messages:
-        return "之前没有设计历史。"
+        return "No prior design history."
 
     tool_count = 0
     user_actions = []
@@ -162,8 +162,8 @@ def summarize_old_messages(messages: list[dict]) -> str:
 
     parts = []
     if user_actions:
-        parts.append(f"用户指令：{user_actions[-1]}")
+        parts.append(f"user request: {user_actions[-1]}")
     if tool_count:
-        parts.append(f"执行了 {tool_count} 次工具调用")
+        parts.append(f"executed {tool_count} tool calls")
 
-    return ("之前的设计历史：" + "，".join(parts)) if parts else "之前的设计历史：无关键操作"
+    return ("Design history: " + ", ".join(parts)) if parts else "Design history: no prior actions"

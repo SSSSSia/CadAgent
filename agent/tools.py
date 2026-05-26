@@ -163,103 +163,11 @@ SAFE_BUILTINS = {
 
 
 # ---------------------------------------------------------------------------
-# Post-execution shape validation
-# ---------------------------------------------------------------------------
-
-def _check_solid_topology(shape, label: str) -> list[str]:
-    """Check shape for topology issues: disconnected solids, shell integrity."""
-    warnings = []
-    try:
-        solid_count = len(shape.Solids)
-        if solid_count == 0:
-            warnings.append(
-                f"Object '{label}' has NO solid components — not a valid solid"
-            )
-        elif solid_count > 1:
-            warnings.append(
-                f"Object '{label}' has {solid_count} DISCONNECTED solids — "
-                f"parts not fused. Ensure shapes overlap by at least 0.5mm before fuse(). "
-                f"Fix: translate one part to create overlap, then fuse()."
-            )
-        elif solid_count == 1:
-            try:
-                shell_count = len(shape.Solids[0].Shells)
-                if shell_count > 1:
-                    warnings.append(
-                        f"Object '{label}' solid has {shell_count} shells — "
-                        f"non-manifold geometry from failed boolean"
-                    )
-            except Exception:
-                pass
-            # Check for Compound wrapping a single solid
-            try:
-                if shape.ShapeType == "Compound":
-                    warnings.append(
-                        f"Object '{label}' is a Compound wrapping 1 solid. "
-                        f"Fix: obj.Shape = obj.Shape.Solids[0] to extract the solid."
-                    )
-            except Exception:
-                pass
-            except Exception:
-                pass
-    except Exception:
-        pass
-    return warnings
-
-def _post_exec_validate(doc) -> list[str]:
-    """Post-execution geometric validation. Returns warning strings."""
-    import core.config as _config
-    warnings = []
-    if doc is None:
-        return warnings
-    for obj in doc.Objects:
-        try:
-            if not hasattr(obj, "Shape") or obj.Shape is None or obj.Shape.isNull():
-                continue
-            if not obj.Shape.isValid():
-                warnings.append(f"Object '{obj.Label}' has INVALID shape — boolean operation may have failed")
-            if abs(obj.Shape.Volume) < _config.VALIDATE_VOLUME_THRESHOLD:
-                warnings.append(f"Object '{obj.Label}' has near-zero volume ({obj.Shape.Volume:.6f} mm³)")
-            bb = obj.Shape.BoundBox
-            if bb.XLength < _config.VALIDATE_DIMENSION_THRESHOLD or bb.YLength < _config.VALIDATE_DIMENSION_THRESHOLD or bb.ZLength < _config.VALIDATE_DIMENSION_THRESHOLD:
-                warnings.append(f"Object '{obj.Label}' has degenerate dimensions: {bb.XLength:.3f} x {bb.YLength:.3f} x {bb.ZLength:.3f}")
-            warnings.extend(_check_solid_topology(obj.Shape, obj.Label))
-        except Exception:
-            continue
-    return warnings
-
-
-def _detect_orphan_shapes(namespace: dict, doc) -> list[str]:
-    """Detect Part shapes created but not added to the document."""
-    _SKIP_NAMES = {
-        "FreeCAD", "Part", "math", "Gui", "doc", "Vector", "App",
-        "pi", "sin", "cos", "sqrt", "__builtins__",
-    }
-    orphans = []
-    for name, value in namespace.items():
-        if name.startswith("_") or name in _SKIP_NAMES:
-            continue
-        try:
-            if not isinstance(value, Part.Shape) or value.isNull():
-                continue
-            is_assigned = any(
-                hasattr(obj, "Shape") and obj.Shape is not None
-                and obj.Shape.isSame(value)
-                for obj in doc.Objects
-            ) if doc else False
-            if not is_assigned:
-                orphans.append(name)
-        except Exception:
-            continue
-    return orphans
-
-
-# ---------------------------------------------------------------------------
 # Tool: execute_code
 # ---------------------------------------------------------------------------
 
 def _tool_execute_code(args_json: str) -> str:
-    """Execute FreeCAD Python code and return stdout + error + doc state."""
+    """Execute FreeCAD Python code and return stdout + error."""
     args = json.loads(args_json)
     code = args["code"].strip()
     description = args.get("description", "")
@@ -286,7 +194,6 @@ def _tool_execute_code(args_json: str) -> str:
         )
 
     # Auto-fix common mistakes
-    original_code = code
     code, fixes = auto_fix_code(code)
     fix_notice = ""
     if fixes:
@@ -348,25 +255,11 @@ def _tool_execute_code(args_json: str) -> str:
         except Exception as e:
             log_warning(f"Snapshot failed, undo unavailable: {e}")
 
-        pre_state = _safe_analyze(target_doc)
-
         with contextlib.redirect_stdout(stdout_capture):
             exec(code, namespace)
 
         # Persist user-defined variables for subsequent execute_code calls
         _save_user_vars(namespace)
-
-        exec_doc = target_doc or FreeCAD.ActiveDocument
-        post_exec_warnings = _post_exec_validate(exec_doc)
-        orphan_names = _detect_orphan_shapes(namespace, exec_doc)
-        if orphan_names:
-            post_exec_warnings.append(
-                f"Orphan shapes detected: {', '.join(orphan_names)} — "
-                f"these Part shapes were created but not added to the document. "
-                f"Use doc.addObject('Part::Feature', 'Name') and obj.Shape = shape to register them."
-            )
-        post_state = _safe_analyze(exec_doc)
-        delta = _compute_delta(pre_state, post_state)
 
         parts = [f"SUCCESS: Code executed without errors."]
         if doc_name:
@@ -376,9 +269,6 @@ def _tool_execute_code(args_json: str) -> str:
         stdout_text = stdout_capture.getvalue()
         if stdout_text:
             parts.append(f"Stdout:\n{stdout_text}")
-        if post_exec_warnings:
-            parts.append("WARNINGS:\n" + "\n".join(f"  - {w}" for w in post_exec_warnings))
-        parts.append(f"Changes: {delta}")
 
         # Extract parametric definitions from code
         params = _extract_parameters(code)
@@ -392,7 +282,6 @@ def _tool_execute_code(args_json: str) -> str:
 
     except Exception as e:
         tb = traceback.format_exc()
-        post_state = _safe_analyze(target_doc)
         hint, fixed_code = error_hint(e, code)
 
         # Auto-retry with fixed code if available
@@ -402,17 +291,6 @@ def _tool_execute_code(args_json: str) -> str:
                     exec(fixed_code, namespace)
                 # Persist user-defined variables after auto-retry success
                 _save_user_vars(namespace)
-                exec_doc = target_doc or FreeCAD.ActiveDocument
-                post_exec_warnings = _post_exec_validate(exec_doc)
-                orphan_names = _detect_orphan_shapes(namespace, exec_doc)
-                if orphan_names:
-                    post_exec_warnings.append(
-                        f"Orphan shapes detected: {', '.join(orphan_names)} — "
-                        f"these Part shapes were created but not added to the document. "
-                        f"Use doc.addObject('Part::Feature', 'Name') and obj.Shape = shape to register them."
-                    )
-                post_state = _safe_analyze(exec_doc)
-                delta = _compute_delta(pre_state, post_state)
                 parts = [
                     f"SUCCESS (auto-corrected): Original error was {type(e).__name__}: {e}",
                     f"Auto-fix: {hint}",
@@ -425,9 +303,6 @@ def _tool_execute_code(args_json: str) -> str:
                 stdout_text = stdout_capture.getvalue()
                 if stdout_text:
                     parts.append(f"Stdout:\n{stdout_text}")
-                if post_exec_warnings:
-                    parts.append("WARNINGS:\n" + "\n".join(f"  - {w}" for w in post_exec_warnings))
-                parts.append(f"Changes: {delta}")
 
                 # Extract parametric definitions from code
                 params = _extract_parameters(code)
@@ -441,19 +316,16 @@ def _tool_execute_code(args_json: str) -> str:
             except Exception:
                 pass  # auto-retry failed, fall through to error report
 
-        post_state = _safe_analyze(target_doc)
-        delta = _compute_delta(pre_state, post_state)
         parts = [f"ERROR: {type(e).__name__}: {e}", f"Traceback:\n{tb}"]
         if fix_notice:
             parts.append(fix_notice.rstrip())
         if hint:
             parts.append(hint)
-        parts.append(f"Changes: {delta}")
         return "\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
-# Tool: analyze_geometry
+# Tool: analyze_geometry (kept for backward compatibility, not exposed to LLM)
 # ---------------------------------------------------------------------------
 
 def _tool_analyze_geometry(args_json: str) -> str:
@@ -482,7 +354,7 @@ def _tool_analyze_geometry(args_json: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Tool: validate_design
+# Tool: validate_design (kept for backward compatibility, not exposed to LLM)
 # ---------------------------------------------------------------------------
 
 def _tool_validate_design(args_json: str) -> str:
@@ -567,30 +439,6 @@ def _tool_undo_last(args_json: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Materials reference table
-# ---------------------------------------------------------------------------
-
-_MATERIALS_TABLE = [
-    # (name, category, density_kg_m3, yield_strength_MPa, elastic_modulus_GPa)
-    ("AISI 1045 Steel", "steel", 7850, 530, 200),
-    ("AISI 304 Stainless", "steel", 8000, 215, 193),
-    ("AISI 4140 Alloy Steel", "steel", 7850, 655, 205),
-    ("AISI 1018 Mild Steel", "steel", 7870, 370, 205),
-    ("6061-T6 Aluminum", "aluminum", 2700, 276, 68.9),
-    ("7075-T6 Aluminum", "aluminum", 2810, 503, 71.7),
-    ("2024-T3 Aluminum", "aluminum", 2780, 345, 73.1),
-    ("Ti-6Al-4V Titanium", "titanium", 4430, 880, 114),
-    ("Grade 2 Titanium", "titanium", 4510, 275, 103),
-    ("C110 Copper", "copper", 8960, 220, 117),
-    ("C36000 Brass", "copper", 8530, 310, 97),
-    ("ABS Plastic", "plastic", 1040, 43, 2.3),
-    ("Nylon 6/6", "plastic", 1140, 82, 2.9),
-    ("Polycarbonate", "plastic", 1200, 62, 2.4),
-    ("PEEK", "plastic", 1310, 91, 3.6),
-]
-
-
-# ---------------------------------------------------------------------------
 # Tool: export_step
 # ---------------------------------------------------------------------------
 
@@ -644,21 +492,8 @@ def _tool_export_step(args_json: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Tool: measure_distance
+# Remaining tools (kept for backward compatibility, not exposed to LLM)
 # ---------------------------------------------------------------------------
-
-def _resolve_element(elem_str, doc):
-    """Resolve element string to a Part.Shape or FreeCAD.Vector."""
-    if elem_str.startswith("point:"):
-        parts = elem_str[6:].split(",")
-        if len(parts) != 3:
-            raise ValueError(f"Invalid point format: {elem_str}. Use 'point:x,y,z'")
-        return FreeCAD.Vector(float(parts[0]), float(parts[1]), float(parts[2]))
-    objs = doc.getObjectsByLabel(elem_str)
-    if objs and hasattr(objs[0], "Shape") and objs[0].Shape and not objs[0].Shape.isNull():
-        return objs[0].Shape
-    raise ValueError(f"Object not found or has no valid shape: {elem_str}")
-
 
 def _tool_measure_distance(args_json: str) -> str:
     """Measure distance or angle between two geometric elements."""
@@ -673,6 +508,18 @@ def _tool_measure_distance(args_json: str) -> str:
         if doc_name:
             return f"ERROR: Document '{doc_name}' not found. Available: {_doc_list_str()}"
         return "ERROR: No active document."
+
+    def _resolve_element(elem_str, doc):
+        """Resolve element string to a Part.Shape or FreeCAD.Vector."""
+        if elem_str.startswith("point:"):
+            parts = elem_str[6:].split(",")
+            if len(parts) != 3:
+                raise ValueError(f"Invalid point format: {elem_str}. Use 'point:x,y,z'")
+            return FreeCAD.Vector(float(parts[0]), float(parts[1]), float(parts[2]))
+        objs = doc.getObjectsByLabel(elem_str)
+        if objs and hasattr(objs[0], "Shape") and objs[0].Shape and not objs[0].Shape.isNull():
+            return objs[0].Shape
+        raise ValueError(f"Object not found or has no valid shape: {elem_str}")
 
     try:
         elem1 = _resolve_element(elem1_str, doc)
@@ -724,12 +571,26 @@ def _tool_measure_distance(args_json: str) -> str:
         return f"ERROR: Measurement failed: {type(e).__name__}: {e}"
 
 
-# ---------------------------------------------------------------------------
-# Tool: list_materials
-# ---------------------------------------------------------------------------
-
 def _tool_list_materials(args_json: str) -> str:
     """List common engineering materials with properties."""
+    _MATERIALS_TABLE = [
+        ("AISI 1045 Steel", "steel", 7850, 530, 200),
+        ("AISI 304 Stainless", "steel", 8000, 215, 193),
+        ("AISI 4140 Alloy Steel", "steel", 7850, 655, 205),
+        ("AISI 1018 Mild Steel", "steel", 7870, 370, 205),
+        ("6061-T6 Aluminum", "aluminum", 2700, 276, 68.9),
+        ("7075-T6 Aluminum", "aluminum", 2810, 503, 71.7),
+        ("2024-T3 Aluminum", "aluminum", 2780, 345, 73.1),
+        ("Ti-6Al-4V Titanium", "titanium", 4430, 880, 114),
+        ("Grade 2 Titanium", "titanium", 4510, 275, 103),
+        ("C110 Copper", "copper", 8960, 220, 117),
+        ("C36000 Brass", "copper", 8530, 310, 97),
+        ("ABS Plastic", "plastic", 1040, 43, 2.3),
+        ("Nylon 6/6", "plastic", 1140, 82, 2.9),
+        ("Polycarbonate", "plastic", 1200, 62, 2.4),
+        ("PEEK", "plastic", 1310, 91, 3.6),
+    ]
+
     args = json.loads(args_json) if args_json.strip() else {}
     category = args.get("category", "all")
 
@@ -756,10 +617,6 @@ def _tool_list_materials(args_json: str) -> str:
 
     return "\n".join(lines)
 
-
-# ---------------------------------------------------------------------------
-# Tool: screenshot
-# ---------------------------------------------------------------------------
 
 def _tool_screenshot(args_json: str) -> str:
     """Capture the current FreeCAD 3D viewport as a PNG image."""
@@ -801,10 +658,6 @@ def _tool_screenshot(args_json: str) -> str:
         return f"ERROR: Screenshot failed: {type(e).__name__}: {e}"
 
 
-# ---------------------------------------------------------------------------
-# Tool: list_documents
-# ---------------------------------------------------------------------------
-
 def _tool_list_documents(args_json: str) -> str:
     """List all open FreeCAD documents."""
     args = json.loads(args_json) if args_json.strip() else {}
@@ -832,9 +685,50 @@ def _tool_list_documents(args_json: str) -> str:
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
-# Tool: create_assembly
-# ---------------------------------------------------------------------------
+def _safe_analyze(doc=None) -> str:
+    """Safely analyze document, returning error string on failure."""
+    try:
+        if doc is None:
+            doc = FreeCAD.ActiveDocument
+        if doc:
+            return analyze_document(doc)
+        return "(no active document)"
+    except Exception as e:
+        return f"(analysis error: {e})"
+
+
+def _extract_total_volume(state: str) -> float | None:
+    """Sum all per-object volumes from analyze_document() output text."""
+    volumes = re.findall(r"Volume:\s*([\d.]+)", state)
+    if not volumes:
+        return None
+    return sum(float(v) for v in volumes)
+
+
+def _compute_delta(pre_state: str, post_state: str) -> str:
+    """Compare pre/post document states, return change summary."""
+    pre_objs = set(re.findall(r"- '([^']+)'", pre_state))
+    post_objs = set(re.findall(r"- '([^']+)'", post_state))
+
+    added = sorted(post_objs - pre_objs)
+    removed = sorted(pre_objs - post_objs)
+
+    pre_vol = _extract_total_volume(pre_state)
+    post_vol = _extract_total_volume(post_state)
+
+    parts = []
+    if added:
+        parts.append(f"New objects: {', '.join(added)}")
+    if removed:
+        parts.append(f"Removed objects: {', '.join(removed)}")
+    if pre_vol is not None and post_vol is not None:
+        delta = post_vol - pre_vol
+        pct = (delta / pre_vol * 100) if pre_vol != 0 else 0
+        direction = "+" if delta >= 0 else ""
+        parts.append(f"Volume: {pre_vol:.0f} -> {post_vol:.0f} mm3 ({direction}{pct:.1f}%)")
+
+    return "; ".join(parts) if parts else "No changes detected"
+
 
 def _tool_create_assembly(args_json: str) -> str:
     """Create a new assembly document with parts copied from other documents."""
@@ -903,10 +797,6 @@ def _tool_create_assembly(args_json: str) -> str:
     return "\n".join(result_parts)
 
 
-# ---------------------------------------------------------------------------
-# Tool: update_parameter
-# ---------------------------------------------------------------------------
-
 def _tool_update_parameter(args_json: str) -> str:
     """Update design parameters and re-execute the design code."""
     args = json.loads(args_json)
@@ -950,10 +840,6 @@ def _tool_update_parameter(args_json: str) -> str:
     return f"{result}\n\nUpdated parameter table:\n{param_str}"
 
 
-# ---------------------------------------------------------------------------
-# Tool: list_parameters
-# ---------------------------------------------------------------------------
-
 def _tool_list_parameters(args_json: str) -> str:
     """List current design parameters and their values."""
     if not _PARAM_STORE:
@@ -983,48 +869,3 @@ register_tool("list_documents", _tool_list_documents)
 register_tool("create_assembly", _tool_create_assembly)
 register_tool("update_parameter", _tool_update_parameter)
 register_tool("list_parameters", _tool_list_parameters)
-
-
-def _safe_analyze(doc=None) -> str:
-    """Safely analyze document, returning error string on failure."""
-    try:
-        if doc is None:
-            doc = FreeCAD.ActiveDocument
-        if doc:
-            return analyze_document(doc)
-        return "(no active document)"
-    except Exception as e:
-        return f"(analysis error: {e})"
-
-
-def _extract_total_volume(state: str) -> float | None:
-    """Sum all per-object volumes from analyze_document() output text."""
-    volumes = re.findall(r"Volume:\s*([\d.]+)", state)
-    if not volumes:
-        return None
-    return sum(float(v) for v in volumes)
-
-
-def _compute_delta(pre_state: str, post_state: str) -> str:
-    """Compare pre/post document states, return change summary."""
-    pre_objs = set(re.findall(r"- '([^']+)'", pre_state))
-    post_objs = set(re.findall(r"- '([^']+)'", post_state))
-
-    added = sorted(post_objs - pre_objs)
-    removed = sorted(pre_objs - post_objs)
-
-    pre_vol = _extract_total_volume(pre_state)
-    post_vol = _extract_total_volume(post_state)
-
-    parts = []
-    if added:
-        parts.append(f"New objects: {', '.join(added)}")
-    if removed:
-        parts.append(f"Removed objects: {', '.join(removed)}")
-    if pre_vol is not None and post_vol is not None:
-        delta = post_vol - pre_vol
-        pct = (delta / pre_vol * 100) if pre_vol != 0 else 0
-        direction = "+" if delta >= 0 else ""
-        parts.append(f"Volume: {pre_vol:.0f} -> {post_vol:.0f} mm3 ({direction}{pct:.1f}%)")
-
-    return "; ".join(parts) if parts else "No changes detected"

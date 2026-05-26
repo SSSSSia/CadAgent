@@ -66,9 +66,9 @@
 
 ---
 
-## 2. 已执行的修复 (Phase 1 + Phase 2)
+## 2. 已执行的修复 (Phase 1-3)
 
-### Phase 1: 修复关键缺陷
+### Phase 1: 修复关键缺陷 (commit `e71cd9b`)
 
 #### 1.1 让 LLM 看到 auto-fix 的修改
 
@@ -76,22 +76,6 @@
 
 - `auto_fix_code()` 修改代码后，现在在返回结果中包含完整的修正后代码
 - `error_hint()` auto-retry 成功时，也包含修正后的完整代码
-
-**修改前**:
-```
-Note: Auto-fixes applied:
-  - Removed assignment from translate() (modifies in-place, returns None)
-```
-
-**修改后**:
-```
-Note: Auto-fixes applied:
-  - Removed assignment from translate() (modifies in-place, returns None)
-Corrected code:
-  shape.translate(Vector(0,0,10))
-  body = body.cut(hole)
-  ...
-```
 
 #### 1.2 修复 auto_fix_code() Bug
 
@@ -110,7 +94,7 @@ Corrected code:
 - LLM 需要几何信息时，应显式调用 `analyze_geometry` 工具
 - 估计每次迭代节省 ~900 字符，10 次迭代节省 ~2,250 tokens
 
-### Phase 2: 精简系统提示词
+### Phase 2: 精简系统提示词 (commit `e71cd9b`)
 
 **文件**: `agent/prompts.py`
 
@@ -130,73 +114,85 @@ REACT_SYSTEM_PROMPT 同步精简，保持结构一致。
 
 **估计节省**: ~4,000 字符 (~1,000 tokens) 系统提示空间，释放给对话上下文。
 
+### Phase 3: 激进精简工具与管线 (最新)
+
+**文件**: `agent/tool_defs.py`
+
+- TOOL_DEFINITIONS 从 12 个工具缩减到 **3 个核心工具**：
+  - `execute_code` — 唯一的建模工具
+  - `undo_last` — 撤销
+  - `export_step` — 导出
+- 移除的工具（代码保留但不暴露给 LLM）：
+  - `analyze_geometry` — 中间步骤不需要
+  - `validate_design` — 与 execute_code 后验证重复
+  - `measure_distance`, `list_materials`, `screenshot`, `list_documents`, `create_assembly`, `update_parameter`, `list_parameters`
+
+**文件**: `agent/prompts.py`
+
+- 重写 `AGENT_SYSTEM_PROMPT` 和 `REACT_SYSTEM_PROMPT`
+- 工作流简化：不再要求每次 execute_code 后调用 analyze_geometry
+- 只在完成时建议调用 export_step
+- 从 ~100 行（ReAct）缩减到 ~50 行
+
+**文件**: `agent/tools.py`
+
+- 移除 `_post_exec_validate()` 函数及调用
+- 移除 `_detect_orphan_shapes()` 函数及调用（O(n²) 开销）
+- 移除 `_check_solid_topology()` 函数
+- 移除 `_safe_analyze()` 前后状态对比
+- 移除 `_compute_delta()` 调用
+- execute_code 成功返回简化为：`SUCCESS` + `[auto-fix notice]` + `[stdout]`
+- 错误返回简化为：`ERROR` + `Traceback` + `[hint]`
+
+**文件**: `agent/loop.py`
+
+- 错误去重改为精确前缀匹配：`err_sig[:80] == prev[:80]`（原为子串匹配）
+- 缓冲区从 3 增到 5
+
+**文件**: `core/token_budget.py`
+
+- 历史摘要从中文改为英文
+
 ### 测试结果
 
-275 个测试全部通过（更新了 3 个因行为变更而需要修改的测试）。
+- Phase 1+2: 275 个测试通过
+- Phase 3: 275 个测试通过（更新了 18 个测试）
 
 ---
 
-## 3. 后续改进建议 (Phase 3-4)
+## 3. 预期效果
 
-### Phase 3: 改进错误处理
-
-#### 3.1 修复错误去重逻辑
-
-**文件**: `agent/loop.py:250-260`
-
-当前 40 字符子串匹配过于激进。建议改为：
-- 签名长度从 60 → 120 字符
-- 匹配方式从 `in`（子串）改为 `==`（精确匹配前 80 字符）
-- 只对完全相同的错误发出 WARNING
-
-```python
-# 当前
-err_sig = ex.result[:60]
-if any(err_sig[:40] in prev for prev in self._recent_errors):
-
-# 建议
-err_sig = ex.result[:120]
-if any(err_sig[:80] == prev[:80] for prev in self._recent_errors):
-```
-
-#### 3.2 修复 Token 预算摘要语言
-
-**文件**: `core/token_budget.py:141-169`
-
-将中文摘要改为英文：
-```python
-return ("Design history: " + ", ".join(parts)) if parts else "Design history: no prior actions"
-```
-
-### Phase 4: 工具精简
-
-不是删除工具代码，而是从活跃工具列表中移除不常用工具：
-
-1. `list_materials` → 移到系统提示中的静态参考
-2. `screenshot` → 仅在 LLM 需要视觉反馈时暴露
-3. `list_parameters` → 合并到 `update_parameter` 的返回结果
-
-`TOOL_DEFINITIONS` 从 12 个减少到 ~8-9 个，减少 token 消耗和 LLM 决策负担。
+| 指标 | 修改前 | 修改后 | 改善 |
+|------|--------|--------|------|
+| TOOL_DEFINITIONS | 12 个工具 ~333 行 | 3 个工具 ~60 行 | -82% |
+| AGENT_SYSTEM_PROMPT | ~45 行（Phase 2 后） | ~35 行 | -22% |
+| REACT_SYSTEM_PROMPT | ~100 行 | ~50 行 | -50% |
+| execute_code 返回 | 500-1500 字符 | 100-300 字符 | -70% |
+| Token 预算摘要 | 中文 | 英文 | 消除语言不匹配 |
 
 ---
 
 ## 4. 变更文件清单
 
 | 文件 | 修改内容 |
-|------|----------|
+|------|------|
 | `agent/code_fixes.py` | 修复 Fix 9 (Placement 智能检测) 和 Fix 6 (赋值正则) |
-| `agent/tools.py` | auto-fix 可见化; 移除 Document state 返回 |
-| `agent/prompts.py` | 精简 AGENT_SYSTEM_PROMPT 和 REACT_SYSTEM_PROMPT |
-| `tests/test_code_fixes.py` | 更新 Fix 9 测试以匹配新行为 |
-| `tests/test_multi_doc_tools.py` | 更新 assembly mode 测试以匹配精简后的提示词 |
+| `agent/prompts.py` | Phase 2 精简 + Phase 3 重写（3 工具，简化工作流） |
+| `agent/tool_defs.py` | 从 12 个缩减到 3 个核心工具 |
+| `agent/tools.py` | Phase 1 移除 Document state + Phase 3 移除后验证管线 |
+| `agent/loop.py` | 修复错误去重为精确匹配 |
+| `core/token_budget.py` | 摘要改为英文 |
+| `tests/test_code_fixes.py` | 更新 Fix 9 测试 |
+| `tests/test_multi_doc_tools.py` | 重写为测试 3 工具设计 |
+| `tests/test_token_budget.py` | 更新摘要测试为英文 |
+| `docs/AUDIT_REPORT.md` | 本文件 |
 
 ---
 
 ## 5. 验证建议
 
 在 FreeCAD 中测试以下场景：
-1. **创建一个杯子**（空心圆柱 + 把手）：验证 auto-fix 可见性，LLM 应能学习 translate 赋值错误
+1. **创建一个杯子**（空心圆柱 + 把手）：验证简化后的管线不丢失关键功能
 2. **创建一个法兰盘**（多布尔运算）：验证布尔运算赋值学习
-3. **修改现有设计**：验证变量持久性
-4. **对比 Token 消耗**：修改前后用相同任务比较 context token 使用量
-5. **对比迭代次数**：修改前后用相同任务比较完成所需迭代数
+3. **对比 Token 消耗**：修改前后用相同任务比较 context token 使用量
+4. **对比迭代次数**：修改前后用相同任务比较完成所需迭代数

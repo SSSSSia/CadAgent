@@ -91,7 +91,7 @@ def test_trim_small_list():
 # ---- summarize_old_messages ----
 
 def test_summarize_empty():
-    assert summarize_old_messages([]) == "之前没有设计历史。"
+    assert summarize_old_messages([]) == "No prior design history."
 
 
 def test_summarize_user_messages():
@@ -101,7 +101,7 @@ def test_summarize_user_messages():
     ]
     result = summarize_old_messages(msgs)
     assert "Create a flange" in result
-    assert "用户指令" in result
+    assert "user request" in result
 
 
 def test_summarize_tool_calls():
@@ -111,7 +111,7 @@ def test_summarize_tool_calls():
         {"role": "tool", "content": "ok"},
     ]
     result = summarize_old_messages(msgs)
-    assert "工具调用" in result
+    assert "tool calls" in result
 
 
 def test_summarize_truncates_long_content():
