@@ -22,6 +22,11 @@ desktop.ini
 log.txt
 log.md
 
+# CadAgent runtime directories
+log/
+snapshots/
+sessions/
+
 # Test cache
 .pytest_cache/
 

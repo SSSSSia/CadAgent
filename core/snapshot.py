@@ -31,20 +31,14 @@ class SnapshotManager:
     @staticmethod
     def get_snapshot_dir() -> str:
         """Return the snapshot storage directory, creating it if needed."""
+        # Use project directory Mod/CadAgent/snapshots
         try:
-            import FreeCAD
-            base = FreeCAD.getUserAppDataDir()
+            import CadAgent
+            base = os.path.dirname(os.path.abspath(CadAgent.__file__))
         except (ImportError, AttributeError):
-            base = tempfile.gettempdir()
-        snap_dir = os.path.join(base, "CadAgent", "snapshots")
+            base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        snap_dir = os.path.join(base, "snapshots")
         os.makedirs(snap_dir, exist_ok=True)
-        # Migrate from old AiCadAgent directory
-        old_dir = os.path.join(base, "AiCadAgent", "snapshots")
-        if os.path.isdir(old_dir) and not os.listdir(snap_dir):
-            try:
-                os.rename(old_dir, snap_dir)
-            except OSError:
-                pass
         return snap_dir
 
     # --- Orphan cleanup ---

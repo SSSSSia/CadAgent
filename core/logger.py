@@ -15,12 +15,15 @@ import tempfile
 
 
 def _get_log_dir() -> str:
+    """Use project directory Mod/CadAgent/log for log files."""
+    # Get the CadAgent module path
     try:
-        import FreeCAD
-        base = FreeCAD.getUserAppDataDir()
+        import CadAgent
+        base = os.path.dirname(os.path.abspath(CadAgent.__file__))
     except (ImportError, AttributeError):
-        base = tempfile.gettempdir()
-    d = os.path.join(base, "CadAgent")
+        # Fallback to temp dir when not in FreeCAD
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    d = os.path.join(base, "log")
     os.makedirs(d, exist_ok=True)
     return d
 

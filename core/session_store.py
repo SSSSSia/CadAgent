@@ -14,20 +14,14 @@ from core.logger import log_warning
 
 
 def _get_storage_dir() -> str:
+    """Use project directory Mod/CadAgent/sessions for session storage."""
     try:
-        import FreeCAD
-        base = FreeCAD.getUserAppDataDir()
+        import CadAgent
+        base = os.path.dirname(os.path.abspath(CadAgent.__file__))
     except (ImportError, AttributeError):
-        base = tempfile.gettempdir()
-    session_dir = os.path.join(base, "CadAgent", "sessions")
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    session_dir = os.path.join(base, "sessions")
     os.makedirs(session_dir, exist_ok=True)
-    # Migrate from old AiCadAgent directory if it exists
-    old_dir = os.path.join(base, "AiCadAgent", "sessions")
-    if os.path.isdir(old_dir) and not os.listdir(session_dir):
-        try:
-            os.rename(old_dir, session_dir)
-        except OSError:
-            pass
     return session_dir
 
 
