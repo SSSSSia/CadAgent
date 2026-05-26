@@ -113,20 +113,16 @@ def auto_fix_code(code: str) -> tuple[str, list[str]]:
         code = new_code
 
     # Fix 9: shape.Placement = ... on Part.Shape (NOT on DocumentObject)
-    # Only remove when the variable looks like a Part shape (lowercase or known shape names),
-    # not when it's a DocumentObject (like obj, body, etc. assigned from doc.addObject)
+    # Only remove when the value is NOT a valid FreeCAD.Placement(...) call.
+    # Legitimate DocumentObject placements like obj.Placement = FreeCAD.Placement(...) are kept.
     pat9 = re.compile(r'^(\s*)(\w+)\.Placement\s*=\s*(.+)$', re.MULTILINE)
 
     def _fix_placement(m):
         indent, var, value = m.group(1), m.group(2), m.group(3)
-        # Skip if variable name looks like a DocumentObject (short, common names)
-        _doc_obj_names = {'obj', 'body', 'part', 'shape', 'box', 'cyl', 'hole'}
-        if var.lower() in _doc_obj_names:
-            return m.group(0)  # likely a DocumentObject, keep Placement
-        # If value contains FreeCAD.Placement, it's likely intentional
+        # If value contains FreeCAD.Placement or Placement(, it's intentional
         if 'FreeCAD.Placement' in value or 'Placement(' in value:
             return m.group(0)  # intentional Placement assignment, keep
-        fixes.append(f"Removed {var}.Placement assignment (Part shapes use translate(), not Placement)")
+        fixes.append(f"Removed {var}.Placement = {value.strip()} (not a valid Placement)")
         return ''
     new_code = pat9.sub(_fix_placement, code)
     if new_code != code:

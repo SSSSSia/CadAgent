@@ -11,6 +11,7 @@ _CFG_DEFAULTS = {
     "API_KEY": "",
     "MODEL_NAME": "Pro/zai-org/GLM-5.1",
     "MAX_TOKENS": "4096",
+    "TEMPERATURE": "0.1",
 }
 
 
@@ -26,6 +27,7 @@ class Config:
         self.API_KEY: str = ""
         self.MODEL_NAME: str = ""
         self.MAX_TOKENS: int = 0
+        self.TEMPERATURE: float = 0.1
         self.MAX_ITERATIONS: int = 0
         self.MAX_SNAPSHOTS: int = 0
         self.MAX_CONTEXT_TOKENS: int = 0
@@ -42,6 +44,7 @@ class Config:
         self.API_KEY = self._cfg["API_KEY"]
         self.MODEL_NAME = self._cfg["MODEL_NAME"]
         self.MAX_TOKENS = int(self._cfg["MAX_TOKENS"])
+        self.TEMPERATURE = float(self._cfg["TEMPERATURE"])
         self.MAX_ITERATIONS = int(os.environ.get("MAX_ITERATIONS", "20"))
         self.MAX_SNAPSHOTS = int(os.environ.get("MAX_SNAPSHOTS", "10"))
         self.MAX_CONTEXT_TOKENS = int(os.environ.get("MAX_CONTEXT_TOKENS", "24000"))
@@ -79,6 +82,7 @@ API_BASE_URL = _default_config.API_BASE_URL
 API_KEY = _default_config.API_KEY
 MODEL_NAME = _default_config.MODEL_NAME
 MAX_TOKENS = _default_config.MAX_TOKENS
+TEMPERATURE = _default_config.TEMPERATURE
 MAX_ITERATIONS = _default_config.MAX_ITERATIONS
 MAX_SNAPSHOTS = _default_config.MAX_SNAPSHOTS
 MAX_CONTEXT_TOKENS = _default_config.MAX_CONTEXT_TOKENS
@@ -89,7 +93,7 @@ VALIDATE_DIMENSION_THRESHOLD = _default_config.VALIDATE_DIMENSION_THRESHOLD
 
 def _refresh_constants():
     """Re-derive module-level constants from the default Config instance."""
-    global API_BASE_URL, API_KEY, MODEL_NAME, MAX_TOKENS
+    global API_BASE_URL, API_KEY, MODEL_NAME, MAX_TOKENS, TEMPERATURE
     global MAX_ITERATIONS, MAX_SNAPSHOTS, MAX_CONTEXT_TOKENS, LLM_TIMEOUT
     global VALIDATE_VOLUME_THRESHOLD, VALIDATE_DIMENSION_THRESHOLD
     _default_config.refresh()
@@ -97,6 +101,7 @@ def _refresh_constants():
     API_KEY = _default_config.API_KEY
     MODEL_NAME = _default_config.MODEL_NAME
     MAX_TOKENS = _default_config.MAX_TOKENS
+    TEMPERATURE = _default_config.TEMPERATURE
     MAX_ITERATIONS = _default_config.MAX_ITERATIONS
     MAX_SNAPSHOTS = _default_config.MAX_SNAPSHOTS
     MAX_CONTEXT_TOKENS = _default_config.MAX_CONTEXT_TOKENS

@@ -858,14 +858,16 @@ def _tool_list_parameters(args_json: str) -> str:
 # ---------------------------------------------------------------------------
 
 register_tool("execute_code", _tool_execute_code)
-register_tool("analyze_geometry", _tool_analyze_geometry)
-register_tool("validate_design", _tool_validate_design)
+# Hidden tools — implementations kept for future use but not exposed to LLM.
+# Re-enable by adding to TOOL_DEFINITIONS in agent/tool_defs.py.
+# register_tool("analyze_geometry", _tool_analyze_geometry)
+# register_tool("validate_design", _tool_validate_design)
 register_tool("undo_last", _tool_undo_last)
 register_tool("export_step", _tool_export_step)
-register_tool("measure_distance", _tool_measure_distance)
-register_tool("list_materials", _tool_list_materials)
-register_tool("screenshot", _tool_screenshot)
-register_tool("list_documents", _tool_list_documents)
-register_tool("create_assembly", _tool_create_assembly)
-register_tool("update_parameter", _tool_update_parameter)
-register_tool("list_parameters", _tool_list_parameters)
+# register_tool("measure_distance", _tool_measure_distance)
+# register_tool("list_materials", _tool_list_materials)
+# register_tool("screenshot", _tool_screenshot)
+# register_tool("list_documents", _tool_list_documents)
+# register_tool("create_assembly", _tool_create_assembly)
+# register_tool("update_parameter", _tool_update_parameter)
+# register_tool("list_parameters", _tool_list_parameters)

@@ -44,9 +44,9 @@ def _normalize_args(args_raw: str) -> str:
     if not args_raw or args_raw == "{}":
         return "{}"
 
-    # Try as-is
+    # Try as-is (strict=False allows newlines inside JSON strings — needed for multi-line code)
     try:
-        json.loads(args_raw)
+        json.loads(args_raw, strict=False)
         return args_raw
     except (json.JSONDecodeError, ValueError):
         pass
@@ -55,7 +55,7 @@ def _normalize_args(args_raw: str) -> str:
     if args_raw.startswith("{") and not args_raw.rstrip().endswith("}"):
         args_raw = args_raw.rstrip() + "}"
     try:
-        json.loads(args_raw)
+        json.loads(args_raw, strict=False)
         return args_raw
     except (json.JSONDecodeError, ValueError):
         pass
@@ -63,7 +63,7 @@ def _normalize_args(args_raw: str) -> str:
     # Fixup: trailing comma before closing brace
     args_raw = re.sub(r',\s*}', '}', args_raw)
     try:
-        json.loads(args_raw)
+        json.loads(args_raw, strict=False)
         return args_raw
     except (json.JSONDecodeError, ValueError):
         pass

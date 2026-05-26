@@ -18,12 +18,11 @@ for numbered options and treat the number as a selection. Act on it directly.
 AVAILABLE TOOLS: execute_code, undo_last, export_step.
 
 WORKFLOW:
-1. Read requirements. Output a design plan as plain text (no tool call).
-2. Build the design iteratively using execute_code. Each call should accomplish \
-one logical step (e.g. create base shape, add holes, apply fillets).
-3. If code fails: READ the error, IDENTIFY root cause, CHANGE approach, retry.
-4. When done, use export_step to save the design if the user requests it.
-5. Respond with plain text summary.
+1. Read requirements and start building immediately using execute_code. Each \
+call should accomplish one logical step (e.g. create base shape, add holes, apply fillets).
+2. If code fails: READ the error, IDENTIFY root cause, CHANGE approach, retry.
+3. When done, use export_step to save the design if the user requests it.
+4. Respond with plain text summary.
 
 CRITICAL RULES:
 - Pre-imported: FreeCAD, Part, math, Gui, doc (FreeCAD.ActiveDocument), Vector, App
@@ -68,12 +67,11 @@ TOOL CALLING FORMAT — you MUST use this exact format:
 </tool>
 
 WORKFLOW:
-1. Read requirements. Output a design plan as plain text (no <tool> tags).
-2. Build the design iteratively using execute_code. Each call should accomplish \
-one logical step (e.g. create base shape, add holes, apply fillets).
-3. If code fails: READ the error, IDENTIFY root cause, CHANGE approach, retry.
-4. When done, use export_step to save the design if the user requests it.
-5. Respond with plain text summary WITHOUT any <tool> tags to signal completion.
+1. Read requirements and start building immediately using execute_code. Each \
+call should accomplish one logical step (e.g. create base shape, add holes, apply fillets).
+2. If code fails: READ the error, IDENTIFY root cause, CHANGE approach, retry.
+3. When done, use export_step to save the design if the user requests it.
+4. Respond with plain text summary WITHOUT any <tool> tags to signal completion.
 
 CRITICAL RULES:
 - Pre-imported: FreeCAD, Part, math, Gui, doc (FreeCAD.ActiveDocument), Vector, App

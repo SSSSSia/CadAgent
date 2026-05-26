@@ -85,12 +85,12 @@ def trim_messages(messages: list[dict], max_tokens: int = None) -> list[dict]:
         role = msg.get("role", "")
         if role == "tool":
             content = msg.get("content", "")
-            if len(content) > 200:
-                result[i] = {**msg, "content": content[:200] + "\n...[truncated]"}
+            if len(content) > 500:
+                result[i] = {**msg, "content": content[:500] + "\n...[truncated]"}
         elif role == "assistant":
             content = msg.get("content", "")
-            if content and len(content) > 300:
-                result[i] = {**msg, "content": content[:300] + "\n...[truncated]"}
+            if content and len(content) > 500:
+                result[i] = {**msg, "content": content[:500] + "\n...[truncated]"}
 
     total = sum(_estimate_message_tokens(m) for m in result)
     if total <= max_tokens:

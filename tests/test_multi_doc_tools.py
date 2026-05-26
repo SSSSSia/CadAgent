@@ -106,8 +106,8 @@ def test_agent_prompt_has_core_tools():
 
 
 def test_agent_prompt_workflow():
-    # Verify workflow mentions iterative building
-    assert "iteratively" in AGENT_SYSTEM_PROMPT
+    # Verify workflow mentions building and execute_code
+    assert "execute_code" in AGENT_SYSTEM_PROMPT
     assert "WORKFLOW" in AGENT_SYSTEM_PROMPT
 
 

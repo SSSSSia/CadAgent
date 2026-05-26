@@ -49,16 +49,17 @@ def _make_request(payload: dict) -> urllib.request.Request:
 
 def call_llm_with_tools(messages: list[dict],
                         tools: list[dict] | None = None,
-                        temperature: float = 0.1) -> dict:
+                        temperature: float = None) -> dict:
     """Call LLM API with optional tool definitions. Returns raw JSON."""
     payload = {
         "model": _config.MODEL_NAME,
         "messages": messages,
-        "temperature": temperature,
+        "temperature": temperature if temperature is not None else _config.TEMPERATURE,
         "max_tokens": _config.MAX_TOKENS,
     }
     if tools:
         payload["tools"] = tools
+        payload["tool_choice"] = "auto"
 
     with _urlopen_with_retry(_make_request(payload), timeout=_config.LLM_TIMEOUT) as resp:
         return json.loads(resp.read().decode("utf-8"))
@@ -92,7 +93,7 @@ def generate_freecad_code(user_description: str,
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_description},
         ],
-        "temperature": 0.1,
+        "temperature": _config.TEMPERATURE,
         "max_tokens": _config.MAX_TOKENS,
     }
 
@@ -108,7 +109,7 @@ def generate_freecad_code(user_description: str,
 
 def call_llm_streaming(messages: list[dict],
                        tools: list[dict] | None = None,
-                       temperature: float = 0.1):
+                       temperature: float = None):
     """Yield SSE data chunks from the streaming API.
 
     Each yielded value is a parsed JSON dict from one SSE ``data:`` line.
@@ -117,12 +118,13 @@ def call_llm_streaming(messages: list[dict],
     payload: dict = {
         "model": _config.MODEL_NAME,
         "messages": messages,
-        "temperature": temperature,
+        "temperature": temperature if temperature is not None else _config.TEMPERATURE,
         "max_tokens": _config.MAX_TOKENS,
         "stream": True,
     }
     if tools:
         payload["tools"] = tools
+        payload["tool_choice"] = "auto"
 
     with _urlopen_with_retry(_make_request(payload), timeout=_config.LLM_TIMEOUT) as resp:
         for raw_line in resp:
