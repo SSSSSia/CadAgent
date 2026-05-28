@@ -54,6 +54,7 @@ snapshots/*.FCStd
 sessions/*.json
 snapshots/*/
 sessions/*/
+uploads/
 
 # -----------------------------------------------------------------------------
 # 6. 测试和覆盖率

@@ -4,7 +4,7 @@ from __future__ import annotations
 import time
 
 from PySide6 import QtCore
-from PySide6.QtGui import QTextCursor
+from PySide6.QtGui import QTextCursor, QTextBlockFormat
 
 from ui.chat_renderer import esc, markdown_to_html
 
@@ -31,7 +31,7 @@ class _PanelStreamMixin:
         self._insert_html(
             f'<table width="100%" cellspacing="0" cellpadding="0"><tr>'
             f'<td style="background-color:{c.agent_bubble_bg}; padding:8px 12px; '
-            f'border-left:3px solid {c.agent_bubble_border}; line-height:1.45;">'
+            f'border-left:3px solid {c.agent_bubble_border};">'
             f'<b style="color:{c.agent_bubble_text};">Agent:</b><br>'
             f'{html}'
             f'</td></tr></table>'
@@ -91,15 +91,36 @@ class _PanelStreamMixin:
             cursor = QTextCursor(doc)
             cursor.setPosition(pos)
             cursor.insertHtml(html)
+            self._compact_blocks_from(pos)
         else:
             self._insert_html(html)
         self._scroll_bottom()
 
     def _insert_html(self, html):
-        """Insert HTML at the end of the document without extra paragraph margins."""
-        cursor = QTextCursor(self.chat_display.document())
+        """Insert HTML at the end of the document with compact block margins."""
+        doc = self.chat_display.document()
+        cursor = QTextCursor(doc)
         cursor.movePosition(QTextCursor.MoveOperation.End)
+        start = cursor.position()
         cursor.insertHtml(f'<div style="margin:0; padding:0;">{html}</div>')
+        self._compact_blocks_from(start)
+
+    def _compact_blocks_from(self, start_pos):
+        """Set block top/bottom margins to 0 from start_pos to document end."""
+        doc = self.chat_display.document()
+        cur = QTextCursor(doc)
+        pos = min(start_pos, max(0, doc.characterCount() - 1))
+        cur.setPosition(pos)
+        cur.beginEditBlock()
+        while True:
+            fmt = cur.blockFormat()
+            if fmt.bottomMargin() > 0 or fmt.topMargin() > 0:
+                fmt.setBottomMargin(0)
+                fmt.setTopMargin(0)
+                cur.setBlockFormat(fmt)
+            if not cur.movePosition(QTextCursor.MoveOperation.NextBlock):
+                break
+        cur.endEditBlock()
 
     def _scroll_bottom(self):
         sb = self.chat_display.verticalScrollBar()
@@ -143,7 +164,7 @@ class _PanelStreamMixin:
         bubble = (
             f'<table width="100%" cellspacing="0" cellpadding="0"><tr>'
             f'<td style="background-color:{c.agent_bubble_bg}; padding:8px 12px; '
-            f'border-left:3px solid {c.agent_bubble_border}; line-height:1.45;">'
+            f'border-left:3px solid {c.agent_bubble_border};">'
             f'<b style="color:{c.agent_bubble_text};">Agent:</b><br>'
             f'{html}'
             f'</td></tr></table>'
@@ -153,6 +174,7 @@ class _PanelStreamMixin:
         cursor.movePosition(cursor.MoveOperation.End, cursor.MoveMode.KeepAnchor)
         cursor.removeSelectedText()
         cursor.insertHtml(bubble)
+        self._compact_blocks_from(start)
         self._scroll_bottom()
 
     def _finalize_streaming_bubble(self):
