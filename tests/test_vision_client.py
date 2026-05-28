@@ -16,12 +16,12 @@ def _reload_vision_client(monkeypatch=None):
     import core.config
     import core.vision_client
     if monkeypatch is not None:
-        monkeypatch.delenv("VISION_API_BASE_URL", raising=False)
-        monkeypatch.delenv("VISION_API_KEY", raising=False)
-        monkeypatch.delenv("VISION_MODEL_NAME", raising=False)
-        monkeypatch.delenv("VISION_MAX_TOKENS", raising=False)
-        monkeypatch.delenv("VISION_TEMPERATURE", raising=False)
-        monkeypatch.delenv("VISION_TIMEOUT", raising=False)
+        monkeypatch.setenv("VISION_API_BASE_URL", "")
+        monkeypatch.setenv("VISION_API_KEY", "")
+        monkeypatch.setenv("VISION_MODEL_NAME", "")
+        monkeypatch.setenv("VISION_MAX_TOKENS", "2048")
+        monkeypatch.setenv("VISION_TEMPERATURE", "0.3")
+        monkeypatch.setenv("VISION_TIMEOUT", "60")
     importlib.reload(core.config)
     importlib.reload(core.vision_client)
     return core.vision_client
@@ -36,8 +36,8 @@ class TestAnalyzeImageNotConfigured:
 
     def test_returns_error_when_partial(self, monkeypatch):
         monkeypatch.setenv("VISION_API_BASE_URL", "https://api.example.com/v1")
-        monkeypatch.delenv("VISION_API_KEY", raising=False)
-        monkeypatch.delenv("VISION_MODEL_NAME", raising=False)
+        monkeypatch.setenv("VISION_API_KEY", "")
+        monkeypatch.setenv("VISION_MODEL_NAME", "")
         mod = _reload_vision_client()
         result = mod.analyze_image("fake_base64", "describe this")
         assert result.startswith("ERROR:")
@@ -48,6 +48,9 @@ class TestAnalyzeImageRequest:
         monkeypatch.setenv("VISION_API_BASE_URL", "https://api.example.com/v1")
         monkeypatch.setenv("VISION_API_KEY", "sk-test-key")
         monkeypatch.setenv("VISION_MODEL_NAME", "gpt-4o")
+        monkeypatch.setenv("VISION_MAX_TOKENS", "2048")
+        monkeypatch.setenv("VISION_TEMPERATURE", "0.3")
+        monkeypatch.setenv("VISION_TIMEOUT", "60")
         mod = _reload_vision_client()
 
         captured_req = {}

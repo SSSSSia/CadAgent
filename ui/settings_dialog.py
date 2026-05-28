@@ -1,11 +1,14 @@
 """Settings dialog for CadAgent — configure API, model, and agent parameters."""
 from __future__ import annotations
 
+import base64
 import json
 import os
+import struct
 import tempfile
 import urllib.error
 import urllib.request
+import zlib
 
 from PySide6 import QtCore, QtWidgets
 
@@ -130,6 +133,22 @@ _PRIMARY_BTN = (
     "QPushButton:hover {{ background:#357abd; }}"
     "QPushButton:disabled {{ background:#aaccee; }}"
 )
+
+
+def _make_test_png_b64() -> str:
+    """Generate a valid 32x32 red PNG as base64 for vision API testing."""
+    size = 32
+    sig = b"\x89PNG\r\n\x1a\n"
+    ihdr_data = struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0)
+    ihdr_crc = struct.pack(">I", zlib.crc32(b"IHDR" + ihdr_data) & 0xFFFFFFFF)
+    ihdr = struct.pack(">I", 13) + b"IHDR" + ihdr_data + ihdr_crc
+    rows = b"".join(b"\x00" + b"\xff\x00\x00" * size for _ in range(size))
+    compressed = zlib.compress(rows)
+    idat_crc = struct.pack(">I", zlib.crc32(b"IDAT" + compressed) & 0xFFFFFFFF)
+    idat = struct.pack(">I", len(compressed)) + b"IDAT" + compressed + idat_crc
+    iend_crc = struct.pack(">I", zlib.crc32(b"IEND") & 0xFFFFFFFF)
+    iend = struct.pack(">I", 0) + b"IEND" + iend_crc
+    return base64.b64encode(sig + ihdr + idat + iend).decode("ascii")
 
 
 class SettingsDialog(QtWidgets.QDialog):
@@ -490,14 +509,7 @@ class SettingsDialog(QtWidgets.QDialog):
 
         try:
             endpoint = url.rstrip("/") + "/chat/completions"
-            import base64
-            tiny_png = (
-                b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
-                b"\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00"
-                b"\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00\x00\x01\x01\x00"
-                b"\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82"
-            )
-            b64 = base64.b64encode(tiny_png).decode("ascii")
+            b64 = _make_test_png_b64()
             payload = json.dumps({
                 "model": model or "test",
                 "messages": [{

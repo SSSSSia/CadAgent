@@ -87,9 +87,9 @@ class TestConstants:
 
 class TestVisionConfig:
     def test_vision_defaults_empty(self, monkeypatch):
-        monkeypatch.delenv("VISION_API_BASE_URL", raising=False)
-        monkeypatch.delenv("VISION_API_KEY", raising=False)
-        monkeypatch.delenv("VISION_MODEL_NAME", raising=False)
+        monkeypatch.setenv("VISION_API_BASE_URL", "")
+        monkeypatch.setenv("VISION_API_KEY", "")
+        monkeypatch.setenv("VISION_MODEL_NAME", "")
         config = _reload_config()
         assert config.VISION_API_BASE_URL == ""
         assert config.VISION_API_KEY == ""
@@ -103,14 +103,11 @@ class TestVisionConfig:
         assert config.VISION_API_BASE_URL == "https://api.example.com/v1"
         assert config.VISION_API_KEY == "sk-vision-test"
         assert config.VISION_MODEL_NAME == "gpt-4o"
-        monkeypatch.delenv("VISION_API_BASE_URL")
-        monkeypatch.delenv("VISION_API_KEY")
-        monkeypatch.delenv("VISION_MODEL_NAME")
 
     def test_vision_enabled_false_when_empty(self, monkeypatch):
-        monkeypatch.delenv("VISION_API_BASE_URL", raising=False)
-        monkeypatch.delenv("VISION_API_KEY", raising=False)
-        monkeypatch.delenv("VISION_MODEL_NAME", raising=False)
+        monkeypatch.setenv("VISION_API_BASE_URL", "")
+        monkeypatch.setenv("VISION_API_KEY", "")
+        monkeypatch.setenv("VISION_MODEL_NAME", "")
         config = _reload_config()
         assert config.vision_enabled() is False
 
@@ -120,9 +117,6 @@ class TestVisionConfig:
         monkeypatch.setenv("VISION_MODEL_NAME", "gpt-4o")
         config = _reload_config()
         assert config.vision_enabled() is True
-        monkeypatch.delenv("VISION_API_BASE_URL")
-        monkeypatch.delenv("VISION_API_KEY")
-        monkeypatch.delenv("VISION_MODEL_NAME")
 
     def test_vision_enabled_false_partial(self, monkeypatch):
         monkeypatch.setenv("VISION_API_BASE_URL", "https://api.example.com/v1")
@@ -130,22 +124,19 @@ class TestVisionConfig:
         monkeypatch.setenv("VISION_MODEL_NAME", "gpt-4o")
         config = _reload_config()
         assert config.vision_enabled() is False
-        monkeypatch.delenv("VISION_API_BASE_URL")
-        monkeypatch.delenv("VISION_API_KEY")
-        monkeypatch.delenv("VISION_MODEL_NAME")
 
     def test_vision_max_tokens_default(self, monkeypatch):
-        monkeypatch.delenv("VISION_MAX_TOKENS", raising=False)
+        monkeypatch.setenv("VISION_MAX_TOKENS", "2048")
         config = _reload_config()
         assert config.VISION_MAX_TOKENS == 2048
 
     def test_vision_temperature_default(self, monkeypatch):
-        monkeypatch.delenv("VISION_TEMPERATURE", raising=False)
+        monkeypatch.setenv("VISION_TEMPERATURE", "0.3")
         config = _reload_config()
         assert config.VISION_TEMPERATURE == 0.3
 
     def test_vision_timeout_default(self, monkeypatch):
-        monkeypatch.delenv("VISION_TIMEOUT", raising=False)
+        monkeypatch.setenv("VISION_TIMEOUT", "60")
         config = _reload_config()
         assert config.VISION_TIMEOUT == 60
 
@@ -157,6 +148,3 @@ class TestVisionConfig:
         assert config.VISION_MAX_TOKENS == 4096
         assert config.VISION_TEMPERATURE == 0.7
         assert config.VISION_TIMEOUT == 120
-        monkeypatch.delenv("VISION_MAX_TOKENS")
-        monkeypatch.delenv("VISION_TEMPERATURE")
-        monkeypatch.delenv("VISION_TIMEOUT")
