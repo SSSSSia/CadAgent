@@ -432,9 +432,12 @@ def _tool_capture_view(args_json: str) -> str:
     if pixmap is None:
         return "ERROR: Cannot capture 3D viewport. No accessible widget found."
 
-    buffer = io.BytesIO()
-    pixmap.save(buffer, format="PNG")
-    png_bytes = buffer.getvalue()
+    from PySide6.QtCore import QBuffer
+    buf = QBuffer()
+    buf.open(QBuffer.ReadWrite)
+    pixmap.save(buf, "PNG")
+    png_bytes = buf.data().data()
+    buf.close()
     image_base64 = base64.b64encode(png_bytes).decode("ascii")
 
     log_info(f"Captured viewport: {pixmap.width()}x{pixmap.height()}, "
