@@ -164,6 +164,17 @@ def error_hint(error: Exception, code: str) -> tuple[str, str | None]:
                     "Use shape.translate(FreeCAD.Vector(x, y, z))."
                 )
 
+    # Null shape can be raised as ValueError by FreeCAD, not just OCC/BRep types
+    if "Null shape" in e_str or "null shape" in e_str.lower():
+        hints.append(
+            "Hint: Operation produced a null/empty shape. Common causes:\n"
+            "1. Boolean cut/fuse on non-overlapping shapes — ensure shapes intersect by at least 0.1mm.\n"
+            "2. Extrude/revolve on an open or invalid profile — check wire.isClosed().\n"
+            "3. makePipe with coplanar profile and path — offset profile perpendicular to path.\n"
+            "4. Using result of a failed previous operation — verify each step succeeds before using its output."
+        )
+        return "\n".join(hints), None
+
     if "makeEllipse" in e_str:
         hints.append(
             "Hint: Part.makeEllipse does NOT exist. Use Part.Ellipse() instead: "
@@ -178,13 +189,6 @@ def error_hint(error: Exception, code: str) -> tuple[str, str | None]:
                 "Hint: Part.Arc requires 3 NON-collinear points. "
                 "Ensure the mid-point is NOT on the line between start and end. "
                 "For a handle arc, offset the mid-point outward (e.g., add Y-offset)."
-            )
-        elif "Null shape" in e_str or "null shape" in e_str.lower():
-            hints.append(
-                "Hint: Operation produced a null/empty shape. "
-                "For makePipe: profile Wire must be closed and not coplanar with path. "
-                "Offset the profile center perpendicular to the path plane (e.g., +Vector(0, -radius, 0)). "
-                "For extrude/revolve: check that the profile is valid and closed."
             )
         else:
             hints.append(

@@ -67,7 +67,7 @@ class _PanelStatusMixin:
         c = self._get_colors()
         self.status_label.setText("Ready")
         self.status_label.setStyleSheet(
-            f"color:{c.status_idle}; font-size:11px; font-family:'Segoe UI', sans-serif;"
+            f"color:{c.status_idle}; font-size:10px; font-family:'Segoe UI', sans-serif;"
         )
 
     def _status_tick(self):
@@ -76,7 +76,7 @@ class _PanelStatusMixin:
         color = self._status_color()
         self.status_label.setText(text)
         self.status_label.setStyleSheet(
-            f"color:{color}; font-size:11px; font-family:'Segoe UI', sans-serif;"
+            f"color:{color}; font-size:10px; font-family:'Segoe UI', sans-serif;"
         )
 
     def _status_format(self):

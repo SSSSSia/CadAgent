@@ -162,12 +162,20 @@ def test_occ_error_collinear_hint():
 
 
 def test_occ_error_null_shape_hint():
-    """OCCError with Null shape should give makePipe specific hint."""
+    """OCCError with Null shape should give specific hint."""
     class OCCError(Exception):
         pass
     err = OCCError("Null shape")
     hint, fixed = error_hint(err, "handle = path.makePipe(profile)")
     assert "null" in hint.lower()
-    assert "makePipe" in hint
-    assert "coplanar" in hint or "perpendicular" in hint
+    assert "overlap" in hint.lower() or "boolean" in hint.lower() or "makePipe" in hint
+    assert fixed is None
+
+
+def test_valueerror_null_shape_hint():
+    """ValueError: Null shape (the most common real-world case) must produce a hint."""
+    err = ValueError("Null shape")
+    hint, fixed = error_hint(err, "body = body.cut(hole)")
+    assert "null" in hint.lower()
+    assert "boolean" in hint.lower() or "overlap" in hint.lower()
     assert fixed is None
