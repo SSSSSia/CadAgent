@@ -12,6 +12,9 @@ _CFG_DEFAULTS = {
     "MODEL_NAME": "Pro/zai-org/GLM-5.1",
     "MAX_TOKENS": "4096",
     "TEMPERATURE": "0.1",
+    "VISION_API_BASE_URL": "",
+    "VISION_API_KEY": "",
+    "VISION_MODEL_NAME": "",
 }
 
 
@@ -34,6 +37,9 @@ class Config:
         self.LLM_TIMEOUT: int = 0
         self.VALIDATE_VOLUME_THRESHOLD: float = 0.01
         self.VALIDATE_DIMENSION_THRESHOLD: float = 0.001
+        self.VISION_API_BASE_URL: str = ""
+        self.VISION_API_KEY: str = ""
+        self.VISION_MODEL_NAME: str = ""
         self._cfg: dict = {}
         self.refresh()
 
@@ -49,6 +55,9 @@ class Config:
         self.MAX_SNAPSHOTS = int(os.environ.get("MAX_SNAPSHOTS", "10"))
         self.MAX_CONTEXT_TOKENS = int(os.environ.get("MAX_CONTEXT_TOKENS", "24000"))
         self.LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", "180"))
+        self.VISION_API_BASE_URL = self._cfg.get("VISION_API_BASE_URL", "")
+        self.VISION_API_KEY = self._cfg.get("VISION_API_KEY", "")
+        self.VISION_MODEL_NAME = self._cfg.get("VISION_MODEL_NAME", "")
         return dict(self._cfg)
 
 
@@ -89,6 +98,9 @@ MAX_CONTEXT_TOKENS = _default_config.MAX_CONTEXT_TOKENS
 LLM_TIMEOUT = _default_config.LLM_TIMEOUT
 VALIDATE_VOLUME_THRESHOLD = _default_config.VALIDATE_VOLUME_THRESHOLD
 VALIDATE_DIMENSION_THRESHOLD = _default_config.VALIDATE_DIMENSION_THRESHOLD
+VISION_API_BASE_URL = _default_config.VISION_API_BASE_URL
+VISION_API_KEY = _default_config.VISION_API_KEY
+VISION_MODEL_NAME = _default_config.VISION_MODEL_NAME
 
 
 def _refresh_constants():
@@ -96,6 +108,7 @@ def _refresh_constants():
     global API_BASE_URL, API_KEY, MODEL_NAME, MAX_TOKENS, TEMPERATURE
     global MAX_ITERATIONS, MAX_SNAPSHOTS, MAX_CONTEXT_TOKENS, LLM_TIMEOUT
     global VALIDATE_VOLUME_THRESHOLD, VALIDATE_DIMENSION_THRESHOLD
+    global VISION_API_BASE_URL, VISION_API_KEY, VISION_MODEL_NAME
     _default_config.refresh()
     API_BASE_URL = _default_config.API_BASE_URL
     API_KEY = _default_config.API_KEY
@@ -108,6 +121,14 @@ def _refresh_constants():
     LLM_TIMEOUT = _default_config.LLM_TIMEOUT
     VALIDATE_VOLUME_THRESHOLD = _default_config.VALIDATE_VOLUME_THRESHOLD
     VALIDATE_DIMENSION_THRESHOLD = _default_config.VALIDATE_DIMENSION_THRESHOLD
+    VISION_API_BASE_URL = _default_config.VISION_API_BASE_URL
+    VISION_API_KEY = _default_config.VISION_API_KEY
+    VISION_MODEL_NAME = _default_config.VISION_MODEL_NAME
+
+
+def vision_enabled() -> bool:
+    """Return True if all three vision config values are non-empty."""
+    return bool(VISION_API_BASE_URL and VISION_API_KEY and VISION_MODEL_NAME)
 
 
 def reload(new_values: dict = None) -> dict:

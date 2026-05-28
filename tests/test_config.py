@@ -83,3 +83,53 @@ class TestConstants:
         config = _reload_config()
         assert callable(config.strip_markdown)
         assert config.strip_markdown("```python\nx=1\n```") == "x=1"
+
+
+class TestVisionConfig:
+    def test_vision_defaults_empty(self, monkeypatch):
+        monkeypatch.delenv("VISION_API_BASE_URL", raising=False)
+        monkeypatch.delenv("VISION_API_KEY", raising=False)
+        monkeypatch.delenv("VISION_MODEL_NAME", raising=False)
+        config = _reload_config()
+        assert config.VISION_API_BASE_URL == ""
+        assert config.VISION_API_KEY == ""
+        assert config.VISION_MODEL_NAME == ""
+
+    def test_vision_env_override(self, monkeypatch):
+        monkeypatch.setenv("VISION_API_BASE_URL", "https://api.example.com/v1")
+        monkeypatch.setenv("VISION_API_KEY", "sk-vision-test")
+        monkeypatch.setenv("VISION_MODEL_NAME", "gpt-4o")
+        config = _reload_config()
+        assert config.VISION_API_BASE_URL == "https://api.example.com/v1"
+        assert config.VISION_API_KEY == "sk-vision-test"
+        assert config.VISION_MODEL_NAME == "gpt-4o"
+        monkeypatch.delenv("VISION_API_BASE_URL")
+        monkeypatch.delenv("VISION_API_KEY")
+        monkeypatch.delenv("VISION_MODEL_NAME")
+
+    def test_vision_enabled_false_when_empty(self, monkeypatch):
+        monkeypatch.delenv("VISION_API_BASE_URL", raising=False)
+        monkeypatch.delenv("VISION_API_KEY", raising=False)
+        monkeypatch.delenv("VISION_MODEL_NAME", raising=False)
+        config = _reload_config()
+        assert config.vision_enabled() is False
+
+    def test_vision_enabled_true(self, monkeypatch):
+        monkeypatch.setenv("VISION_API_BASE_URL", "https://api.example.com/v1")
+        monkeypatch.setenv("VISION_API_KEY", "sk-vision-test")
+        monkeypatch.setenv("VISION_MODEL_NAME", "gpt-4o")
+        config = _reload_config()
+        assert config.vision_enabled() is True
+        monkeypatch.delenv("VISION_API_BASE_URL")
+        monkeypatch.delenv("VISION_API_KEY")
+        monkeypatch.delenv("VISION_MODEL_NAME")
+
+    def test_vision_enabled_false_partial(self, monkeypatch):
+        monkeypatch.setenv("VISION_API_BASE_URL", "https://api.example.com/v1")
+        monkeypatch.setenv("VISION_API_KEY", "")
+        monkeypatch.setenv("VISION_MODEL_NAME", "gpt-4o")
+        config = _reload_config()
+        assert config.vision_enabled() is False
+        monkeypatch.delenv("VISION_API_BASE_URL")
+        monkeypatch.delenv("VISION_API_KEY")
+        monkeypatch.delenv("VISION_MODEL_NAME")
