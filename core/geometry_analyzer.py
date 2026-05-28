@@ -382,7 +382,33 @@ def detect_topology_issues(info: ShapeInfo) -> list[str]:
         issues.append(f"{info.solid_count} separate solids.")
     if info.shape_type == "Compound":
         issues.append("Compound shape.")
+    if info.volume < 0:
+        issues.append(f"Negative volume ({info.volume:.1f} mm3).")
     return issues
+
+
+def _topology_hints(issues: list[str]) -> list[str]:
+    """Generate actionable hints based on topology warnings."""
+    hints = []
+    text = " ".join(issues)
+    if "No solid components" in text:
+        hints.append(
+            "  >> Cannot be used in boolean ops (fuse/cut). "
+            "Use Part.makeBox/makeCylinder instead of makePolygon+extrude."
+        )
+    if "Negative volume" in text:
+        hints.append(
+            "  >> Inside-out geometry — check winding order or reverse construction."
+        )
+    if "separate solids" in text:
+        hints.append(
+            "  >> Fuse them with shape.fuse(other) before further boolean ops."
+        )
+    elif "Compound shape" in text and "No solid components" not in text:
+        hints.append(
+            "  >> Extract solid: if shape.Solids: shape = shape.Solids[0]"
+        )
+    return hints
 
 
 def describe_shape(info: ShapeInfo) -> str:
@@ -420,6 +446,8 @@ def describe_shape(info: ShapeInfo) -> str:
         lines.append("  Topology warnings:")
         for issue in topo_issues:
             lines.append(f"    - {issue}")
+        for hint in _topology_hints(topo_issues):
+            lines.append(hint)
     elif info.solid_count == 1:
         lines.append("  Topology: single manifold solid (OK)")
 

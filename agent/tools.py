@@ -61,6 +61,32 @@ def clear_persistent_vars() -> None:
     _EXEC_NAMESPACE.clear()
 
 
+def _clean_stale_namespace_vars() -> list[str]:
+    """Remove stale FreeCAD object references from _EXEC_NAMESPACE.
+
+    After undo restores a snapshot, Python references to FreeCAD C++ objects
+    become invalid (document was closed and reopened). This function detects
+    and removes them, keeping primitive types (int, float, str, etc.) intact.
+    Returns list of removed variable names.
+    """
+    import FreeCAD
+
+    active_doc = FreeCAD.ActiveDocument
+    stale_keys = []
+    for key, val in list(_EXEC_NAMESPACE.items()):
+        if isinstance(val, _PERSISTABLE_TYPES):
+            continue
+        try:
+            doc_attr = getattr(val, "Document", None)
+            if doc_attr is not None and doc_attr is not active_doc:
+                stale_keys.append(key)
+        except (ReferenceError, RuntimeError, AttributeError):
+            stale_keys.append(key)
+    for key in stale_keys:
+        del _EXEC_NAMESPACE[key]
+    return stale_keys
+
+
 def get_persistent_vars() -> dict:
     """Return serializable subset of exec namespace (for session persistence to disk).
 
@@ -282,7 +308,25 @@ def _tool_execute_code(args_json: str) -> str:
 def _tool_undo_last(args_json: str) -> str:
     """Undo the last execute_code by restoring document snapshot."""
     from core.snapshot import restore_latest_snapshot
-    return restore_latest_snapshot()
+    result = restore_latest_snapshot()
+    if result.startswith("SUCCESS"):
+        import FreeCAD
+        _EXEC_NAMESPACE["doc"] = FreeCAD.ActiveDocument
+        stale = _clean_stale_namespace_vars()
+        if stale:
+            result += f"\nCleared stale variables: {', '.join(stale)}"
+            active = FreeCAD.ActiveDocument
+            if active:
+                objs = [
+                    o.Name for o in active.Objects
+                    if hasattr(o, "Shape") and o.Shape is not None
+                ]
+                if objs:
+                    result += (
+                        f"\nObjects in restored doc: {', '.join(objs)}"
+                        f" — re-reference with doc.getObject('Name')"
+                    )
+    return result
 
 
 # ---------------------------------------------------------------------------

@@ -32,6 +32,8 @@ CRITICAL RULES:
 - Variables PERSIST between execute_code calls — reuse them directly.
 - Boolean ops (cut/fuse/common) return NEW shapes — MUST assign: body = body.cut(hole)
 - translate() modifies IN-PLACE, returns None — do NOT assign: shape.translate(v)
+- Topology warnings (negative volume, no solid, compound) mean the shape is INVALID \
+for boolean ops — fix topology before fusing/cutting.
 
 Part API Quick Reference:
 - Part.makeBox(x,y,z), Part.makeCylinder(r,h), Part.makeCone(r1,r2,h)
@@ -94,6 +96,8 @@ CRITICAL RULES:
 - Variables PERSIST between execute_code calls — reuse them directly.
 - Boolean ops (cut/fuse/common) return NEW shapes — MUST assign: body = body.cut(hole)
 - translate() modifies IN-PLACE, returns None — do NOT assign: shape.translate(v)
+- Topology warnings (negative volume, no solid, compound) mean the shape is INVALID \
+for boolean ops — fix topology before fusing/cutting.
 
 Part API Quick Reference:
 - Part.makeBox(x,y,z), Part.makeCylinder(r,h), Part.makeCone(r1,r2,h)
