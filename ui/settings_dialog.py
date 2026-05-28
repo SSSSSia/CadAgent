@@ -105,12 +105,39 @@ def _save_to_env(values: dict):
 # Dialog
 # ---------------------------------------------------------------------------
 
+# Shared stylesheet constants
+_GROUP_STYLE = (
+    "QGroupBox {{ font-weight: bold; border: 1px solid {border}; "
+    "border-radius: 4px; margin-top: 10px; padding-top: 16px; }}"
+    "QGroupBox::title {{ subcontrol-origin: margin; left: 10px; "
+    "padding: 0 4px; color: {text}; }}"
+    "QGroupBox::indicator {{ width: 14px; height: 14px; }}"
+)
+_INPUT_STYLE = (
+    "QLineEdit {{ padding: 5px 8px; border: 1px solid {border}; "
+    "border-radius: 3px; background: {input_bg}; }}"
+    "QLineEdit:focus {{ border-color: #4a90d9; }}"
+    "QSpinBox, QDoubleSpinBox {{ padding: 5px 8px; "
+    "border: 1px solid {border}; border-radius: 3px; background: {input_bg}; }}"
+    "QSpinBox:focus, QDoubleSpinBox:focus {{ border-color: #4a90d9; }}"
+    "QComboBox {{ padding: 5px 8px; border: 1px solid {border}; "
+    "border-radius: 3px; background: {input_bg}; }}"
+)
+_BTN_STYLE = "padding:6px 14px; border-radius:3px;"
+_PRIMARY_BTN = (
+    "QPushButton {{ background:#4a90d9; color:white; padding:6px 16px; "
+    "border-radius:3px; font-weight:bold; border:none; }}"
+    "QPushButton:hover {{ background:#357abd; }}"
+    "QPushButton:disabled {{ background:#aaccee; }}"
+)
+
+
 class SettingsDialog(QtWidgets.QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("CadAgent Settings")
-        self.setMinimumWidth(460)
+        self.setMinimumWidth(480)
         self.setModal(True)
         self._setup_ui()
         self._load_current_values()
@@ -119,11 +146,12 @@ class SettingsDialog(QtWidgets.QDialog):
 
     def _setup_ui(self):
         layout = QtWidgets.QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(10)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
 
         # --- Provider preset ---
         preset_group = QtWidgets.QGroupBox("Provider Preset")
+        preset_group.setStyleSheet(_GROUP_STYLE)
         preset_layout = QtWidgets.QHBoxLayout(preset_group)
         self.combo_provider = QtWidgets.QComboBox()
         for p in PROVIDER_PRESETS:
@@ -134,14 +162,19 @@ class SettingsDialog(QtWidgets.QDialog):
 
         # --- API Configuration ---
         api_group = QtWidgets.QGroupBox("API Configuration")
+        api_group.setStyleSheet(_GROUP_STYLE)
         api_form = QtWidgets.QFormLayout(api_group)
         api_form.setLabelAlignment(QtCore.Qt.AlignRight)
+        api_form.setFormAlignment(QtCore.Qt.AlignLeft)
+        api_form.setHorizontalSpacing(12)
+        api_form.setVerticalSpacing(8)
 
         self.edit_url = QtWidgets.QLineEdit()
         self.edit_url.setPlaceholderText("https://api.example.com/v1")
         api_form.addRow("API Base URL:", self.edit_url)
 
         key_row = QtWidgets.QHBoxLayout()
+        key_row.setSpacing(4)
         self.edit_key = QtWidgets.QLineEdit()
         self.edit_key.setEchoMode(QtWidgets.QLineEdit.Password)
         self.edit_key.setPlaceholderText("sk-...")
@@ -161,8 +194,12 @@ class SettingsDialog(QtWidgets.QDialog):
 
         # --- Agent Parameters ---
         agent_group = QtWidgets.QGroupBox("Agent Parameters")
+        agent_group.setStyleSheet(_GROUP_STYLE)
         agent_form = QtWidgets.QFormLayout(agent_group)
         agent_form.setLabelAlignment(QtCore.Qt.AlignRight)
+        agent_form.setFormAlignment(QtCore.Qt.AlignLeft)
+        agent_form.setHorizontalSpacing(12)
+        agent_form.setVerticalSpacing(8)
 
         self.spin_max_tokens = QtWidgets.QSpinBox()
         self.spin_max_tokens.setRange(256, 32768)
@@ -181,8 +218,12 @@ class SettingsDialog(QtWidgets.QDialog):
         self.vision_group = QtWidgets.QGroupBox("Vision Model (Optional)")
         self.vision_group.setCheckable(True)
         self.vision_group.setChecked(False)
+        self.vision_group.toggled.connect(self._on_vision_group_toggled)
         vision_form = QtWidgets.QFormLayout(self.vision_group)
         vision_form.setLabelAlignment(QtCore.Qt.AlignRight)
+        vision_form.setFormAlignment(QtCore.Qt.AlignLeft)
+        vision_form.setHorizontalSpacing(12)
+        vision_form.setVerticalSpacing(8)
 
         self.chk_vision_same_as_main = QtWidgets.QCheckBox(
             "Use same API as main model"
@@ -208,6 +249,7 @@ class SettingsDialog(QtWidgets.QDialog):
         vision_form.addRow("API Base URL:", self.edit_vision_url)
 
         vision_key_row = QtWidgets.QHBoxLayout()
+        vision_key_row.setSpacing(4)
         self.edit_vision_key = QtWidgets.QLineEdit()
         self.edit_vision_key.setEchoMode(QtWidgets.QLineEdit.Password)
         self.edit_vision_key.setPlaceholderText("sk-...")
@@ -245,9 +287,7 @@ class SettingsDialog(QtWidgets.QDialog):
         vision_form.addRow("Temperature:", self.spin_vision_temperature)
 
         self.btn_test_vision = QtWidgets.QPushButton("Test Vision API")
-        self.btn_test_vision.setStyleSheet(
-            "QPushButton{padding:6px 14px;border-radius:3px}"
-        )
+        self.btn_test_vision.setStyleSheet(_BTN_STYLE)
         self.btn_test_vision.clicked.connect(self._on_test_vision_connection)
         vision_form.addRow("", self.btn_test_vision)
 
@@ -255,27 +295,22 @@ class SettingsDialog(QtWidgets.QDialog):
 
         # --- Buttons ---
         btn_row = QtWidgets.QHBoxLayout()
+        btn_row.setSpacing(8)
 
         self.btn_test = QtWidgets.QPushButton("Test Connection")
-        self.btn_test.setStyleSheet(
-            "QPushButton{padding:6px 14px;border-radius:3px}"
-        )
+        self.btn_test.setStyleSheet(_BTN_STYLE)
         self.btn_test.clicked.connect(self._on_test_connection)
         btn_row.addWidget(self.btn_test)
 
         btn_row.addStretch()
 
         self.btn_cancel = QtWidgets.QPushButton("Cancel")
-        self.btn_cancel.setStyleSheet("padding:6px 14px")
+        self.btn_cancel.setStyleSheet(_BTN_STYLE)
         self.btn_cancel.clicked.connect(self.reject)
         btn_row.addWidget(self.btn_cancel)
 
         self.btn_apply = QtWidgets.QPushButton("Apply")
-        self.btn_apply.setStyleSheet(
-            "QPushButton{background:#4a90d9;color:white;padding:6px 16px;"
-            "border-radius:3px;font-weight:bold}"
-            "QPushButton:hover{background:#357abd}"
-        )
+        self.btn_apply.setStyleSheet(_PRIMARY_BTN)
         self.btn_apply.clicked.connect(self._on_apply)
         btn_row.addWidget(self.btn_apply)
 
@@ -286,13 +321,34 @@ class SettingsDialog(QtWidgets.QDialog):
     def _apply_style(self):
         self.setStyleSheet(
             "QDialog { font-family: 'Segoe UI', sans-serif; font-size: 13px; }"
-            "QGroupBox { font-weight: bold; border: 1px solid #ddd; "
-            "  border-radius: 4px; margin-top: 8px; padding-top: 14px; }"
-            "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }"
-            "QLineEdit { padding: 5px 8px; border: 1px solid #ddd; border-radius: 3px; }"
-            "QSpinBox { padding: 5px 8px; border: 1px solid #ddd; border-radius: 3px; }"
-            "QComboBox { padding: 5px 8px; border: 1px solid #ddd; border-radius: 3px; }"
+            + _INPUT_STYLE + _GROUP_STYLE
         )
+
+    # ---- Vision group state ----
+
+    def _on_vision_group_toggled(self, checked):
+        """When vision group is toggled, update child widget states."""
+        if checked:
+            self._sync_vision_same_as_main(
+                self.chk_vision_same_as_main.isChecked()
+            )
+
+    def _sync_vision_same_as_main(self, same_as_main: bool):
+        """Enable or disable vision URL/Key/Provider based on same-as-main state.
+
+        Only called when the vision group itself is checked.
+        """
+        if same_as_main:
+            self.edit_vision_url.setText(self.edit_url.text())
+            self.edit_vision_key.setText(self.edit_key.text())
+        self.edit_vision_url.setEnabled(not same_as_main)
+        self.edit_vision_key.setEnabled(not same_as_main)
+        self.combo_vision_provider.setEnabled(not same_as_main)
+        self.btn_toggle_vision_key.setEnabled(not same_as_main)
+
+    def _on_vision_same_as_main_toggled(self, checked):
+        if self.vision_group.isChecked():
+            self._sync_vision_same_as_main(checked)
 
     # ---- Load / Save ----
 
@@ -304,12 +360,14 @@ class SettingsDialog(QtWidgets.QDialog):
         self.spin_max_iter.setValue(_config.MAX_ITERATIONS)
 
         # Match provider preset (by url + model)
+        matched = False
         for i, p in enumerate(PROVIDER_PRESETS):
             if p["url"] == _config.API_BASE_URL and p["model"] == _config.MODEL_NAME:
                 self.combo_provider.setCurrentIndex(i)
-                return
-        # No match — set to Custom
-        self.combo_provider.setCurrentIndex(len(PROVIDER_PRESETS) - 1)
+                matched = True
+                break
+        if not matched:
+            self.combo_provider.setCurrentIndex(len(PROVIDER_PRESETS) - 1)
 
         # Vision config
         if _config.VISION_API_BASE_URL:
@@ -415,18 +473,6 @@ class SettingsDialog(QtWidgets.QDialog):
             return
         self.edit_vision_url.setText(preset["url"])
         self.edit_vision_model.setText(preset["model"])
-
-    def _on_vision_same_as_main_toggled(self, checked):
-        if checked:
-            self.edit_vision_url.setText(self.edit_url.text())
-            self.edit_vision_key.setText(self.edit_key.text())
-            self.edit_vision_url.setEnabled(False)
-            self.edit_vision_key.setEnabled(False)
-            self.combo_vision_provider.setEnabled(False)
-        else:
-            self.edit_vision_url.setEnabled(True)
-            self.edit_vision_key.setEnabled(True)
-            self.combo_vision_provider.setEnabled(True)
 
     def _on_test_vision_connection(self):
         url = self.edit_vision_url.text().strip()
