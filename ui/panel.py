@@ -9,6 +9,7 @@ Thread safety model:
 from __future__ import annotations
 
 import json
+import os
 import time
 
 import FreeCAD
@@ -456,6 +457,38 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         self._status_reset()
         self._set_running(False)
         self._refresh_session_list()
+
+    def _on_attach_image(self):
+        """Open file dialog to select an image, copy to uploads, insert reference."""
+        from PySide6 import QtWidgets
+        import shutil
+        from datetime import datetime
+
+        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "Select Image",
+            "",
+            "Images (*.png *.jpg *.jpeg *.bmp);;All Files (*)"
+        )
+        if not file_path:
+            return
+
+        uploads_dir = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "..", "uploads"
+        )
+        os.makedirs(uploads_dir, exist_ok=True)
+
+        ext = os.path.splitext(file_path)[1]
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        dest_name = f"{timestamp}{ext}"
+        dest_path = os.path.join(uploads_dir, dest_name)
+        shutil.copy2(file_path, dest_path)
+
+        current_text = self.text_input.toPlainText()
+        marker = f" [image: {dest_path}]"
+        self.text_input.setPlainText(current_text + marker)
+
+        self.status_label.setText(f"Attached: {dest_name}")
 
     def _on_undo(self):
         """User clicked Undo — restore document from most recent snapshot."""

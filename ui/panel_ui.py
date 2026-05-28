@@ -50,6 +50,12 @@ class _PanelUIMixin:
         self.text_input.installEventFilter(self)
         input_row.addWidget(self.text_input, 1)
 
+        self.btn_attach = QtWidgets.QPushButton("📎")
+        self.btn_attach.setFixedWidth(32)
+        self.btn_attach.setToolTip("Attach image for vision analysis")
+        self.btn_attach.clicked.connect(self._on_attach_image)
+        input_row.addWidget(self.btn_attach)
+
         self.btn_send = QtWidgets.QPushButton("Send")
         self.btn_send.clicked.connect(self._on_send)
         input_row.addWidget(self.btn_send)
@@ -153,6 +159,11 @@ class _PanelUIMixin:
             f"  padding: 4px 8px;"
             f"  background: {c.input_bg};"
             f"}}"
+        )
+        self.btn_attach.setStyleSheet(
+            f"QPushButton{{background:{c.input_bg};border:1px solid {c.border};"
+            f"border-radius:3px;font-size:16px}}"
+            f"QPushButton:hover{{background:{c.button_primary_hover}}}"
         )
         self.btn_send.setStyleSheet(
             f"QPushButton{{background:{c.button_primary};color:{c.button_text};"
