@@ -101,10 +101,12 @@ def test_tool_names():
 # ---------------------------------------------------------------------------
 
 def test_agent_prompt_has_core_tools():
-    # Verify the 3 core tools are mentioned
+    # Verify all 5 tools are mentioned
     assert "execute_code" in AGENT_SYSTEM_PROMPT
     assert "undo_last" in AGENT_SYSTEM_PROMPT
     assert "export_step" in AGENT_SYSTEM_PROMPT
+    assert "capture_view" in AGENT_SYSTEM_PROMPT
+    assert "analyze_image" in AGENT_SYSTEM_PROMPT
 
 
 def test_agent_prompt_workflow():
@@ -114,10 +116,12 @@ def test_agent_prompt_workflow():
 
 
 def test_react_prompt_has_core_tools():
-    # Verify XML examples for the 3 core tools
+    # Verify XML examples for all 5 tools
     assert '<tool name="execute_code">' in REACT_SYSTEM_PROMPT
     assert '<tool name="undo_last">' in REACT_SYSTEM_PROMPT
     assert '<tool name="export_step">' in REACT_SYSTEM_PROMPT
+    assert '<tool name="capture_view">' in REACT_SYSTEM_PROMPT
+    assert '<tool name="analyze_image">' in REACT_SYSTEM_PROMPT
 
 
 def test_all_prompts_have_context_placeholder():
@@ -139,6 +143,20 @@ def test_react_prompt_critical_rules():
     assert "Variables PERSIST" in REACT_SYSTEM_PROMPT
     assert "Boolean ops" in REACT_SYSTEM_PROMPT
     assert "translate()" in REACT_SYSTEM_PROMPT
+
+
+def test_agent_prompt_vision_rules():
+    # Verify vision tool rules are present in agent prompt
+    assert "visually verify" in AGENT_SYSTEM_PROMPT
+    assert "vision model to be configured" in AGENT_SYSTEM_PROMPT
+    assert "[image: path]" in AGENT_SYSTEM_PROMPT
+
+
+def test_react_prompt_vision_rules():
+    # Verify vision tool rules are present in ReAct prompt
+    assert "visually verify" in REACT_SYSTEM_PROMPT
+    assert "vision model to be configured" in REACT_SYSTEM_PROMPT
+    assert "[image: path]" in REACT_SYSTEM_PROMPT
 
 
 # ---------------------------------------------------------------------------
