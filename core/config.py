@@ -15,6 +15,9 @@ _CFG_DEFAULTS = {
     "VISION_API_BASE_URL": "",
     "VISION_API_KEY": "",
     "VISION_MODEL_NAME": "",
+    "VISION_MAX_TOKENS": "2048",
+    "VISION_TEMPERATURE": "0.3",
+    "VISION_TIMEOUT": "60",
 }
 
 
@@ -40,6 +43,9 @@ class Config:
         self.VISION_API_BASE_URL: str = ""
         self.VISION_API_KEY: str = ""
         self.VISION_MODEL_NAME: str = ""
+        self.VISION_MAX_TOKENS: int = 2048
+        self.VISION_TEMPERATURE: float = 0.3
+        self.VISION_TIMEOUT: int = 60
         self._cfg: dict = {}
         self.refresh()
 
@@ -58,6 +64,9 @@ class Config:
         self.VISION_API_BASE_URL = self._cfg.get("VISION_API_BASE_URL", "")
         self.VISION_API_KEY = self._cfg.get("VISION_API_KEY", "")
         self.VISION_MODEL_NAME = self._cfg.get("VISION_MODEL_NAME", "")
+        self.VISION_MAX_TOKENS = int(os.environ.get("VISION_MAX_TOKENS", "2048"))
+        self.VISION_TEMPERATURE = float(os.environ.get("VISION_TEMPERATURE", "0.3"))
+        self.VISION_TIMEOUT = int(os.environ.get("VISION_TIMEOUT", "60"))
         return dict(self._cfg)
 
 
@@ -101,6 +110,9 @@ VALIDATE_DIMENSION_THRESHOLD = _default_config.VALIDATE_DIMENSION_THRESHOLD
 VISION_API_BASE_URL = _default_config.VISION_API_BASE_URL
 VISION_API_KEY = _default_config.VISION_API_KEY
 VISION_MODEL_NAME = _default_config.VISION_MODEL_NAME
+VISION_MAX_TOKENS = _default_config.VISION_MAX_TOKENS
+VISION_TEMPERATURE = _default_config.VISION_TEMPERATURE
+VISION_TIMEOUT = _default_config.VISION_TIMEOUT
 
 
 def _refresh_constants():
@@ -109,6 +121,7 @@ def _refresh_constants():
     global MAX_ITERATIONS, MAX_SNAPSHOTS, MAX_CONTEXT_TOKENS, LLM_TIMEOUT
     global VALIDATE_VOLUME_THRESHOLD, VALIDATE_DIMENSION_THRESHOLD
     global VISION_API_BASE_URL, VISION_API_KEY, VISION_MODEL_NAME
+    global VISION_MAX_TOKENS, VISION_TEMPERATURE, VISION_TIMEOUT
     _default_config.refresh()
     API_BASE_URL = _default_config.API_BASE_URL
     API_KEY = _default_config.API_KEY
@@ -124,6 +137,9 @@ def _refresh_constants():
     VISION_API_BASE_URL = _default_config.VISION_API_BASE_URL
     VISION_API_KEY = _default_config.VISION_API_KEY
     VISION_MODEL_NAME = _default_config.VISION_MODEL_NAME
+    VISION_MAX_TOKENS = _default_config.VISION_MAX_TOKENS
+    VISION_TEMPERATURE = _default_config.VISION_TEMPERATURE
+    VISION_TIMEOUT = _default_config.VISION_TIMEOUT
 
 
 def vision_enabled() -> bool:

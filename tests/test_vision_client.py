@@ -19,6 +19,9 @@ def _reload_vision_client(monkeypatch=None):
         monkeypatch.delenv("VISION_API_BASE_URL", raising=False)
         monkeypatch.delenv("VISION_API_KEY", raising=False)
         monkeypatch.delenv("VISION_MODEL_NAME", raising=False)
+        monkeypatch.delenv("VISION_MAX_TOKENS", raising=False)
+        monkeypatch.delenv("VISION_TEMPERATURE", raising=False)
+        monkeypatch.delenv("VISION_TIMEOUT", raising=False)
     importlib.reload(core.config)
     importlib.reload(core.vision_client)
     return core.vision_client
@@ -110,6 +113,42 @@ class TestAnalyzeImageRequest:
 
         result = mod.analyze_image("AAAA", "describe")
         assert result == "It's a cube."
+
+    def test_custom_params_used(self, monkeypatch):
+        monkeypatch.setenv("VISION_API_BASE_URL", "https://api.example.com/v1")
+        monkeypatch.setenv("VISION_API_KEY", "sk-test-key")
+        monkeypatch.setenv("VISION_MODEL_NAME", "gpt-4o")
+        monkeypatch.setenv("VISION_MAX_TOKENS", "4096")
+        monkeypatch.setenv("VISION_TEMPERATURE", "0.7")
+        monkeypatch.setenv("VISION_TIMEOUT", "120")
+        mod = _reload_vision_client()
+
+        captured = {}
+
+        class FakeResp:
+            def read(self):
+                return json.dumps({
+                    "choices": [{"message": {"content": "test"}}]
+                }).encode("utf-8")
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                pass
+
+        def fake_urlopen(req, timeout=None):
+            captured["data"] = json.loads(req.data.decode("utf-8"))
+            captured["timeout"] = timeout
+            return FakeResp()
+
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+        mod.analyze_image("AAAA", "test")
+
+        assert captured["data"]["max_tokens"] == 4096
+        assert captured["data"]["temperature"] == 0.7
+        assert captured["timeout"] == 120
+        monkeypatch.delenv("VISION_MAX_TOKENS")
+        monkeypatch.delenv("VISION_TEMPERATURE")
+        monkeypatch.delenv("VISION_TIMEOUT")
 
 
 class TestAnalyzeImageErrors:

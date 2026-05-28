@@ -48,8 +48,8 @@ def analyze_image(image_base64: str, prompt: str, mime_type: str = "image/png") 
                 ]
             }
         ],
-        "max_tokens": 2048,
-        "temperature": 0.3,
+        "max_tokens": _config.VISION_MAX_TOKENS,
+        "temperature": _config.VISION_TEMPERATURE,
     }
 
     headers = {
@@ -67,7 +67,7 @@ def analyze_image(image_base64: str, prompt: str, mime_type: str = "image/png") 
              f"prompt_len={len(prompt)}, img_b64_len={len(image_base64)}")
 
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=_config.VISION_TIMEOUT) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         content = data["choices"][0]["message"]["content"]
         log_info(f"Vision API response: {len(content)} chars")

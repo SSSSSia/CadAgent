@@ -133,3 +133,30 @@ class TestVisionConfig:
         monkeypatch.delenv("VISION_API_BASE_URL")
         monkeypatch.delenv("VISION_API_KEY")
         monkeypatch.delenv("VISION_MODEL_NAME")
+
+    def test_vision_max_tokens_default(self, monkeypatch):
+        monkeypatch.delenv("VISION_MAX_TOKENS", raising=False)
+        config = _reload_config()
+        assert config.VISION_MAX_TOKENS == 2048
+
+    def test_vision_temperature_default(self, monkeypatch):
+        monkeypatch.delenv("VISION_TEMPERATURE", raising=False)
+        config = _reload_config()
+        assert config.VISION_TEMPERATURE == 0.3
+
+    def test_vision_timeout_default(self, monkeypatch):
+        monkeypatch.delenv("VISION_TIMEOUT", raising=False)
+        config = _reload_config()
+        assert config.VISION_TIMEOUT == 60
+
+    def test_vision_params_env_override(self, monkeypatch):
+        monkeypatch.setenv("VISION_MAX_TOKENS", "4096")
+        monkeypatch.setenv("VISION_TEMPERATURE", "0.7")
+        monkeypatch.setenv("VISION_TIMEOUT", "120")
+        config = _reload_config()
+        assert config.VISION_MAX_TOKENS == 4096
+        assert config.VISION_TEMPERATURE == 0.7
+        assert config.VISION_TIMEOUT == 120
+        monkeypatch.delenv("VISION_MAX_TOKENS")
+        monkeypatch.delenv("VISION_TEMPERATURE")
+        monkeypatch.delenv("VISION_TIMEOUT")

@@ -45,6 +45,8 @@ VISION_PROVIDER_PRESETS = [
      "model": "qwen-vl-plus"},
     {"name": "OpenAI", "url": "https://api.openai.com/v1",
      "model": "gpt-4o"},
+    {"name": "Moonshot", "url": "https://api.moonshot.cn/v1",
+     "model": "moonshot-v1-128k"},
     {"name": "Local (Ollama)", "url": "http://localhost:11434/v1",
      "model": "llava"},
     {"name": "Custom", "url": "", "model": ""},
@@ -182,6 +184,17 @@ class SettingsDialog(QtWidgets.QDialog):
         vision_form = QtWidgets.QFormLayout(self.vision_group)
         vision_form.setLabelAlignment(QtCore.Qt.AlignRight)
 
+        self.chk_vision_same_as_main = QtWidgets.QCheckBox(
+            "Use same API as main model"
+        )
+        self.chk_vision_same_as_main.setToolTip(
+            "Auto-fill Vision API URL and Key from the main API configuration"
+        )
+        self.chk_vision_same_as_main.toggled.connect(
+            self._on_vision_same_as_main_toggled
+        )
+        vision_form.addRow("", self.chk_vision_same_as_main)
+
         self.combo_vision_provider = QtWidgets.QComboBox()
         for p in VISION_PROVIDER_PRESETS:
             self.combo_vision_provider.addItem(p["name"])
@@ -213,6 +226,23 @@ class SettingsDialog(QtWidgets.QDialog):
         self.edit_vision_model = QtWidgets.QLineEdit()
         self.edit_vision_model.setPlaceholderText("vision-model-name")
         vision_form.addRow("Model Name:", self.edit_vision_model)
+
+        self.spin_vision_max_tokens = QtWidgets.QSpinBox()
+        self.spin_vision_max_tokens.setRange(256, 16384)
+        self.spin_vision_max_tokens.setSingleStep(256)
+        self.spin_vision_max_tokens.setToolTip(
+            "Maximum output tokens per vision API request"
+        )
+        vision_form.addRow("Max Tokens:", self.spin_vision_max_tokens)
+
+        self.spin_vision_temperature = QtWidgets.QDoubleSpinBox()
+        self.spin_vision_temperature.setRange(0.0, 2.0)
+        self.spin_vision_temperature.setSingleStep(0.1)
+        self.spin_vision_temperature.setDecimals(2)
+        self.spin_vision_temperature.setToolTip(
+            "Temperature for vision model responses"
+        )
+        vision_form.addRow("Temperature:", self.spin_vision_temperature)
 
         self.btn_test_vision = QtWidgets.QPushButton("Test Vision API")
         self.btn_test_vision.setStyleSheet(
@@ -288,15 +318,23 @@ class SettingsDialog(QtWidgets.QDialog):
             self.edit_vision_key.setText(_config.VISION_API_KEY)
             self.edit_vision_model.setText(_config.VISION_MODEL_NAME)
             for i, p in enumerate(VISION_PROVIDER_PRESETS):
-                if p["url"] == _config.VISION_API_BASE_URL:
+                if (p["url"] == _config.VISION_API_BASE_URL
+                        and p["model"] == _config.VISION_MODEL_NAME):
                     self.combo_vision_provider.setCurrentIndex(i)
                     break
             else:
                 self.combo_vision_provider.setCurrentIndex(
                     len(VISION_PROVIDER_PRESETS) - 1
                 )
+            # Auto-detect "same as main" if URL and Key match
+            if (_config.VISION_API_BASE_URL == _config.API_BASE_URL
+                    and _config.VISION_API_KEY == _config.API_KEY):
+                self.chk_vision_same_as_main.setChecked(True)
         else:
             self.vision_group.setChecked(False)
+
+        self.spin_vision_max_tokens.setValue(_config.VISION_MAX_TOKENS)
+        self.spin_vision_temperature.setValue(_config.VISION_TEMPERATURE)
 
     def _on_provider_changed(self, index):
         if index < 0 or index >= len(PROVIDER_PRESETS):
@@ -377,6 +415,18 @@ class SettingsDialog(QtWidgets.QDialog):
             return
         self.edit_vision_url.setText(preset["url"])
         self.edit_vision_model.setText(preset["model"])
+
+    def _on_vision_same_as_main_toggled(self, checked):
+        if checked:
+            self.edit_vision_url.setText(self.edit_url.text())
+            self.edit_vision_key.setText(self.edit_key.text())
+            self.edit_vision_url.setEnabled(False)
+            self.edit_vision_key.setEnabled(False)
+            self.combo_vision_provider.setEnabled(False)
+        else:
+            self.edit_vision_url.setEnabled(True)
+            self.edit_vision_key.setEnabled(True)
+            self.combo_vision_provider.setEnabled(True)
 
     def _on_test_vision_connection(self):
         url = self.edit_vision_url.text().strip()
@@ -468,6 +518,10 @@ class SettingsDialog(QtWidgets.QDialog):
         }
 
         if self.vision_group.isChecked():
+            # Sync "same as main" before reading values
+            if self.chk_vision_same_as_main.isChecked():
+                self.edit_vision_url.setText(self.edit_url.text())
+                self.edit_vision_key.setText(self.edit_key.text())
             v_url = self.edit_vision_url.text().strip()
             v_key = self.edit_vision_key.text().strip()
             v_model = self.edit_vision_model.text().strip()
@@ -481,10 +535,18 @@ class SettingsDialog(QtWidgets.QDialog):
             values["VISION_API_BASE_URL"] = v_url
             values["VISION_API_KEY"] = v_key
             values["VISION_MODEL_NAME"] = v_model
+            values["VISION_MAX_TOKENS"] = str(
+                self.spin_vision_max_tokens.value()
+            )
+            values["VISION_TEMPERATURE"] = str(
+                self.spin_vision_temperature.value()
+            )
         else:
             values["VISION_API_BASE_URL"] = ""
             values["VISION_API_KEY"] = ""
             values["VISION_MODEL_NAME"] = ""
+            values["VISION_MAX_TOKENS"] = ""
+            values["VISION_TEMPERATURE"] = ""
 
         _save_to_env(values)
         _config.reload(values)
