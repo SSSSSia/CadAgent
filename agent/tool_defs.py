@@ -53,6 +53,62 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "capture_view",
+            "description": (
+                "Capture the current FreeCAD 3D viewport as a screenshot and "
+                "analyze it using a vision AI model. Use this to visually verify "
+                "geometry after creating or modifying shapes, check for visual "
+                "issues, or get a description of the current model state."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": (
+                            "What to ask the vision model about the screenshot. "
+                            "Examples: 'Does this look like a correct flange?', "
+                            "'Check if the bolt holes are evenly distributed.'"
+                        )
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_image",
+            "description": (
+                "Analyze a user-uploaded image (reference drawing, sketch, photo) "
+                "using a vision AI model. Use this when the user provides an image "
+                "to reference for modeling. Returns a detailed description of the "
+                "image content."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "image_path": {
+                        "type": "string",
+                        "description": "Path to the image file to analyze."
+                    },
+                    "prompt": {
+                        "type": "string",
+                        "description": (
+                            "What to ask the vision model about the image. "
+                            "Examples: 'Describe the mechanical part dimensions.', "
+                            "'What are the key features of this design?'"
+                        )
+                    }
+                },
+                "required": ["image_path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "export_step",
             "description": (
                 "Export current FreeCAD document to STEP or IGES file format. "

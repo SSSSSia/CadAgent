@@ -83,8 +83,8 @@ def test_export_step_has_document_param():
 
 
 def test_all_tools_count():
-    # Simplified to 3 core tools: execute_code, undo_last, export_step
-    assert len(TOOL_DEFINITIONS) == 3
+    # 3 core tools + 2 vision tools: execute_code, undo_last, export_step, capture_view, analyze_image
+    assert len(TOOL_DEFINITIONS) == 5
 
 
 def test_tool_names():
@@ -92,6 +92,8 @@ def test_tool_names():
     assert "execute_code" in names
     assert "undo_last" in names
     assert "export_step" in names
+    assert "capture_view" in names
+    assert "analyze_image" in names
 
 
 # ---------------------------------------------------------------------------

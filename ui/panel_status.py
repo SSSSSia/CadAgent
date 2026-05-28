@@ -24,6 +24,8 @@ class _PanelStatusMixin:
         "analyze_geometry": "Analyzing geometry",
         "validate_design": "Validating design",
         "undo_last": "Undoing",
+        "capture_view": "Capturing viewport",
+        "analyze_image": "Analyzing image",
     }
 
     def _setup_status(self):

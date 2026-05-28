@@ -6,6 +6,7 @@ environment, and returns a result string that becomes a role="tool" message.
 """
 from __future__ import annotations
 
+import base64
 import contextlib
 import io
 import json
@@ -383,9 +384,106 @@ def _tool_export_step(args_json: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Tool: capture_view
+# ---------------------------------------------------------------------------
+
+def _tool_capture_view(args_json: str) -> str:
+    """Capture the FreeCAD 3D viewport and analyze with vision model."""
+    args = json.loads(args_json)
+    prompt = args.get(
+        "prompt",
+        "Describe the 3D model in this FreeCAD viewport. Identify shapes, "
+        "dimensions if visible, any issues with the model, and whether it "
+        "looks correct."
+    )
+
+    gui_doc = Gui.activeDocument()
+    if gui_doc is None:
+        return "ERROR: No active 3D view to capture. Open a document first."
+
+    view = gui_doc.activeView()
+    if view is None:
+        return "ERROR: No active 3D view to capture."
+
+    try:
+        view.viewIsometric()
+        view.fitAll()
+    except Exception:
+        pass
+
+    pixmap = None
+    try:
+        widget = view.getWidget()
+        pixmap = widget.grab()
+    except (AttributeError, RuntimeError):
+        pass
+
+    if pixmap is None:
+        try:
+            from PySide6 import QtWidgets
+            main_window = Gui.getMainWindow()
+            mdi_area = main_window.findChild(QtWidgets.QMdiArea)
+            if mdi_area and mdi_area.activeSubWindow():
+                widget = mdi_area.activeSubWindow().widget()
+                pixmap = widget.grab()
+        except Exception:
+            pass
+
+    if pixmap is None:
+        return "ERROR: Cannot capture 3D viewport. No accessible widget found."
+
+    buffer = io.BytesIO()
+    pixmap.save(buffer, format="PNG")
+    png_bytes = buffer.getvalue()
+    image_base64 = base64.b64encode(png_bytes).decode("ascii")
+
+    log_info(f"Captured viewport: {pixmap.width()}x{pixmap.height()}, "
+             f"{len(png_bytes)} bytes PNG")
+
+    from core.vision_client import analyze_image
+    result = analyze_image(image_base64, prompt, mime_type="image/png")
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Tool: analyze_image
+# ---------------------------------------------------------------------------
+
+def _tool_analyze_image(args_json: str) -> str:
+    """Analyze a user-uploaded image file with the vision model."""
+    args = json.loads(args_json)
+    image_path = args.get("image_path", "")
+    prompt = args.get(
+        "prompt",
+        "Describe this image in detail. If it's a technical drawing or sketch, "
+        "identify dimensions, features, and key design elements."
+    )
+
+    if not image_path:
+        return "ERROR: image_path is required."
+
+    if not os.path.isfile(image_path):
+        return f"ERROR: Image file not found: {image_path}"
+
+    from core.vision_client import image_file_to_base64, analyze_image
+    try:
+        image_base64, mime_type = image_file_to_base64(image_path)
+    except ValueError as e:
+        return f"ERROR: {e}"
+
+    log_info(f"Analyzing image: {image_path} ({mime_type}, "
+             f"{os.path.getsize(image_path)} bytes)")
+
+    result = analyze_image(image_base64, prompt, mime_type=mime_type)
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
 
 register_tool("execute_code", _tool_execute_code)
 register_tool("undo_last", _tool_undo_last)
 register_tool("export_step", _tool_export_step)
+register_tool("capture_view", _tool_capture_view)
+register_tool("analyze_image", _tool_analyze_image)
