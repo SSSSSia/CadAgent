@@ -411,6 +411,13 @@ def _tool_capture_view(args_json: str) -> str:
     except Exception:
         pass
 
+    # Give Qt time to repaint the 3D view before capturing
+    try:
+        from PySide6.QtWidgets import QApplication
+        QApplication.processEvents()
+    except Exception:
+        pass
+
     pixmap = None
     try:
         widget = view.getWidget()

@@ -179,3 +179,35 @@ def test_valueerror_null_shape_hint():
     assert "null" in hint.lower()
     assert "boolean" in hint.lower() or "overlap" in hint.lower()
     assert fixed is None
+
+
+def test_occ_command_not_done_revolve_hint():
+    """BRep_API: command not done with revolve() should give revolve-specific hint."""
+    class OCCError(Exception):
+        pass
+    err = OCCError("BRep_API: command not done")
+    code = "mouse_body = wire.revolve(FreeCAD.Vector(0,0,0), FreeCAD.Vector(0,1,0), 180)"
+    hint, fixed = error_hint(err, code)
+    assert "revolve" in hint.lower()
+    assert "CLOSED" in hint or "closed" in hint
+    assert fixed is None
+
+
+def test_occ_argument_signature_hint():
+    """OCCError: Argument list signature incorrect should hint Wire vs Edge."""
+    class OCCError(Exception):
+        pass
+    err = OCCError("Argument list signature is incorrect.\n\nSupported signatures:\n(face)\n(wire)")
+    hint, fixed = error_hint(err, "face = Part.Face(wire)")
+    assert "Wire" in hint
+    assert "Edge" in hint
+    assert fixed is None
+
+
+def test_sweep_not_exist_hint():
+    """AttributeError: 'sweep' should suggest makePipe."""
+    err = AttributeError("'Part.Edge' object has no attribute 'sweep'")
+    hint, fixed = error_hint(err, "mouse_body = wire_arc.sweep(path_wire, True)")
+    assert "sweep" in hint
+    assert "makePipe" in hint or "makeLoft" in hint
+    assert fixed is None

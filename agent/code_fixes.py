@@ -128,6 +128,12 @@ def error_hint(error: Exception, code: str) -> tuple[str, str | None]:
                     "Hint: makePipe() requires Part.Wire, not Part.Edge. "
                     "Create wire first: wire=Part.Wire([edge]); pipe=wire.makePipe(profile)."
                 )
+        elif "'sweep'" in e_str:
+            hints.append(
+                "Hint: FreeCAD has NO .sweep() method. Use makePipe instead: "
+                "wire = Part.Wire([profile_edge]); result = wire.makePipe(path_wire). "
+                "For elliptical shapes, use Part.makeLoft([wire1, wire2, ...], True)."
+            )
         else:
             attr_match = re.search(r"no attribute '(\w+)'", e_str)
             type_match = re.search(r"'([^']+)' object", e_str)
@@ -189,6 +195,31 @@ def error_hint(error: Exception, code: str) -> tuple[str, str | None]:
                 "Hint: Part.Arc requires 3 NON-collinear points. "
                 "Ensure the mid-point is NOT on the line between start and end. "
                 "For a handle arc, offset the mid-point outward (e.g., add Y-offset)."
+            )
+        elif "command not done" in e_str:
+            if "revolve" in code:
+                hints.append(
+                    "Hint: revolve() failed. Common causes:\n"
+                    "1. Wire is not CLOSED — use wire.isClosed() to check. "
+                    "For Ellipse: wire = Part.Wire([Part.Ellipse().toShape()]).\n"
+                    "2. Wire CROSSES the rotation axis — move wire entirely to one side.\n"
+                    "3. Wire is not PLANAR — revolve needs a flat profile.\n"
+                    "For a mouse body, try: create closed wire on one side of Y-axis, "
+                    "then revolve 360° around Y-axis."
+                )
+            else:
+                hints.append(
+                    "Hint: OCC command failed. The geometry may be degenerate. "
+                    "Try simplifying: use makeBox/makeCylinder instead of complex curves."
+                )
+        elif "Argument list signature" in e_str:
+            hints.append(
+                "Hint: Wrong argument type for a Part constructor.\n"
+                "Common mistakes:\n"
+                "1. Part.Face(edge) — needs Wire not Edge. Use Part.Face(Part.Wire([edge])).\n"
+                "2. Part.Wire(edge) — needs list of edges. Use Part.Wire([edge]).\n"
+                "3. Ellipse.toShape() returns an Edge, not a Wire. Wrap: Part.Wire([ellipse.toShape()]).\n"
+                "Then Part.Face(wire) will work for extrude/revolve."
             )
         else:
             hints.append(

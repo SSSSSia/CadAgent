@@ -30,7 +30,7 @@ class _PanelUIMixin:
         self.chat_display = QtWidgets.QTextBrowser()
         self.chat_display.setOpenExternalLinks(False)
         self.chat_display.document().setDefaultStyleSheet(
-            "p { margin: 0; }"
+            "p, div, pre, h1, h2, h3, h4 { margin: 0; padding: 0; }"
         )
         main_layout.addWidget(self.chat_display, 1)
 
@@ -180,19 +180,19 @@ class _PanelUIMixin:
             f"QPushButton:disabled{{background:{c.button_disabled}}}"
         )
         ctrl_style = (
-            f"QPushButton{{background:transparent;border:1px solid {c.border};"
-            f"border-radius:3px;padding:3px 10px;font-size:11px;"
-            f"font-family:{font};color:{c.status_idle}}}"
-            f"QPushButton:hover{{background:{c.combo_bg}}}"
-            f"QPushButton:disabled{{color:{c.button_disabled};border-color:transparent}}"
+            f"QPushButton{{background:{c.combo_bg};border:1px solid {c.border};"
+            f"border-radius:3px;padding:4px 10px;font-size:11px;"
+            f"font-family:{font};color:{c.agent_bubble_text}}}"
+            f"QPushButton:hover{{background:{c.button_primary};color:{c.button_text};border-color:{c.button_primary}}}"
+            f"QPushButton:disabled{{color:{c.button_disabled};background:transparent;border-color:{c.border}}}"
         )
         for btn in (self.btn_undo, self.btn_stop,
                     self.btn_new_session, self.btn_delete_session):
             btn.setStyleSheet(ctrl_style)
         self.btn_settings.setStyleSheet(
-            f"QPushButton{{background:transparent;border:1px solid {c.border};"
-            f"border-radius:3px;font-size:14px}}"
-            f"QPushButton:hover{{background:{c.combo_bg}}}"
+            f"QPushButton{{background:{c.combo_bg};border:1px solid {c.border};"
+            f"border-radius:3px;font-size:14px;padding:3px}}"
+            f"QPushButton:hover{{background:{c.button_primary};color:{c.button_text};border-color:{c.button_primary}}}"
         )
         self.token_label.setStyleSheet(
             f"color:{c.token_ok}; font-size:10px; font-family:{font};"

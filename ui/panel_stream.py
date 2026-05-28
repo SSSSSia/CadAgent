@@ -30,8 +30,8 @@ class _PanelStreamMixin:
         html = markdown_to_html(text, colors={"code_bg": c.code_bg, "code_border": c.code_border})
         self._insert_html(
             f'<table width="100%" cellspacing="0" cellpadding="0"><tr>'
-            f'<td style="background-color:{c.agent_bubble_bg}; padding:10px 12px; '
-            f'border-left:3px solid {c.agent_bubble_border};">'
+            f'<td style="background-color:{c.agent_bubble_bg}; padding:8px 12px; '
+            f'border-left:3px solid {c.agent_bubble_border}; line-height:1.45;">'
             f'<b style="color:{c.agent_bubble_text};">Agent:</b><br>'
             f'{html}'
             f'</td></tr></table>'
@@ -142,8 +142,8 @@ class _PanelStreamMixin:
         )
         bubble = (
             f'<table width="100%" cellspacing="0" cellpadding="0"><tr>'
-            f'<td style="background-color:{c.agent_bubble_bg}; padding:10px 12px; '
-            f'border-left:3px solid {c.agent_bubble_border};">'
+            f'<td style="background-color:{c.agent_bubble_bg}; padding:8px 12px; '
+            f'border-left:3px solid {c.agent_bubble_border}; line-height:1.45;">'
             f'<b style="color:{c.agent_bubble_text};">Agent:</b><br>'
             f'{html}'
             f'</td></tr></table>'

@@ -402,7 +402,9 @@ def _topology_hints(issues: list[str]) -> list[str]:
         )
     if "separate solids" in text:
         hints.append(
-            "  >> Fuse them with shape.fuse(other) before further boolean ops."
+            "  >> Shapes must PHYSICALLY OVERLAP for fuse() to merge into one solid. "
+            "Extend one shape INTO the other by at least 0.5mm. "
+            "Re-calling fuse() on non-overlapping shapes will NOT help."
         )
     elif "Compound shape" in text and "No solid components" not in text:
         hints.append(
