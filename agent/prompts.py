@@ -19,7 +19,8 @@ AVAILABLE TOOLS: execute_code, undo_last, export_step, capture_view, analyze_ima
 
 WORKFLOW:
 1. Read requirements and start building immediately using execute_code. Each \
-call should accomplish one logical step (e.g. create base shape, add holes, apply fillets).
+call should create or modify one stable geometric feature. Avoid fillets, chamfers, \
+sweeps, and complex pipes unless explicitly requested.
 2. If code fails: READ the error, IDENTIFY root cause, CHANGE approach, retry.
 3. After creating geometry, consider using capture_view to take a screenshot and \
 visually verify the model matches your intent. This helps catch issues like \
@@ -31,14 +32,17 @@ understand the reference before modeling. Extract dimensions and key features.
 
 CRITICAL RULES:
 - Pre-imported: FreeCAD, Part, math, Gui, doc (FreeCAD.ActiveDocument), Vector, App
+- Pre-injected helpers: extract_solid, safe_fuse, safe_cut, make_hollow_cylinder, \
+make_ring, make_box_handle, ensure_doc — use these instead of raw boolean + Solids[0]
 - **NEVER use 'FreeCADGui'** — always use the pre-imported 'Gui' instead.
-- For new documents: doc = FreeCAD.newDocument("Design")
+- For new documents: doc = ensure_doc("Design") or FreeCAD.newDocument("Design")
 - Add shapes: obj = doc.addObject("Part::Feature", "Name"); obj.Shape = shape
 - All dimensions in mm. No fillet or chamfer — they cause topology errors.
 - Variables PERSIST between execute_code calls — reuse them directly.
 - Boolean ops (cut/fuse/common) return NEW shapes — MUST assign: body = body.cut(hole)
-- After fuse/cut, extract solid to avoid compound shapes: \
-if result.Solids: result = result.Solids[0]
+- After fuse/cut, ALWAYS wrap with helpers to ensure clean solid: \
+body = safe_fuse(body, handle) or body = safe_cut(body, hole). \
+Never use raw .fuse()/.cut() and manually extract Solids[0].
 - For fuse to work, shapes MUST physically overlap by at least 0.5mm. \
 Extend one shape INTO the other.
 - translate() modifies IN-PLACE, returns None — do NOT assign: shape.translate(v)
@@ -59,21 +63,28 @@ Part API Quick Reference:
 - shape.translate(Vector) IN-PLACE, a.cut(b) NEW, a.fuse(b) NEW
 - FreeCAD.Vector(x,y,z)
 
-For handles/curved tubes, use torus cut or polygon extrude:
-  # Method 1: Torus section (most reliable for curved handles)
-  handle_torus = Part.makeTorus(30, 6)  # R=30, tube_r=6
-  # Cut a section by subtracting two boxes
-  keeper = Part.makeBox(100, 100, 100)
-  keeper.translate(Vector(-50, -50, -50))
-  handle = handle_torus.common(keeper)  # or use .cut() to trim
-  handle.translate(Vector(cup_radius + 30, 0, cup_height/2))
+CAD Helper Functions (pre-injected, use directly):
+- extract_solid(shape) — extract single solid from boolean result, raises error if null/multi
+- safe_fuse(a, b) — fuse and extract solid: body = safe_fuse(body, handle)
+- safe_cut(a, b) — cut and extract solid: body = safe_cut(body, hole)
+- make_hollow_cylinder(outer_r, inner_r, height, bottom=0) — hollow cup body
+- make_ring(outer_r, inner_r, height) — flat annular ring
+- make_box_handle(cup_radius, width, depth, height, z) — box handle overlapping cup wall
+- ensure_doc(name=None) — get or create document
 
-  # Method 2: Polygon extrude (for straight/angled handles)
-  handle_points = [Vector(40, 0, 50), Vector(80, 0, 50),
-                   Vector(80, 0, 90), Vector(40, 0, 90)]
-  handle = Part.makePolygon(handle_points).extrude(Vector(0, 12, 0))
-  mug = mug.fuse(handle)
-For hollow parts: outer.cut(inner). For axisymmetric: wire.revolve(origin, axis, 360).
+Example — mug:
+  doc = ensure_doc("Mug")
+  body = make_hollow_cylinder(40, 35, 90, 5)
+  handle = make_box_handle(40, 12, 45, 55, 22)
+  body = safe_fuse(body, handle)
+  rim = make_ring(43, 35, 3)
+  rim.translate(Vector(0, 0, 89))
+  body = safe_fuse(body, rim)
+  obj = doc.addObject("Part::Feature", "Mug")
+  obj.Shape = extract_solid(body)
+  doc.recompute()
+
+For holes: for-loop + math.cos/sin + safe_cut. For axisymmetric: wire.revolve().
 
 {context}"""
 
@@ -108,7 +119,8 @@ TOOL CALLING FORMAT — you MUST use this exact format:
 
 WORKFLOW:
 1. Read requirements and start building immediately using execute_code. Each \
-call should accomplish one logical step (e.g. create base shape, add holes, apply fillets).
+call should create or modify one stable geometric feature. Avoid fillets, chamfers, \
+sweeps, and complex pipes unless explicitly requested.
 2. If code fails: READ the error, IDENTIFY root cause, CHANGE approach, retry.
 3. After creating geometry, consider using capture_view to take a screenshot and \
 visually verify the model matches your intent. This helps catch issues like \
@@ -120,14 +132,17 @@ understand the reference before modeling. Extract dimensions and key features.
 
 CRITICAL RULES:
 - Pre-imported: FreeCAD, Part, math, Gui, doc (FreeCAD.ActiveDocument), Vector, App
+- Pre-injected helpers: extract_solid, safe_fuse, safe_cut, make_hollow_cylinder, \
+make_ring, make_box_handle, ensure_doc — use these instead of raw boolean + Solids[0]
 - **NEVER use 'FreeCADGui'** — always use the pre-imported 'Gui' instead.
-- For new documents: doc = FreeCAD.newDocument("Design")
+- For new documents: doc = ensure_doc("Design") or FreeCAD.newDocument("Design")
 - Add shapes: obj = doc.addObject("Part::Feature", "Name"); obj.Shape = shape
 - All dimensions in mm. No fillet or chamfer — they cause topology errors.
 - Variables PERSIST between execute_code calls — reuse them directly.
 - Boolean ops (cut/fuse/common) return NEW shapes — MUST assign: body = body.cut(hole)
-- After fuse/cut, extract solid to avoid compound shapes: \
-if result.Solids: result = result.Solids[0]
+- After fuse/cut, ALWAYS wrap with helpers to ensure clean solid: \
+body = safe_fuse(body, handle) or body = safe_cut(body, hole). \
+Never use raw .fuse()/.cut() and manually extract Solids[0].
 - For fuse to work, shapes MUST physically overlap by at least 0.5mm. \
 Extend one shape INTO the other.
 - translate() modifies IN-PLACE, returns None — do NOT assign: shape.translate(v)
@@ -148,21 +163,28 @@ Part API Quick Reference:
 - shape.translate(Vector) IN-PLACE, a.cut(b) NEW, a.fuse(b) NEW
 - FreeCAD.Vector(x,y,z)
 
-For handles/curved tubes, use torus cut or polygon extrude:
-  # Method 1: Torus section (most reliable for curved handles)
-  handle_torus = Part.makeTorus(30, 6)  # R=30, tube_r=6
-  # Cut a section by subtracting two boxes
-  keeper = Part.makeBox(100, 100, 100)
-  keeper.translate(Vector(-50, -50, -50))
-  handle = handle_torus.common(keeper)  # or use .cut() to trim
-  handle.translate(Vector(cup_radius + 30, 0, cup_height/2))
+CAD Helper Functions (pre-injected, use directly):
+- extract_solid(shape) — extract single solid from boolean result, raises error if null/multi
+- safe_fuse(a, b) — fuse and extract solid: body = safe_fuse(body, handle)
+- safe_cut(a, b) — cut and extract solid: body = safe_cut(body, hole)
+- make_hollow_cylinder(outer_r, inner_r, height, bottom=0) — hollow cup body
+- make_ring(outer_r, inner_r, height) — flat annular ring
+- make_box_handle(cup_radius, width, depth, height, z) — box handle overlapping cup wall
+- ensure_doc(name=None) — get or create document
 
-  # Method 2: Polygon extrude (for straight/angled handles)
-  handle_points = [Vector(40, 0, 50), Vector(80, 0, 50),
-                   Vector(80, 0, 90), Vector(40, 0, 90)]
-  handle = Part.makePolygon(handle_points).extrude(Vector(0, 12, 0))
-  mug = mug.fuse(handle)
-For hollow parts: outer.cut(inner). For axisymmetric: wire.revolve(origin, axis, 360).
+Example — mug:
+  doc = ensure_doc("Mug")
+  body = make_hollow_cylinder(40, 35, 90, 5)
+  handle = make_box_handle(40, 12, 45, 55, 22)
+  body = safe_fuse(body, handle)
+  rim = make_ring(43, 35, 3)
+  rim.translate(Vector(0, 0, 89))
+  body = safe_fuse(body, rim)
+  obj = doc.addObject("Part::Feature", "Mug")
+  obj.Shape = extract_solid(body)
+  doc.recompute()
+
+For holes: for-loop + math.cos/sin + safe_cut. For axisymmetric: wire.revolve().
 
 {context}"""
 

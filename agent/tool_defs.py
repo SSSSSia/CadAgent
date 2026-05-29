@@ -12,7 +12,9 @@ TOOL_DEFINITIONS = [
             "name": "execute_code",
             "description": (
                 "Execute FreeCAD Python code to create or modify 3D geometry. "
-                "FreeCAD, Part, math, FreeCADGui (as Gui) are pre-imported. "
+                "FreeCAD, Part, math, Gui are pre-imported. "
+                "CAD helpers are pre-injected: extract_solid, safe_fuse, safe_cut, "
+                "make_hollow_cylinder, make_ring, make_box_handle, ensure_doc. "
                 "Variables persist between calls — reuse them directly."
             ),
             "parameters": {
@@ -20,7 +22,12 @@ TOOL_DEFINITIONS = [
                 "properties": {
                     "code": {
                         "type": "string",
-                        "description": "FreeCAD Python code. Modules pre-imported: FreeCAD, Part, math, Gui."
+                        "description": (
+                            "FreeCAD Python code. "
+                            "Pre-imported: FreeCAD, Part, math, Gui. "
+                            "Pre-injected helpers: extract_solid, safe_fuse, safe_cut, "
+                            "make_hollow_cylinder, make_ring, make_box_handle, ensure_doc."
+                        )
                     },
                     "description": {
                         "type": "string",

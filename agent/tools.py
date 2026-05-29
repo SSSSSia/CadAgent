@@ -22,6 +22,10 @@ import math
 from core.text_utils import strip_markdown
 from core.logger import log_info, log_warning, log_error
 from agent.code_fixes import pre_validate_code, error_hint
+from agent.cad_helpers import (
+    extract_solid, safe_fuse, safe_cut,
+    make_hollow_cylinder, make_ring, make_box_handle, ensure_doc,
+)
 from agent.tool_dispatch import register_tool, dispatch_tool  # noqa: F401
 
 
@@ -37,6 +41,9 @@ _EXEC_NAMESPACE: dict = {}
 _BUILTIN_NAMES = frozenset({
     "FreeCAD", "Part", "math", "Gui", "doc", "Vector", "App",
     "pi", "sin", "cos", "sqrt", "__builtins__",
+    "extract_solid", "safe_fuse", "safe_cut",
+    "make_hollow_cylinder", "make_ring", "make_box_handle", "ensure_doc",
+    "FreeCADGui",
 })
 
 # Only these types are safe to serialize to disk for session persistence.
@@ -228,6 +235,14 @@ def _tool_execute_code(args_json: str) -> str:
         "sin": math.sin,
         "cos": math.cos,
         "sqrt": math.sqrt,
+        "extract_solid": extract_solid,
+        "safe_fuse": safe_fuse,
+        "safe_cut": safe_cut,
+        "make_hollow_cylinder": make_hollow_cylinder,
+        "make_ring": make_ring,
+        "make_box_handle": make_box_handle,
+        "ensure_doc": ensure_doc,
+        "FreeCADGui": Gui,
     }
     # Inject variables from previous execute_code calls (includes FreeCAD objects)
     namespace.update(_EXEC_NAMESPACE)
