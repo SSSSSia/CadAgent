@@ -37,6 +37,16 @@ def error_hint(error: Exception, code: str) -> tuple[str, str | None]:
     _MAKE_FNS = ("makeBox", "makeCylinder", "makeCone", "makeSphere", "makeTorus")
 
     if e_type == "NameError":
+        # Check for FreeCADGui — the pre-imported name is 'Gui'
+        if "FreeCADGui" in e_str or "FreeCADGui" in code:
+            hints.append(
+                "Hint: 'FreeCADGui' is NOT pre-imported. Use 'Gui' instead. "
+                "Replace all 'FreeCADGui' with 'Gui' in your code."
+            )
+            if "FreeCADGui" in code:
+                fixed_code = code.replace("FreeCADGui", "Gui")
+            # Fall through to check for other issues too
+
         # Check if the undefined name is a bare Part constructor
         for fn in _MAKE_FNS:
             if fn in e_str:

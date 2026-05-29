@@ -53,6 +53,16 @@ def test_name_error_hint():
     assert fixed is None
 
 
+def test_name_error_freecadgui_auto_fix():
+    err = NameError("name 'FreeCADGui' is not defined")
+    hint, fixed = error_hint(err, "FreeCADGui.updateGui()")
+    assert "Gui" in hint
+    assert "FreeCADGui" in hint
+    assert fixed is not None
+    assert "FreeCADGui" not in fixed
+    assert "Gui.updateGui()" in fixed
+
+
 def test_name_error_bare_makebox_auto_fix():
     err = NameError("name 'makeBox' is not defined")
     hint, fixed = error_hint(err, "box = makeBox(100, 50, 30)")

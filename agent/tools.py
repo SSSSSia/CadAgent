@@ -250,7 +250,7 @@ def _tool_execute_code(args_json: str) -> str:
         # Persist user-defined variables for subsequent execute_code calls
         _save_user_vars(namespace)
 
-        parts = [f"OK: Code executed."]
+        parts = ["OK: Code executed."]
         if auto_created_doc:
             parts.append("Auto-created document 'CadAgentModel' (none was active).")
 
@@ -279,6 +279,9 @@ def _tool_execute_code(args_json: str) -> str:
         return result
 
     except Exception as e:
+        # Save partial namespace so variables defined before the error line
+        # are available in subsequent execute_code calls
+        _save_user_vars(namespace)
         tb = traceback.format_exc()
         log_error(f"execute_code FAILED: {type(e).__name__}: {e}\n{tb}")
         hint, _ = error_hint(e, code)
@@ -418,36 +421,60 @@ def _tool_capture_view(args_json: str) -> str:
     except Exception:
         pass
 
-    pixmap = None
-    try:
-        widget = view.getWidget()
-        pixmap = widget.grab()
-    except (AttributeError, RuntimeError):
-        pass
+    png_bytes = None
+    capture_method = ""
 
-    if pixmap is None:
+    # Method 1: FreeCAD native saveImage (most reliable — uses Coin3D offscreen)
+    import tempfile
+    tmp_path = os.path.join(tempfile.gettempdir(), "cadagent_capture.png")
+    try:
+        view.saveImage(tmp_path, 1280, 720, "Current")
+        with open(tmp_path, "rb") as f:
+            png_bytes = f.read()
+        capture_method = "saveImage"
+    except Exception:
+        png_bytes = None
+    finally:
         try:
-            from PySide6 import QtWidgets
-            main_window = Gui.getMainWindow()
-            mdi_area = main_window.findChild(QtWidgets.QMdiArea)
-            if mdi_area and mdi_area.activeSubWindow():
-                widget = mdi_area.activeSubWindow().widget()
-                pixmap = widget.grab()
-        except Exception:
+            os.unlink(tmp_path)
+        except OSError:
             pass
 
-    if pixmap is None:
+    # Method 2: Widget grab fallback
+    if png_bytes is None:
+        pixmap = None
+        try:
+            widget = view.getWidget()
+            pixmap = widget.grab()
+        except (AttributeError, RuntimeError):
+            pass
+
+        if pixmap is None:
+            try:
+                from PySide6 import QtWidgets
+                main_window = Gui.getMainWindow()
+                mdi_area = main_window.findChild(QtWidgets.QMdiArea)
+                if mdi_area and mdi_area.activeSubWindow():
+                    widget = mdi_area.activeSubWindow().widget()
+                    pixmap = widget.grab()
+            except Exception:
+                pass
+
+        if pixmap is not None:
+            from PySide6.QtCore import QBuffer
+            buf = QBuffer()
+            buf.open(QBuffer.ReadWrite)
+            pixmap.save(buf, "PNG")
+            png_bytes = buf.data().data()
+            buf.close()
+            capture_method = "widget_grab"
+
+    if png_bytes is None:
         return "ERROR: Cannot capture 3D viewport. No accessible widget found."
 
-    from PySide6.QtCore import QBuffer
-    buf = QBuffer()
-    buf.open(QBuffer.ReadWrite)
-    pixmap.save(buf, "PNG")
-    png_bytes = buf.data().data()
-    buf.close()
     image_base64 = base64.b64encode(png_bytes).decode("ascii")
 
-    log_info(f"Captured viewport: {pixmap.width()}x{pixmap.height()}, "
+    log_info(f"Captured viewport via {capture_method}: "
              f"{len(png_bytes)} bytes PNG")
 
     from core.vision_client import analyze_image

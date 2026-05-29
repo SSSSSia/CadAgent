@@ -31,11 +31,16 @@ understand the reference before modeling. Extract dimensions and key features.
 
 CRITICAL RULES:
 - Pre-imported: FreeCAD, Part, math, Gui, doc (FreeCAD.ActiveDocument), Vector, App
+- **NEVER use 'FreeCADGui'** — always use the pre-imported 'Gui' instead.
 - For new documents: doc = FreeCAD.newDocument("Design")
 - Add shapes: obj = doc.addObject("Part::Feature", "Name"); obj.Shape = shape
 - All dimensions in mm. No fillet or chamfer — they cause topology errors.
 - Variables PERSIST between execute_code calls — reuse them directly.
 - Boolean ops (cut/fuse/common) return NEW shapes — MUST assign: body = body.cut(hole)
+- After fuse/cut, extract solid to avoid compound shapes: \
+if result.Solids: result = result.Solids[0]
+- For fuse to work, shapes MUST physically overlap by at least 0.5mm. \
+Extend one shape INTO the other.
 - translate() modifies IN-PLACE, returns None — do NOT assign: shape.translate(v)
 - Topology warnings (negative volume, no solid, compound) mean the shape is INVALID \
 for boolean ops — fix topology before fusing/cutting.
@@ -115,11 +120,16 @@ understand the reference before modeling. Extract dimensions and key features.
 
 CRITICAL RULES:
 - Pre-imported: FreeCAD, Part, math, Gui, doc (FreeCAD.ActiveDocument), Vector, App
+- **NEVER use 'FreeCADGui'** — always use the pre-imported 'Gui' instead.
 - For new documents: doc = FreeCAD.newDocument("Design")
 - Add shapes: obj = doc.addObject("Part::Feature", "Name"); obj.Shape = shape
 - All dimensions in mm. No fillet or chamfer — they cause topology errors.
 - Variables PERSIST between execute_code calls — reuse them directly.
 - Boolean ops (cut/fuse/common) return NEW shapes — MUST assign: body = body.cut(hole)
+- After fuse/cut, extract solid to avoid compound shapes: \
+if result.Solids: result = result.Solids[0]
+- For fuse to work, shapes MUST physically overlap by at least 0.5mm. \
+Extend one shape INTO the other.
 - translate() modifies IN-PLACE, returns None — do NOT assign: shape.translate(v)
 - Topology warnings (negative volume, no solid, compound) mean the shape is INVALID \
 for boolean ops — fix topology before fusing/cutting.
