@@ -254,6 +254,16 @@ def _tool_execute_code(args_json: str) -> str:
         if auto_created_doc:
             parts.append("Auto-created document 'CadAgentModel' (none was active).")
 
+        # Quality gate — structured CAD quality check
+        try:
+            from core.quality import analyze_document_quality, format_quality_report
+            target = target_doc or FreeCAD.ActiveDocument
+            if target:
+                q_report = analyze_document_quality(target)
+                parts = [format_quality_report(q_report)]
+        except Exception:
+            parts = ["OK: Code executed."]
+
         # Rich document state feedback — critical for LLM to verify and plan
         try:
             from core.doc_analyzer import analyze_document
