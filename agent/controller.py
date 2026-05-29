@@ -13,6 +13,8 @@ class AgentResult:
         self.errors: list[str] = []
         self.tool_calls_log: list[dict] = []
         self.start_time: float = 0.0
+        self.last_quality_passed: bool | None = None
+        self.last_quality_summary: str = ""
 
 
 class AgentController:

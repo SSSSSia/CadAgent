@@ -84,6 +84,8 @@ class AgentLoop:
         self._stopped: bool = False
         self._start_time: float = time.time()
         self._recent_errors: list[str] = []
+        self._last_quality_passed: bool | None = None
+        self._last_quality_summary: str = ""
 
     @property
     def iteration(self) -> int:
@@ -226,6 +228,9 @@ class AgentLoop:
                     kind=LoopActionKind.EXECUTE_TOOLS,
                     tool_calls=parsed,
                 )
+            allowed, reason = self._check_quality_gate()
+            if not allowed:
+                return self._quality_gate_block(reason)
             return LoopAction(
                 kind=LoopActionKind.FINISH,
                 success=True,
@@ -234,6 +239,9 @@ class AgentLoop:
             )
 
         # --- finish_reason == "stop" with no tools — agent done ---
+        allowed, reason = self._check_quality_gate()
+        if not allowed:
+            return self._quality_gate_block(reason)
         return LoopAction(
             kind=LoopActionKind.FINISH,
             success=True,
@@ -278,6 +286,41 @@ class AgentLoop:
                 "is_error": ex.is_error,
             })
 
+            # Phase 1.3: Track quality state from execute_code results
+            if ex.tool_name == "execute_code":
+                first_line = ex.result.split("\n", 1)[0]
+                if ex.result.startswith("OK:"):
+                    self._last_quality_passed = True
+                elif ex.result.startswith("FAIL:") or ex.result.startswith("ERROR:"):
+                    self._last_quality_passed = False
+                else:
+                    self._last_quality_passed = False
+                self._last_quality_summary = first_line
+                self._controller.result.last_quality_passed = self._last_quality_passed
+                self._controller.result.last_quality_summary = self._last_quality_summary
+
+        return self.prepare_llm_call()
+
+    def _check_quality_gate(self) -> tuple[bool, str]:
+        """Check whether the quality gate allows FINISH with success=True.
+
+        Returns (allowed, reason). allowed=True if gate passes or is not
+        applicable (no execute_code has run yet).
+        """
+        if self._last_quality_passed is None or self._last_quality_passed:
+            return True, ""
+        return False, self._last_quality_summary
+
+    def _quality_gate_block(self, reason: str) -> LoopAction:
+        """Block FINISH, inject quality feedback, return CALL_LLM to continue."""
+        msg = (
+            "CAD QUALITY GATE FAILED. You cannot finish yet. "
+            f"The last execute_code returned:\n{reason}\n\n"
+            "You MUST fix the listed quality issues using execute_code before finishing. "
+            "Do NOT respond with a summary — write code to fix the geometry."
+        )
+        self._controller.session.add_user_message(msg)
+        log_info(f"Quality gate blocked FINISH: {reason[:100]}")
         return self.prepare_llm_call()
 
     def handle_error(self, error_msg: str) -> LoopAction:

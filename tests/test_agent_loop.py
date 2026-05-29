@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from core.session import ChatSession
 from agent.controller import AgentController
 from agent.loop import AgentLoop, LoopAction, LoopActionKind, ToolExecution
+import core.config as _config
 
 
 # ---- Helpers ----
@@ -37,6 +38,22 @@ def _tool_call(name="execute_code", args='{"code":"pass"}', call_id="tc_1"):
         "type": "function",
         "function": {"name": name, "arguments": args},
     }
+
+
+def _tool_execution(
+    tool_name="execute_code",
+    result="OK: Code executed.",
+    is_error=False,
+    tool_id="tc_1",
+):
+    return ToolExecution(
+        tool_name=tool_name,
+        tool_args='{"code":"pass"}',
+        tool_id=tool_id,
+        description="test",
+        result=result,
+        is_error=is_error,
+    )
 
 
 # ---- start() ----
@@ -312,3 +329,159 @@ def test_start_time_set():
     assert loop.start_time > 0
     import time
     assert time.time() - loop.start_time < 5
+
+
+# ===========================================================================
+# Phase 1.3: Quality gate tracking
+# ===========================================================================
+
+class TestQualityGateTracking:
+    """Test that handle_tool_results correctly tracks quality state."""
+
+    def test_ok_result_sets_passed_true(self):
+        loop, ctrl = _make_loop(mode="tool_calling")
+        loop.prepare_llm_call()
+        ex = _tool_execution(result="OK: Code executed. CAD quality check PASSED.")
+        loop.handle_tool_results([ex])
+        assert loop._last_quality_passed is True
+        assert "OK" in loop._last_quality_summary
+        assert ctrl.result.last_quality_passed is True
+
+    def test_fail_result_sets_passed_false(self):
+        loop, ctrl = _make_loop(mode="tool_calling")
+        loop.prepare_llm_call()
+        ex = _tool_execution(
+            result="FAIL: Code executed but CAD quality check failed.",
+            is_error=True,
+        )
+        loop.handle_tool_results([ex])
+        assert loop._last_quality_passed is False
+        assert "FAIL" in loop._last_quality_summary
+        assert ctrl.result.last_quality_passed is False
+
+    def test_error_result_sets_passed_false(self):
+        loop, ctrl = _make_loop(mode="tool_calling")
+        loop.prepare_llm_call()
+        ex = _tool_execution(result="ERROR: ValueError: bad input", is_error=True)
+        loop.handle_tool_results([ex])
+        assert loop._last_quality_passed is False
+        assert ctrl.result.last_quality_passed is False
+
+    def test_non_execute_code_does_not_change_quality(self):
+        loop, _ = _make_loop(mode="tool_calling")
+        loop.prepare_llm_call()
+        ex1 = _tool_execution(result="OK: Code executed.")
+        loop.handle_tool_results([ex1])
+        assert loop._last_quality_passed is True
+
+        loop.prepare_llm_call()
+        ex2 = _tool_execution(
+            tool_name="undo_last", result="SUCCESS: Snapshot restored."
+        )
+        loop.handle_tool_results([ex2])
+        assert loop._last_quality_passed is True
+
+    def test_no_tools_run_quality_is_none(self):
+        loop, _ = _make_loop()
+        assert loop._last_quality_passed is None
+
+
+# ===========================================================================
+# Phase 1.3: Quality gate blocking
+# ===========================================================================
+
+class TestQualityGateBlocking:
+    """Test that handle_stream_done blocks FINISH when quality gate failed."""
+
+    def test_react_mode_blocks_finish_on_fail(self):
+        loop, ctrl = _make_loop(mode="react")
+        loop.prepare_llm_call()
+        ex = _tool_execution(
+            result="FAIL: Code executed but CAD quality check failed.",
+            is_error=True,
+        )
+        loop.handle_tool_results([ex])
+        data = _llm_response(content="Design complete.", finish_reason="stop")
+        action = loop.handle_stream_done(data, False)
+        assert action.kind == LoopActionKind.CALL_LLM
+
+    def test_tool_calling_mode_blocks_finish_on_fail(self):
+        loop, ctrl = _make_loop(mode="tool_calling")
+        loop.prepare_llm_call()
+        ex = _tool_execution(
+            result="FAIL: Quality check failed.", is_error=True
+        )
+        loop.handle_tool_results([ex])
+        data = _llm_response(content="I'm done!", finish_reason="stop")
+        action = loop.handle_stream_done(data, True)
+        assert action.kind == LoopActionKind.CALL_LLM
+
+    def test_quality_passed_allows_finish(self):
+        loop, ctrl = _make_loop(mode="tool_calling")
+        loop.prepare_llm_call()
+        ex = _tool_execution(result="OK: Code executed. CAD quality check PASSED.")
+        loop.handle_tool_results([ex])
+        data = _llm_response(content="All done.", finish_reason="stop")
+        action = loop.handle_stream_done(data, True)
+        assert action.kind == LoopActionKind.FINISH
+        assert action.success is True
+
+    def test_no_quality_data_allows_finish(self):
+        loop, ctrl = _make_loop(mode="tool_calling")
+        loop.prepare_llm_call()
+        data = _llm_response(content="Simple response.", finish_reason="stop")
+        action = loop.handle_stream_done(data, True)
+        assert action.kind == LoopActionKind.FINISH
+        assert action.success is True
+
+    def test_auto_detect_first_iteration_not_blocked(self):
+        loop, ctrl = _make_loop()
+        loop.start("test")
+        data = _llm_response(content="Just a text response.", finish_reason="stop")
+        action = loop.handle_stream_done(data, True)
+        assert action.kind == LoopActionKind.FINISH
+        assert action.success is True
+
+    def test_quality_gate_injects_feedback_message(self):
+        loop, ctrl = _make_loop(mode="tool_calling")
+        loop.prepare_llm_call()
+        ex = _tool_execution(result="FAIL: Quality check failed.", is_error=True)
+        loop.handle_tool_results([ex])
+        data = _llm_response(content="Done!", finish_reason="stop")
+        loop.handle_stream_done(data, True)
+        user_msgs = [m for m in ctrl.session.get_messages() if m["role"] == "user"]
+        feedback = [m for m in user_msgs if "QUALITY GATE" in m["content"]]
+        assert len(feedback) == 1
+
+    def test_quality_gate_recovers_on_ok(self):
+        loop, ctrl = _make_loop(mode="tool_calling")
+        loop.prepare_llm_call()
+        ex1 = _tool_execution(result="FAIL: Quality check failed.", is_error=True)
+        loop.handle_tool_results([ex1])
+        assert loop._last_quality_passed is False
+
+        loop.prepare_llm_call()
+        tc = _tool_call()
+        ctrl.session.add_assistant_message({
+            "role": "assistant", "content": "", "tool_calls": [tc],
+        })
+        ex2 = _tool_execution(result="OK: Code executed. CAD quality check PASSED.")
+        loop.handle_tool_results([ex2])
+        assert loop._last_quality_passed is True
+
+        data = _llm_response(content="Done!", finish_reason="stop")
+        action = loop.handle_stream_done(data, True)
+        assert action.kind == LoopActionKind.FINISH
+        assert action.success is True
+
+    def test_max_iterations_is_safety_net(self):
+        loop, ctrl = _make_loop(mode="tool_calling")
+        loop._iteration = _config.MAX_ITERATIONS - 1
+        loop.prepare_llm_call()
+        ex = _tool_execution(result="FAIL: Quality check failed.", is_error=True)
+        loop.handle_tool_results([ex])
+        data = _llm_response(content="Done!", finish_reason="stop")
+        action = loop.handle_stream_done(data, True)
+        assert action.kind == LoopActionKind.FINISH
+        assert action.success is False
+        assert "Max iterations" in action.summary
