@@ -485,3 +485,57 @@ class TestQualityGateBlocking:
         assert action.kind == LoopActionKind.FINISH
         assert action.success is False
         assert "Max iterations" in action.summary
+
+
+# ===========================================================================
+# Phase 6: execute_code tracking and context-aware gate
+# ===========================================================================
+
+class TestExecuteCodeTracking:
+    """Test that execute_code tracking gates FINISH correctly."""
+
+    def test_execute_code_called_flag_set(self):
+        loop, _ = _make_loop(mode="tool_calling")
+        loop.prepare_llm_call()
+        assert loop._execute_code_called is False
+        ex = _tool_execution(result="OK: Code executed.")
+        loop.handle_tool_results([ex])
+        assert loop._execute_code_called is True
+
+    def test_no_execute_code_with_context_blocks_finish(self):
+        loop, ctrl = _make_loop(mode="tool_calling", context="Box 10x10x10")
+        loop.start("make a box")
+        data = _llm_response(content="Done!", finish_reason="stop")
+        action = loop.handle_stream_done(data, True)
+        assert action.kind == LoopActionKind.CALL_LLM
+
+    def test_no_execute_code_without_context_allows_finish(self):
+        loop, ctrl = _make_loop(mode="tool_calling", context="")
+        loop.start("hello")
+        data = _llm_response(content="Hi there!", finish_reason="stop")
+        action = loop.handle_stream_done(data, True)
+        assert action.kind == LoopActionKind.FINISH
+        assert action.success is True
+
+    def test_execute_code_called_then_ok_allows_finish(self):
+        loop, ctrl = _make_loop(mode="tool_calling", context="Box 10x10x10")
+        loop.start("make a box")
+        tc = _tool_call()
+        ctrl.session.add_assistant_message({
+            "role": "assistant", "content": "", "tool_calls": [tc],
+        })
+        ex = _tool_execution(result="OK: Code executed. CAD quality check PASSED.")
+        loop.handle_tool_results([ex])
+        data = _llm_response(content="All done.", finish_reason="stop")
+        action = loop.handle_stream_done(data, True)
+        assert action.kind == LoopActionKind.FINISH
+        assert action.success is True
+
+    def test_non_execute_code_tool_does_not_set_flag(self):
+        loop, _ = _make_loop(mode="tool_calling")
+        loop.prepare_llm_call()
+        ex = _tool_execution(
+            tool_name="undo_last", result="SUCCESS: Snapshot restored."
+        )
+        loop.handle_tool_results([ex])
+        assert loop._execute_code_called is False

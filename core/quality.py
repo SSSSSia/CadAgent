@@ -153,18 +153,36 @@ def analyze_quality_from_infos(
             summary="No shape objects in document.",
         )
 
-    # --- Warn: multiple objects ---
-    if len(shape_infos) > 1:
+    # --- Fail/warn: multiple objects ---
+    if len(shape_infos) > 1 and not assembly_mode:
+        issues.append(QualityIssue(
+            code="MULTIPLE_OBJECTS", severity="fail",
+            message=f"Document has {len(shape_infos)} shape objects; "
+                    f"expected 1 for a single-part design.",
+            suggestion="Use assembly_mode=True for multi-part designs, "
+                       "or fuse all shapes into one solid.",
+        ))
+    elif len(shape_infos) > 1 and assembly_mode:
         issues.append(QualityIssue(
             code="MULTIPLE_OBJECTS", severity="warn",
-            message=f"Document has {len(shape_infos)} shape objects; "
-                    f"analyzing the largest as the main object.",
+            message=f"Document has {len(shape_infos)} shape objects (assembly mode).",
         ))
 
     # --- Select main shape ---
     main_label, main_info = _select_main_shape(shape_infos)
 
-    # --- Reuse existing topology detection ---
+    # --- Check ALL non-main shapes for fail-level issues ---
+    for label, info in shape_infos:
+        if label == main_label:
+            continue
+        non_main_topo = detect_topology_issues(info)
+        non_main_issues = _map_topology_issues(non_main_topo, info.solid_count)
+        for iss in non_main_issues:
+            if iss.severity == "fail":
+                iss.message = f"[{label}] {iss.message}"
+                issues.append(iss)
+
+    # --- Reuse existing topology detection on main shape ---
     topo_strings = detect_topology_issues(main_info)
     topo_issues = _map_topology_issues(topo_strings, main_info.solid_count)
 
@@ -248,28 +266,25 @@ def analyze_document_quality(doc, assembly_mode: bool = False) -> QualityReport:
 
     report = analyze_quality_from_infos(pairs, assembly_mode)
 
-    # Additional FreeCAD-only check: shape.isValid()
-    if pairs:
-        main_label, _ = _select_main_shape(pairs)
-        for obj in doc.Objects:
-            if hasattr(obj, "Label") and obj.Label == main_label:
-                if hasattr(obj, "Shape") and obj.Shape is not None:
-                    if not obj.Shape.isValid():
-                        report.issues.append(QualityIssue(
-                            code="INVALID_SHAPE", severity="fail",
-                            message=f"Object '{main_label}' has invalid "
-                                    f"shape geometry.",
-                            suggestion="Boolean operation may have produced "
-                                       "invalid result. Ensure shapes "
-                                       "overlap correctly.",
-                        ))
-                        report.passed = False
-                        report.severity = "fail"
-                        report.summary = (
-                            f"Quality check FAILED for '{main_label}': "
-                            f"invalid shape geometry."
-                        )
-                break
+    # Additional FreeCAD-only check: shape.isValid() for ALL objects
+    for obj in doc.Objects:
+        if not hasattr(obj, "Shape") or obj.Shape is None:
+            continue
+        if obj.Shape.isNull():
+            continue
+        if not obj.Shape.isValid():
+            label = obj.Label
+            report.issues.append(QualityIssue(
+                code="INVALID_SHAPE", severity="fail",
+                message=f"Object '{label}' has invalid shape geometry.",
+                suggestion="Boolean operation may have produced "
+                           "invalid result. Ensure shapes "
+                           "overlap correctly.",
+            ))
+            report.passed = False
+            report.severity = "fail"
+            fail_msgs = [i.message for i in report.issues if i.severity == "fail"]
+            report.summary = "Quality check FAILED: " + "; ".join(fail_msgs)
 
     return report
 

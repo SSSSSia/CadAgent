@@ -84,6 +84,7 @@ class AgentLoop:
         self._stopped: bool = False
         self._start_time: float = time.time()
         self._recent_errors: list[str] = []
+        self._execute_code_called: bool = False
         self._last_quality_passed: bool | None = None
         self._last_quality_summary: str = ""
 
@@ -288,6 +289,7 @@ class AgentLoop:
 
             # Phase 1.3: Track quality state from execute_code results
             if ex.tool_name == "execute_code":
+                self._execute_code_called = True
                 first_line = ex.result.split("\n", 1)[0]
                 if ex.result.startswith("OK:"):
                     self._last_quality_passed = True
@@ -305,8 +307,13 @@ class AgentLoop:
         """Check whether the quality gate allows FINISH with success=True.
 
         Returns (allowed, reason). allowed=True if gate passes or is not
-        applicable (no execute_code has run yet).
+        applicable (no execute_code has run yet AND no document context).
         """
+        if not self._execute_code_called and self._context:
+            return False, (
+                "No execute_code was called. When there is an active document, "
+                "you must use execute_code to create or modify geometry before finishing."
+            )
         if self._last_quality_passed is None or self._last_quality_passed:
             return True, ""
         return False, self._last_quality_summary
@@ -314,10 +321,9 @@ class AgentLoop:
     def _quality_gate_block(self, reason: str) -> LoopAction:
         """Block FINISH, inject quality feedback, return CALL_LLM to continue."""
         msg = (
-            "CAD QUALITY GATE FAILED. You cannot finish yet. "
-            f"The last execute_code returned:\n{reason}\n\n"
-            "You MUST fix the listed quality issues using execute_code before finishing. "
-            "Do NOT respond with a summary — write code to fix the geometry."
+            f"CAD QUALITY GATE: {reason}\n\n"
+            "You MUST use execute_code to fix the issue before finishing. "
+            "Do NOT respond with a summary — write code to create or fix the geometry."
         )
         self._controller.session.add_user_message(msg)
         log_info(f"Quality gate blocked FINISH: {reason[:100]}")

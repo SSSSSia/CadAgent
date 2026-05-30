@@ -8,13 +8,16 @@ An LLM Agent-powered FreeCAD workbench that generates and modifies 3D mechanical
 
 - **ReAct Agent Loop** — LLM reasoning → generate FreeCAD Python code → execute → analyze results → self-correct, iterating until the design is complete
 - **Natural Language Design** — Describe parts in plain text, and the Agent automatically plans and generates 3D models
-- **12 Agent Tools** — Code execution, geometry analysis, design validation, undo, STEP export, distance measurement, material lookup, screenshot, multi-document management, assembly, parametric design
+- **5 Agent Tools** — Code execution, undo/rollback, STEP export, viewport capture with vision analysis, reference image analysis
 - **Parametric Design** — Define named parameters (e.g. `OD = 200`), update them to automatically regenerate the model
 - **Multi-Document Assembly** — Create parts in separate documents, then combine them into an assembly with positions
 - **Enhanced Geometry Analysis** — Detects cylinders, cones, spheres, helix surfaces, hole patterns, symmetry, and wall thickness
+- **CAD Quality Gate** — Automatic geometry quality check after each code execution (solid integrity, topology validity, dimension sanity). Blocks agent from finishing when quality fails.
+- **CAD Helper Functions** — Built-in extract_solid, safe_fuse, safe_cut and other helpers to prevent common boolean operation errors.
+- **Visual Auxiliary Verification** — capture_view and analyze_image provide supplementary visual checks that do not replace deterministic quality gates.
+- **Unified Model Process** — All models (strong/weak) use the same agent loop and quality gate process.
 - **Weak Model Compatibility** — Auto-detects model capability, provides simplified prompts and code auto-fix for less capable models
-- **Design Validation** — Automatically checks model validity (zero volume, degenerate bounding boxes, orphan shapes, etc.)
-- **Error Self-Correction** — When code execution fails, the Agent reads the error traceback and automatically fixes and retries; repeated errors trigger strategy change warnings
+- **Error Self-Correction** — When code execution fails, the Agent reads the error traceback and automatically fixes and retries; high-confidence mechanical errors are auto-fixed once; repeated errors trigger strategy change warnings
 - **Streaming Output** — Real-time display of the Agent's reasoning and code generation process
 - **Undo/Rollback** — Automatic document snapshots before each code execution, with unlimited undo support
 - **Session Management** — Multi-turn conversation history persists across FreeCAD sessions
@@ -28,19 +31,12 @@ An LLM Agent-powered FreeCAD workbench that generates and modifies 3D mechanical
 Agent Loop (ReAct):
   User Input → LLM Reasoning → Tool Call → Observation → Reason Again → ... → Done
 
-Available Tools (12):
-  execute_code       — Execute FreeCAD Python code to create/modify geometry
-  analyze_geometry   — Extract geometry info from the current document
-  validate_design    — Validate the current model's integrity
+Available Tools (5):
+  execute_code       — Execute FreeCAD Python code to create/modify geometry (with CAD quality gate)
   undo_last          — Undo the last code execution by restoring a document snapshot
   export_step        — Export document to STEP/IGES file
-  measure_distance   — Measure distance or angle between geometric elements
-  list_materials     — List engineering material properties
-  screenshot         — Capture 3D viewport as PNG image
-  list_documents     — List all open FreeCAD documents
-  create_assembly    — Create assembly by copying parts from other documents
-  update_parameter   — Update design parameters and re-execute
-  list_parameters    — List current design parameters
+  capture_view       — Capture 3D viewport and analyze with vision model
+  analyze_image      — Analyze a user-uploaded reference image
 ```
 
 ## Installation
@@ -98,8 +94,9 @@ CadAgent/
 │   ├── react_parser.py   # ReAct XML tag parser
 │   ├── tool_defs.py      # Tool JSON Schema definitions (LLM function calling)
 │   ├── tool_dispatch.py  # Registry-based tool routing and dispatch
-│   ├── tools.py          # 12 tool implementations (with parametric design, multi-doc, assembly)
-│   └── code_fixes.py     # Weak model compat: code pre-check, 9 auto-fixes, error hints
+│   ├── tools.py          # 5 tool implementations (execute_code, undo_last, export_step, capture_view, analyze_image)
+│   ├── cad_helpers.py    # CAD helper functions (extract_solid, safe_fuse, safe_cut, etc.)
+│   └── code_fixes.py     # Weak model compat: code pre-check, auto-fixes, error hints
 ├── core/
 │   ├── __init__.py
 │   ├── config.py         # Environment config, .env loading, runtime reload
@@ -109,6 +106,8 @@ CadAgent/
 │   ├── session_store.py  # Session disk persistence
 │   ├── doc_analyzer.py   # Document geometry analysis (FreeCAD layer)
 │   ├── geometry_analyzer.py # Pure-data geometry analysis (cones, spheres, helix, hole patterns, symmetry, wall thickness)
+│   ├── quality.py        # CAD quality gate (structured pass/fail analysis)
+│   ├── vision_client.py  # Vision model API client (screenshot and image analysis)
 │   ├── text_utils.py     # Text processing utilities
 │   ├── snapshot.py       # Document snapshot system (undo/rollback)
 │   └── token_budget.py   # Token budget management
@@ -122,7 +121,7 @@ CadAgent/
 │   ├── chat_renderer.py  # Markdown → HTML rendering (with syntax highlighting)
 │   ├── theme.py          # Light/dark mode theme colors
 │   └── settings_dialog.py # Settings dialog (7 provider presets, connection test)
-├── tests/                # 270 unit tests (no FreeCAD dependency)
+├── tests/                # 488 unit tests (no FreeCAD dependency)
 ├── .env.example          # API config template
 ├── .gitignore
 ├── LICENSE
@@ -136,7 +135,7 @@ CadAgent/
 - **Thread Safety** — LLM API calls run in a background QThread; FreeCAD API operations (tool execution) return to the main thread via Signal/Slot
 - **Standard Library Only** — HTTP requests use `urllib` — no external Python package dependencies
 - **Compatibility** — Automatically detects whether the model supports Tool Calling, falls back to ReAct XML tag mode when not supported; auto-detects model capability for prompt selection
-- **238 Automated Tests** — Covering core modules (react_parser, token_budget, chat_renderer, config, session, code_fixes, agent_loop, tool_dispatch, parametric, etc.)
+- **488 Automated Tests** — Covering core modules (react_parser, token_budget, chat_renderer, config, session, code_fixes, agent_loop, tool_dispatch, quality, parametric, etc.)
 
 ## License
 

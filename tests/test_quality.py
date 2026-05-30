@@ -287,20 +287,30 @@ class TestAnalyzeQualityWarn:
         assert report.severity == "warn"
         assert any(i.code == "DIMENSION_SUSPICIOUS" for i in report.issues)
 
-    def test_multiple_objects_warn(self):
+    def test_multiple_objects_fails(self):
         report = analyze_quality_from_infos([
             ("Big", _box_info()),
             ("Small", _small_shape_info()),
         ])
-        assert report.passed is True
+        assert report.passed is False
+        assert report.severity == "fail"
         assert any(i.code == "MULTIPLE_OBJECTS" for i in report.issues)
 
-    def test_warn_only_passes_true(self):
-        """Warnings-only should still pass = True."""
+    def test_multiple_objects_warn_in_assembly_mode(self):
         report = analyze_quality_from_infos([
             ("Big", _box_info()),
             ("Small", _small_shape_info()),
-        ])
+        ], assembly_mode=True)
+        assert report.passed is True
+        multi_issues = [i for i in report.issues if i.code == "MULTIPLE_OBJECTS"]
+        assert all(i.severity == "warn" for i in multi_issues)
+
+    def test_warn_only_passes_true(self):
+        """Warnings-only (assembly mode) should still pass = True."""
+        report = analyze_quality_from_infos([
+            ("Big", _box_info()),
+            ("Small", _small_shape_info()),
+        ], assembly_mode=True)
         assert report.passed is True
         assert report.severity == "warn"
 
@@ -358,3 +368,71 @@ class TestFormatQualityReport:
         )
         text = format_quality_report(report)
         assert "PASSED" in text
+
+
+# ===========================================================================
+# Phase 6: All-shapes fail checking
+# ===========================================================================
+
+class TestAllShapesFailCheck:
+    """Non-main shapes with fail-level issues should be detected."""
+
+    def test_non_main_shape_no_solid_detected(self):
+        report = analyze_quality_from_infos([
+            ("Big", _box_info()),
+            ("BadShell", _no_solid_info()),
+        ])
+        assert report.passed is False
+        codes = {i.code for i in report.issues}
+        assert "NO_SOLID" in codes
+
+    def test_non_main_shape_negative_volume_detected(self):
+        report = analyze_quality_from_infos([
+            ("Big", _box_info()),
+            ("NegVol", _negative_volume_info()),
+        ])
+        assert report.passed is False
+        codes = {i.code for i in report.issues}
+        assert "NEGATIVE_VOLUME" in codes
+
+    def test_non_main_shape_fail_prefixes_label(self):
+        report = analyze_quality_from_infos([
+            ("Big", _box_info()),
+            ("BadShell", _no_solid_info()),
+        ])
+        no_solid_issues = [i for i in report.issues if i.code == "NO_SOLID"]
+        assert any("[BadShell]" in i.message for i in no_solid_issues)
+
+    def test_multiple_non_main_shapes_all_checked(self):
+        report = analyze_quality_from_infos([
+            ("Big", _box_info()),
+            ("Neg", _negative_volume_info()),
+            ("NoSolid", _no_solid_info()),
+        ])
+        assert report.passed is False
+        codes = {i.code for i in report.issues}
+        assert "NEGATIVE_VOLUME" in codes
+        assert "NO_SOLID" in codes
+
+    def test_non_main_shape_warn_not_propagated(self):
+        """Warn-level issues from non-main shapes should NOT be added."""
+        # A compound with 1 solid produces COMPOUND_SHAPE with warn severity
+        report = analyze_quality_from_infos([
+            ("Big", _box_info()),
+            ("Comp1Solid", _compound_one_solid_info()),
+        ])
+        # COMPOUND_SHAPE from non-main should NOT appear (severity=warn, not fail)
+        compound_issues = [
+            i for i in report.issues if i.code == "COMPOUND_SHAPE"
+        ]
+        assert len(compound_issues) == 0
+
+    def test_assembly_mode_non_main_shape_fail_still_detected(self):
+        """Even in assembly mode, fail-level issues on non-main shapes should fail."""
+        report = analyze_quality_from_infos([
+            ("Big", _box_info()),
+            ("BadShell", _no_solid_info()),
+        ], assembly_mode=True)
+        assert report.passed is False
+        codes = {i.code for i in report.issues}
+        assert "NO_SOLID" in codes

@@ -8,13 +8,16 @@
 
 - **ReAct 智能体循环** — LLM 推理 → 生成 FreeCAD Python 代码 → 执行 → 分析结果 → 自纠错，多轮迭代直到设计完成
 - **自然语言设计** — 用中文或英文描述零件，Agent 自动规划并生成 3D 模型
-- **12 个 Agent 工具** — 代码执行、几何分析、设计验证、撤销、STEP 导出、距离测量、材料查询、截图、多文档管理、装配、参数化设计
+- **5 个 Agent 工具** — 代码执行、撤销回滚、STEP 导出、视口截图分析、参考图片分析
 - **参数化设计** — 定义命名参数（如 `OD = 200`），修改参数自动重新生成模型
 - **多文档装配** — 在多个文档中分别创建零件，自动组合为装配体
 - **增强几何分析** — 检测圆柱、圆锥、球面、螺旋面、孔阵列、对称性、壁厚等特征
+- **CAD 质量门禁** — 每次代码执行后自动检查几何质量（固体完整性、拓扑有效性、尺寸合理性），质量不达标时阻止 Agent 结束
+- **CAD 辅助函数** — 内置 extract_solid、safe_fuse、safe_cut 等辅助函数，避免常见布尔运算错误
+- **视觉辅助验证** — capture_view 和 analyze_image 提供视觉辅助检查，不替代确定性质量门禁
+- **统一模型流程** — 所有模型（强模型/弱模型）使用统一的 Agent 循环和质量门禁流程
 - **弱模型兼容** — 自动检测模型能力，为弱模型提供简化提示词和代码自动修复
-- **设计验证** — 自动检查模型有效性（零体积、退化包围盒、孤立形状等）
-- **错误自纠正** — 代码执行失败时，Agent 查看错误堆栈并自动修正重试；连续相同错误自动提示换策略
+- **错误自纠正** — 代码执行失败时，Agent 查看错误堆栈并自动修正重试；高置信机械错误自动修复一次；连续相同错误自动提示换策略
 - **流式输出** — 实时显示 Agent 思考和代码生成过程
 - **撤销/回滚** — 每次代码执行前自动创建文档快照，支持无限撤销
 - **会话管理** — 多轮对话历史持久化，支持跨 FreeCAD 会话恢复
@@ -28,19 +31,12 @@
 Agent 循环 (ReAct):
   用户输入 → LLM 推理 → 调用工具 → 观察结果 → 再次推理 → ... → 完成
 
-可用工具 (12):
-  execute_code       — 执行 FreeCAD Python 代码，创建/修改几何体
-  analyze_geometry   — 提取当前文档的几何信息（包围盒、体积、特征）
-  validate_design    — 验证当前模型的有效性
+可用工具 (5):
+  execute_code       — 执行 FreeCAD Python 代码，创建/修改几何体（含 CAD 质量门禁）
   undo_last          — 撤销上次代码执行，恢复文档快照
   export_step        — 导出为 STEP/IGES 文件
-  measure_distance   — 测量几何元素间的距离或角度
-  list_materials     — 列出工程材料属性（密度、屈服强度、弹性模量）
-  screenshot         — 截取 3D 视口为 PNG 图片
-  list_documents     — 列出所有打开的 FreeCAD 文档
-  create_assembly    — 从多个文档复制零件创建装配体
-  update_parameter   — 更新设计参数并重新执行
-  list_parameters    — 列出当前设计参数
+  capture_view       — 截取 3D 视口并调用视觉模型分析
+  analyze_image      — 分析用户上传的参考图片
 ```
 
 ## 安装
@@ -98,8 +94,9 @@ CadAgent/
 │   ├── react_parser.py   # ReAct XML 标签解析器
 │   ├── tool_defs.py      # 工具 JSON Schema 定义（LLM function calling）
 │   ├── tool_dispatch.py  # 注册式工具路由分发
-│   ├── tools.py          # 12 个工具实现（含参数化设计、多文档、装配）
-│   └── code_fixes.py     # 弱模型兼容：代码预检、9 种自动修复、错误提示
+│   ├── tools.py          # 5 个工具实现（execute_code、undo_last、export_step、capture_view、analyze_image）
+│   ├── cad_helpers.py    # CAD 辅助函数（extract_solid、safe_fuse、safe_cut 等）
+│   └── code_fixes.py     # 弱模型兼容：代码预检、自动修复、错误提示
 ├── core/
 │   ├── __init__.py
 │   ├── config.py         # 环境配置与 .env 加载、运行时 reload
@@ -109,6 +106,8 @@ CadAgent/
 │   ├── session_store.py  # 会话磁盘持久化
 │   ├── doc_analyzer.py   # 文档几何分析（FreeCAD 层）
 │   ├── geometry_analyzer.py # 纯数据几何分析（圆锥/球面/螺旋/孔阵列/对称性/壁厚）
+│   ├── quality.py        # CAD 质量门禁（结构化 pass/fail 分析）
+│   ├── vision_client.py  # 视觉模型 API 客户端（截图和图片分析）
 │   ├── text_utils.py     # 文本处理工具
 │   ├── snapshot.py       # 文档快照系统（撤销/回滚）
 │   └── token_budget.py   # Token 预算管理
@@ -122,7 +121,7 @@ CadAgent/
 │   ├── chat_renderer.py  # Markdown → HTML 渲染（含代码高亮）
 │   ├── theme.py          # 亮/暗模式主题配色
 │   └── settings_dialog.py # 设置对话框（7 个提供商预设、连接测试）
-├── tests/                # 270 个单元测试（不依赖 FreeCAD）
+├── tests/                # 488 个单元测试（不依赖 FreeCAD）
 ├── .env.example          # API 配置模板
 ├── .gitignore
 ├── LICENSE
@@ -136,7 +135,7 @@ CadAgent/
 - **线程安全**：LLM API 调用在后台 QThread 中执行，FreeCAD API 操作（工具执行）通过 Signal/Slot 回到主线程
 - **纯标准库**：HTTP 请求使用 `urllib`，无外部 Python 包依赖
 - **兼容性**：自动检测模型是否支持 Tool Calling，不支持时回退到 ReAct XML 标签模式；自动检测模型能力切换完整/简化提示词
-- **238 个自动化测试**：覆盖核心模块（react_parser、token_budget、chat_renderer、config、session、code_fixes、agent_loop、tool_dispatch、parametric 等）
+- **488 个自动化测试**：覆盖核心模块（react_parser、token_budget、chat_renderer、config、session、code_fixes、agent_loop、tool_dispatch、quality、parametric 等）
 
 ## 许可证
 

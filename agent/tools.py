@@ -267,8 +267,11 @@ def _tool_execute_code(args_json: str) -> str:
             if target:
                 q_report = analyze_document_quality(target)
                 parts = [format_quality_report(q_report)]
-        except Exception:
-            parts = ["OK: Code executed."]
+        except Exception as e:
+            parts = [
+                "FAIL: Code executed but CAD quality check crashed.",
+                f"Quality check error: {type(e).__name__}: {e}",
+            ]
 
         # Rich document state feedback — critical for LLM to verify and plan
         try:
@@ -429,8 +432,11 @@ def _attempt_auto_fix(
         if restored_doc:
             q_report = analyze_document_quality(restored_doc)
             parts.append(format_quality_report(q_report))
-    except Exception:
-        parts.append("OK: Auto-fixed code executed.")
+    except Exception as e:
+        parts.append(
+            f"FAIL: Auto-fixed code executed but CAD quality check crashed. "
+            f"Quality check error: {type(e).__name__}: {e}"
+        )
 
     # Document state feedback.
     try:
