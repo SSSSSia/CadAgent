@@ -73,8 +73,9 @@ CAD Helper Functions (pre-injected, use directly):
 - safe_cut(a, b) — cut and extract solid: body = safe_cut(body, hole)
 - make_hollow_cylinder(outer_r, inner_r, height, bottom=0) — hollow cup body
 - make_ring(outer_r, inner_r, height) — flat annular ring
-- make_box_handle(cup_radius, width, depth, height, z) — box handle overlapping cup wall
-- make_arc_handle(cup_radius, handle_r, arc_r, z_center) — arc (half-torus) handle for cups
+- make_box_handle(cup_radius, width, depth, height, z) — box handle, 2mm overlap into cup wall
+- make_arc_handle(cup_radius, handle_r, arc_r, z_center) — arc (half-torus) handle, 2mm overlap. \
+If make_arc_handle fails on fuse, use make_box_handle as fallback.
 - ensure_doc(name=None) — get or create document
 
 Example — mug:
@@ -83,7 +84,7 @@ Example — mug:
   handle = make_arc_handle(40, 6, 25, 50)
   body = safe_fuse(body, handle)
   rim = make_ring(43, 35, 3)
-  rim.translate(FreeCAD.Vector(0, 0, 89))
+  rim.translate(FreeCAD.Vector(0, 0, 88))
   body = safe_fuse(body, rim)
   obj = doc.addObject("Part::Feature", "Mug")
   obj.Shape = extract_solid(body)
@@ -179,8 +180,9 @@ CAD Helper Functions (pre-injected, use directly):
 - safe_cut(a, b) — cut and extract solid: body = safe_cut(body, hole)
 - make_hollow_cylinder(outer_r, inner_r, height, bottom=0) — hollow cup body
 - make_ring(outer_r, inner_r, height) — flat annular ring
-- make_box_handle(cup_radius, width, depth, height, z) — box handle overlapping cup wall
-- make_arc_handle(cup_radius, handle_r, arc_r, z_center) — arc (half-torus) handle for cups
+- make_box_handle(cup_radius, width, depth, height, z) — box handle, 2mm overlap into cup wall
+- make_arc_handle(cup_radius, handle_r, arc_r, z_center) — arc (half-torus) handle, 2mm overlap. \
+If make_arc_handle fails on fuse, use make_box_handle as fallback.
 - ensure_doc(name=None) — get or create document
 
 Example — mug:
@@ -189,7 +191,7 @@ Example — mug:
   handle = make_arc_handle(40, 6, 25, 50)
   body = safe_fuse(body, handle)
   rim = make_ring(43, 35, 3)
-  rim.translate(FreeCAD.Vector(0, 0, 89))
+  rim.translate(FreeCAD.Vector(0, 0, 88))
   body = safe_fuse(body, rim)
   obj = doc.addObject("Part::Feature", "Mug")
   obj.Shape = extract_solid(body)
@@ -246,8 +248,8 @@ CAD Helper Functions (pre-injected, use directly):
 - safe_cut(a, b) — cut and extract solid: body = safe_cut(body, hole)
 - make_hollow_cylinder(outer_r, inner_r, height, bottom=0) — hollow cup body
 - make_ring(outer_r, inner_r, height) — flat annular ring
-- make_box_handle(cup_radius, width, depth, height, z) — box handle
-- make_arc_handle(cup_radius, handle_r, arc_r, z_center) — arc (half-torus) handle
+- make_box_handle(cup_radius, width, depth, height, z) — box handle, 2mm overlap into cup wall
+- make_arc_handle(cup_radius, handle_r, arc_r, z_center) — arc (half-torus) handle, 2mm overlap
 - ensure_doc(name=None) — get or create document
 
 QUALITY: Result must be a single manifold solid. Use safe_fuse/safe_cut for \
@@ -317,8 +319,8 @@ CAD Helper Functions (pre-injected, use directly):
 - safe_cut(a, b) — cut and extract solid: body = safe_cut(body, hole)
 - make_hollow_cylinder(outer_r, inner_r, height, bottom=0) — hollow cup body
 - make_ring(outer_r, inner_r, height) — flat annular ring
-- make_box_handle(cup_radius, width, depth, height, z) — box handle
-- make_arc_handle(cup_radius, handle_r, arc_r, z_center) — arc (half-torus) handle
+- make_box_handle(cup_radius, width, depth, height, z) — box handle, 2mm overlap into cup wall
+- make_arc_handle(cup_radius, handle_r, arc_r, z_center) — arc (half-torus) handle, 2mm overlap
 - ensure_doc(name=None) — get or create document
 
 QUALITY: Result must be a single manifold solid. Build the simplest valid \
@@ -367,8 +369,8 @@ CAD Helper Functions (pre-injected, use directly):
 - safe_cut(a, b) — cut and extract solid: body = safe_cut(body, hole)
 - make_hollow_cylinder(outer_r, inner_r, height, bottom=0) — hollow cup body
 - make_ring(outer_r, inner_r, height) — flat annular ring
-- make_box_handle(cup_radius, width, depth, height, z) — box handle
-- make_arc_handle(cup_radius, handle_r, arc_r, z_center) — arc (half-torus) handle
+- make_box_handle(cup_radius, width, depth, height, z) — box handle, 2mm overlap into cup wall
+- make_arc_handle(cup_radius, handle_r, arc_r, z_center) — arc (half-torus) handle, 2mm overlap
 - ensure_doc(name=None) — get or create document
 
 QUALITY: Result must be a single manifold solid. Build the simplest valid \
@@ -417,8 +419,8 @@ CAD Helper Functions (pre-injected, use directly):
 - safe_cut(a, b) — cut and extract solid: body = safe_cut(body, hole)
 - make_hollow_cylinder(outer_r, inner_r, height, bottom=0) — hollow cup body
 - make_ring(outer_r, inner_r, height) — flat annular ring
-- make_box_handle(cup_radius, width, depth, height, z) — box handle
-- make_arc_handle(cup_radius, handle_r, arc_r, z_center) — arc (half-torus) handle
+- make_box_handle(cup_radius, width, depth, height, z) — box handle, 2mm overlap into cup wall
+- make_arc_handle(cup_radius, handle_r, arc_r, z_center) — arc (half-torus) handle, 2mm overlap
 - ensure_doc(name=None) — get or create document
 
 QUALITY: Result must be a single manifold solid. Build the simplest valid \

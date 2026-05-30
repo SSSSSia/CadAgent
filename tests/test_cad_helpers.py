@@ -310,9 +310,9 @@ class TestMakeArcHandle:
         assert isinstance(result, _MockShape)
 
     def test_positioning(self):
-        """Verify handle is translated to overlap with cup wall."""
+        """Verify handle is translated with 2mm overlap into cup wall."""
         result = make_arc_handle(40, 6, 25, 50)
-        assert result._translated == (40, 0, 50)
+        assert result._translated == (38.0, 0, 50)
 
     def test_rotations_applied(self):
         """Verify two rotations are applied to orient the arc in XZ plane."""
@@ -334,6 +334,57 @@ class TestMakeArcHandle:
     def test_arc_r_equals_handle_r_raises(self):
         with pytest.raises(ValueError, match="arc_r.*must be greater"):
             make_arc_handle(40, 10, 10, 50)
+
+
+# ===========================================================================
+# Overlap regression tests — catch the "handle doesn't overlap cup" bug class
+# ===========================================================================
+
+
+class TestHandleOverlap:
+    """Verify both handle functions penetrate the cup wall for safe_fuse.
+
+    These are regression tests: if someone changes the overlap formula,
+    these tests will catch it before it reaches production.
+    """
+
+    def test_box_handle_penetrates_cup_wall(self):
+        cup_r = 40
+        result = make_box_handle(cup_r, 12, 45, 55, 22)
+        handle_x = result._translated[0]
+        assert handle_x < cup_r, (
+            f"Box handle at x={handle_x} doesn't penetrate cup wall at x={cup_r}"
+        )
+        assert cup_r - handle_x >= 1.5, (
+            f"Overlap only {cup_r - handle_x}mm, need at least 1.5mm"
+        )
+
+    def test_arc_handle_penetrates_cup_wall(self):
+        cup_r = 40
+        result = make_arc_handle(cup_r, 6, 25, 50)
+        handle_x = result._translated[0]
+        assert handle_x < cup_r, (
+            f"Arc handle at x={handle_x} doesn't penetrate cup wall at x={cup_r}"
+        )
+        assert cup_r - handle_x >= 1.5, (
+            f"Overlap only {cup_r - handle_x}mm, need at least 1.5mm"
+        )
+
+    def test_both_handles_use_same_overlap(self):
+        """make_arc_handle and make_box_handle must use consistent overlap."""
+        cup_r = 40
+        box = make_box_handle(cup_r, 12, 45, 55, 22)
+        arc = make_arc_handle(cup_r, 6, 25, 50)
+        assert box._translated[0] == arc._translated[0], (
+            f"Inconsistent overlap: box_x={box._translated[0]}, arc_x={arc._translated[0]}"
+        )
+
+    @pytest.mark.parametrize("cup_r", [10, 25, 40, 80, 150])
+    def test_arc_handle_overlap_scales_with_cup_radius(self, cup_r):
+        """Overlap must work for any cup radius."""
+        result = make_arc_handle(cup_r, 6, 25, 50)
+        handle_x = result._translated[0]
+        assert handle_x < cup_r
 
 
 # ===========================================================================

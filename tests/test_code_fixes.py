@@ -190,6 +190,18 @@ def test_valueerror_null_shape_hint():
     assert fixed is None
 
 
+def test_valueerror_expected_1_solid_hint():
+    """ValueError: Expected 1 solid from safe_fuse must suggest helpers."""
+    err = ValueError(
+        "Expected 1 solid, got 2. Shapes must physically overlap "
+        "for fuse to merge into one solid."
+    )
+    hint, fixed = error_hint(err, "cup_body = safe_fuse(cup_body, handle)")
+    assert "overlap" in hint.lower()
+    assert "make_arc_handle" in hint or "make_box_handle" in hint
+    assert fixed is None
+
+
 def test_occ_command_not_done_revolve_hint():
     """BRep_API: command not done with revolve() should give revolve-specific hint."""
     class OCCError(Exception):

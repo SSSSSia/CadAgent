@@ -190,6 +190,16 @@ def error_hint(error: Exception, code: str) -> tuple[str, str | None]:
                     "Use shape.translate(FreeCAD.Vector(x, y, z))."
                 )
 
+    if e_type == "ValueError" and "Expected 1 solid" in e_str:
+        hints.append(
+            "Hint: safe_fuse failed — shapes don't physically overlap. "
+            "Fix: use make_arc_handle() or make_box_handle() which guarantee "
+            "overlap with the cup body. If positioning manually, translate "
+            "one shape INTO the other by at least 2mm. "
+            "Check that the cup_radius parameter matches your body's outer radius."
+        )
+        return "\n".join(hints), None
+
     # Null shape can be raised as ValueError by FreeCAD, not just OCC/BRep types
     if "Null shape" in e_str or "null shape" in e_str.lower():
         hints.append(

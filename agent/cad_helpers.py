@@ -137,8 +137,8 @@ def make_arc_handle(cup_radius, handle_r, arc_r, z_center):
     connects to the cup at two points (top/bottom) and curves outward.
     Vertical span ≈ 2 * arc_r;  outward depth ≈ arc_r.
 
-    The inner surface of the handle rod overlaps the cup wall for
-    reliable safe_fuse operations.
+    Connection points penetrate 2mm into the cup wall for reliable
+    safe_fuse overlap.
 
     Args:
         cup_radius: Outer radius of the cup body (mm).
@@ -167,8 +167,8 @@ def make_arc_handle(cup_radius, handle_r, arc_r, z_center):
     handle.rotate(FreeCAD.Vector(0, 0, 0), FreeCAD.Vector(0, 0, 1), -90)
     handle.rotate(FreeCAD.Vector(0, 0, 0), FreeCAD.Vector(1, 0, 0), 90)
 
-    # Position: tube center at connection points sits on the cup wall
-    handle.translate(FreeCAD.Vector(cup_radius, 0, z_center))
+    # Offset 2mm inward so connection points penetrate cup wall for fuse
+    handle.translate(FreeCAD.Vector(cup_radius - 2.0, 0, z_center))
     return extract_solid(handle)
 
 
