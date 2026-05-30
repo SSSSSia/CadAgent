@@ -300,12 +300,20 @@ def _tool_execute_code(args_json: str) -> str:
         _save_user_vars(namespace)
         tb = traceback.format_exc()
         log_error(f"execute_code FAILED: {type(e).__name__}: {e}\n{tb}")
-        hint, _ = error_hint(e, code)
+        hint, fixed_code = error_hint(e, code)
+
+        # Phase 5: Auto-fix retry for high-confidence mechanical errors
+        if fixed_code is not None:
+            auto_result = _attempt_auto_fix(e, code, fixed_code, hint, auto_created_doc)
+            if auto_result is not None:
+                return auto_result
 
         parts = [f"ERROR: {type(e).__name__}: {e}"]
         parts.append(f"Traceback:\n{tb}")
         if hint:
             parts.append(hint)
+        if fixed_code is not None:
+            parts.append("Note: Automatic fix was attempted but failed. See error above.")
 
         # Document state after error helps LLM understand what exists
         try:
@@ -319,6 +327,133 @@ def _tool_execute_code(args_json: str) -> str:
             pass
 
         return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Phase 5: Auto-fix retry helper
+# ---------------------------------------------------------------------------
+
+def _attempt_auto_fix(
+    original_error: Exception,
+    original_code: str,
+    fixed_code: str,
+    hint_text: str,
+    auto_created_doc: bool,
+) -> str | None:
+    """Retry execution with auto-fixed code after restoring pre-execution snapshot.
+
+    Returns a result string on success, or None if the retry fails
+    (caller should fall through to normal error handling).
+    """
+    from core.snapshot import restore_latest_snapshot
+
+    # Restore pre-execution snapshot to get clean document state.
+    restore_result = restore_latest_snapshot()
+    if not restore_result.startswith("SUCCESS"):
+        log_warning(f"Auto-fix: snapshot restore failed: {restore_result}")
+        return None
+
+    # Get fresh document reference after restoration.
+    restored_doc = FreeCAD.ActiveDocument
+    if restored_doc is None:
+        log_warning("Auto-fix: no active document after snapshot restore")
+        return None
+
+    # Clean stale FreeCAD references from persistent namespace.
+    stale = _clean_stale_namespace_vars()
+    if stale:
+        log_info(f"Auto-fix: cleared stale vars: {', '.join(stale)}")
+
+    _EXEC_NAMESPACE["doc"] = restored_doc
+
+    # Strip auto-creation prefix from fixed_code if applicable.
+    execution_code = fixed_code
+    if auto_created_doc:
+        doc_create_line = 'doc = FreeCAD.newDocument("CadAgentModel")\n'
+        if execution_code.startswith(doc_create_line):
+            execution_code = execution_code[len(doc_create_line):]
+
+    # Build fresh namespace for exec().
+    namespace = {
+        "FreeCAD": FreeCAD,
+        "FreeCADGui": FreeCADGui,
+        "Part": Part,
+        "math": math,
+        "doc": restored_doc,
+        "__builtins__": SAFE_BUILTINS,
+        "extract_solid": extract_solid,
+        "safe_fuse": safe_fuse,
+        "safe_cut": safe_cut,
+        "make_hollow_cylinder": make_hollow_cylinder,
+        "make_ring": make_ring,
+        "make_box_handle": make_box_handle,
+        "ensure_doc": ensure_doc,
+    }
+    namespace.update(_EXEC_NAMESPACE)
+
+    # Execute the fixed code.
+    stdout_capture = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(stdout_capture):
+            exec(execution_code, namespace)
+    except Exception as retry_error:
+        retry_tb = traceback.format_exc()
+        log_warning(
+            f"Auto-fix retry failed: {type(retry_error).__name__}: "
+            f"{retry_error}\n{retry_tb}"
+        )
+        return None
+
+    # Success — persist user variables.
+    _save_user_vars(namespace)
+
+    # Take a new snapshot for future undo.
+    try:
+        take_snapshot()
+    except Exception:
+        pass
+
+    # Build result with AUTO-FIX marker.
+    parts = [
+        "AUTO-FIX APPLIED:",
+        f"- {hint_text}",
+        f"Original error: {type(original_error).__name__}: {original_error}",
+    ]
+
+    if auto_created_doc:
+        parts.append("Auto-created document 'CadAgentModel' (none was active).")
+
+    # Quality gate.
+    try:
+        from core.quality import analyze_document_quality, format_quality_report
+        if restored_doc:
+            q_report = analyze_document_quality(restored_doc)
+            parts.append(format_quality_report(q_report))
+    except Exception:
+        parts.append("OK: Auto-fixed code executed.")
+
+    # Document state feedback.
+    try:
+        from core.doc_analyzer import analyze_document
+        if restored_doc:
+            doc_state = analyze_document(restored_doc)
+            if doc_state and "(No active document)" not in doc_state:
+                parts.append(f"Document state:\n{doc_state}")
+    except Exception:
+        pass
+
+    stdout_text = stdout_capture.getvalue()
+    if stdout_text:
+        parts.append(f"Stdout:\n{stdout_text}")
+
+    # Track parametric definitions from fixed code.
+    params = _extract_parameters(execution_code)
+    if params:
+        _PARAM_STORE.update(params)
+
+    result = "\n".join(parts)
+    log_info(f"Auto-fix succeeded:\n{result}")
+    return result
 
 
 # ---------------------------------------------------------------------------

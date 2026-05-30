@@ -220,3 +220,103 @@ def test_sweep_not_exist_hint():
     assert "sweep" in hint
     assert "makePipe" in hint or "makeLoft" in hint
     assert fixed is None
+
+
+# ===========================================================================
+# Phase 5: Auto-retry eligibility boundary tests
+# ===========================================================================
+
+# --- Eligible: error_hint returns fixed_code → auto-retry should trigger ---
+
+def test_auto_retry_eligible_bare_gui():
+    err = NameError("name 'Gui' is not defined")
+    _, fixed = error_hint(err, "Gui.SendMsgToActiveView('Enter')")
+    assert fixed is not None
+
+
+def test_auto_retry_eligible_misspelled_freecadgui():
+    err = NameError("name 'FreecadGUI' is not defined")
+    _, fixed = error_hint(err, "FreecadGUI.SendMsgToActiveView('Enter')")
+    assert fixed is not None
+    assert "FreeCADGui" in fixed
+
+
+def test_auto_retry_eligible_bare_makebox():
+    err = NameError("name 'makeBox' is not defined")
+    _, fixed = error_hint(err, "box = makeBox(10, 20, 30)")
+    assert fixed is not None
+    assert "Part.makeBox" in fixed
+
+
+def test_auto_retry_eligible_translate_assignment():
+    err = AttributeError("'NoneType' object has no attribute 'Shape'")
+    _, fixed = error_hint(err, "shape = shape.translate(FreeCAD.Vector(1,2,3))")
+    assert fixed is not None
+    assert "shape = shape.translate" not in fixed
+
+
+def test_auto_retry_eligible_boolean_no_assign():
+    err = AttributeError("'NoneType' object has no attribute 'Shape'")
+    _, fixed = error_hint(err, "body.cut(hole)")
+    assert fixed is not None
+    assert "body = body.cut(hole)" in fixed
+
+
+def test_auto_retry_eligible_vector_case():
+    err = AttributeError("'module' object has no attribute 'vector'")
+    _, fixed = error_hint(err, "v = FreeCAD.vector(1, 2, 3)")
+    assert fixed is not None
+    assert "FreeCAD.Vector" in fixed
+
+
+def test_auto_retry_eligible_makepipe_edge():
+    err = AttributeError("'Part.Edge' object has no attribute 'makePipe'")
+    _, fixed = error_hint(err, "pipe = arc_edge.makePipe(profile)")
+    assert fixed is not None
+
+
+def test_auto_retry_eligible_translate_args():
+    err = TypeError("translate() takes 1 positional argument but 3 were given")
+    _, fixed = error_hint(err, "shape.translate(1, 2, 3)")
+    assert fixed is not None
+    assert "FreeCAD.Vector(1, 2, 3)" in fixed
+
+
+# --- NOT eligible: error_hint returns None → no auto-retry ---
+
+def test_auto_retry_not_eligible_null_shape():
+    err = ValueError("Null shape")
+    _, fixed = error_hint(err, "body = body.cut(hole)")
+    assert fixed is None
+
+
+def test_auto_retry_not_eligible_occ_error():
+    class OCCError(Exception):
+        pass
+    err = OCCError("BRep_API: command terminated")
+    _, fixed = error_hint(err, "body = body.cut(hole)")
+    assert fixed is None
+
+
+def test_auto_retry_not_eligible_makeellipse():
+    err = AttributeError("module 'Part' has no attribute 'makeEllipse'")
+    _, fixed = error_hint(err, "e = Part.makeEllipse(50, 30)")
+    assert fixed is None
+
+
+def test_auto_retry_not_eligible_sweep():
+    err = AttributeError("'Part.Edge' object has no attribute 'sweep'")
+    _, fixed = error_hint(err, "body = wire.sweep(path)")
+    assert fixed is None
+
+
+def test_auto_retry_not_eligible_doc_is_none():
+    err = AttributeError("'NoneType' object has no attribute 'addObject'")
+    _, fixed = error_hint(err, "obj = doc.addObject('Part::Feature', 'Box')")
+    assert fixed is None
+
+
+def test_auto_retry_not_eligible_unknown_error():
+    err = ValueError("something unexpected")
+    _, fixed = error_hint(err, "x = 1")
+    assert fixed is None
