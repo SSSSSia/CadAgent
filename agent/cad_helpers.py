@@ -138,9 +138,12 @@ def ensure_doc(name=None):
     If name is None, returns ActiveDocument or creates "CadAgentModel".
     """
     if name:
-        doc = FreeCAD.getDocument(name)
-        if doc is not None:
-            return doc
+        try:
+            doc = FreeCAD.getDocument(name)
+            if doc is not None:
+                return doc
+        except (NameError, RuntimeError):
+            pass
         return FreeCAD.newDocument(name)
     if FreeCAD.ActiveDocument is not None:
         return FreeCAD.ActiveDocument

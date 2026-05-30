@@ -144,7 +144,10 @@ def _resolve_doc(doc_name: str | None):
     """
     if not doc_name:
         return FreeCAD.ActiveDocument
-    return FreeCAD.getDocument(doc_name)
+    try:
+        return FreeCAD.getDocument(doc_name)
+    except (NameError, RuntimeError):
+        return None
 
 
 def _doc_list_str() -> str:
@@ -153,6 +156,30 @@ def _doc_list_str() -> str:
         return ", ".join(FreeCAD.listDocuments().keys())
     except Exception:
         return ""
+
+
+def _safe_active_doc():
+    """Return a valid active document after exec.
+
+    After exec, code may have closed/created documents, leaving
+    FreeCAD.ActiveDocument pointing to a deleted C++ object.
+    This validates the reference and falls back to listDocuments().
+    """
+    doc = FreeCAD.ActiveDocument
+    if doc is not None:
+        try:
+            _ = doc.Name
+            return doc
+        except (ReferenceError, RuntimeError):
+            pass
+    # ActiveDocument is stale — pick the first available document
+    try:
+        docs = FreeCAD.listDocuments()
+        if docs:
+            return next(iter(docs.values()))
+    except Exception:
+        pass
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -263,7 +290,7 @@ def _tool_execute_code(args_json: str) -> str:
         # Quality gate — structured CAD quality check
         try:
             from core.quality import analyze_document_quality, format_quality_report
-            target = target_doc or FreeCAD.ActiveDocument
+            target = target_doc or _safe_active_doc()
             if target:
                 q_report = analyze_document_quality(target)
                 parts = [format_quality_report(q_report)]
@@ -276,7 +303,7 @@ def _tool_execute_code(args_json: str) -> str:
         # Rich document state feedback — critical for LLM to verify and plan
         try:
             from core.doc_analyzer import analyze_document
-            target = target_doc or FreeCAD.ActiveDocument
+            target = target_doc or _safe_active_doc()
             if target:
                 doc_state = analyze_document(target)
                 if doc_state and "(No active document)" not in doc_state:
@@ -321,7 +348,7 @@ def _tool_execute_code(args_json: str) -> str:
         # Document state after error helps LLM understand what exists
         try:
             from core.doc_analyzer import analyze_document
-            target = target_doc or FreeCAD.ActiveDocument
+            target = target_doc or _safe_active_doc()
             if target:
                 doc_state = analyze_document(target)
                 if doc_state and "(No active document)" not in doc_state:
