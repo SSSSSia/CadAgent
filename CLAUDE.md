@@ -23,7 +23,7 @@ pytest tests/test_token_budget.py::test_trim_preserves_system_prompt
 
 测试使用 `importlib.util.spec_from_file_location` 加载导入了 FreeCAD 的模块，从而完全避免 FreeCAD 依赖。部分测试（如 `test_parametric`）在测试文件中复制被测函数以避免导入 FreeCAD 依赖模块。为新模块编写测试时应遵循相同模式。
 
-当前测试文件：`test_react_parser`、`test_token_budget`、`test_chat_renderer`、`test_config`、`test_session`、`test_code_fixes`、`test_geometry_analyzer`、`test_agent_loop`、`test_tool_dispatch`、`test_parametric`、`test_multi_doc_tools`、`test_snapshot`、`test_text_utils`、`test_vision_client`（共 260 个测试）。
+当前测试文件：`test_react_parser`、`test_token_budget`、`test_chat_renderer`、`test_config`、`test_session`、`test_code_fixes`、`test_geometry_analyzer`、`test_agent_loop`、`test_tool_dispatch`、`test_parametric`、`test_multi_doc_tools`、`test_snapshot`、`test_text_utils`、`test_vision_client`、`test_cad_helpers`、`test_quality`、`test_tool_quality_integration`、`test_import_naming`、`test_prompts`（共 488 个测试）。
 
 ## 架构
 
@@ -97,7 +97,8 @@ Agent 循环的核心逻辑拆分为两层：
 | `InitGui.py` | FreeCAD 工作台注册。方法体中**必须使用局部导入**，因为 FreeCAD 通过 `exec()` 加载此文件。 |
 | `agent/loop.py` | 纯逻辑状态机（`AgentLoop`），返回 `LoopAction` 指令。无 Qt/FreeCAD 依赖。 |
 | `agent/controller.py` | 共享状态容器（session + result + mode），供 UI 驱动的 Agent 循环使用。本身不是循环。 |
-| `agent/tools.py` | 5 个工具实现（`_tool_execute_code`、`_tool_undo_last`、`_tool_export_step`、`_tool_capture_view`、`_tool_analyze_image`），在文件末尾通过 `register_tool(name, fn)` 注册。每个工具接收 JSON 参数字符串，返回结果字符串。`execute_code` 执行 validate→exec→hint 流水线（见下文）并在执行前创建快照。含参数化提取和多文档支持。`capture_view` 使用 QBuffer 截取视口截图，`analyze_image` 读取用户上传图片。 |
+| `agent/cad_helpers.py` | 稳定的 CAD 辅助函数（`extract_solid`、`safe_fuse`、`safe_cut`、`make_hollow_cylinder`、`make_ring`、`make_box_handle`、`ensure_doc`），注入 `execute_code` 命名空间供 LLM 生成的代码使用。包装布尔运算等 LLM 常犯错误的模式，对无效几何抛出清晰 ValueError。依赖 FreeCAD，通过 mock 测试。 |
+| `agent/tools.py` | 5 个工具实现（`_tool_execute_code`、`_tool_undo_last`、`_tool_export_step`、`_tool_capture_view`、`_tool_analyze_image`），在文件末尾通过 `register_tool(name, fn)` 注册。每个工具接收 JSON 参数字符串，返回结果字符串。`execute_code` 执行 validate→exec→quality gate→hint 流水线（见下文）并在执行前创建快照。含参数化提取、多文档支持、auto-fix 重试。`capture_view` 使用 QBuffer 截取视口截图，`analyze_image` 读取用户上传图片。 |
 | `agent/tool_dispatch.py` | 纯路由：`register_tool()` 注册、`dispatch_tool()` 按名称查表调用。无 FreeCAD 依赖。 |
 | `agent/tool_defs.py` | OpenAI function calling API 的 JSON Schema 定义（5 个工具）。 |
 | `agent/code_fixes.py` | 代码验证与错误提示：`pre_validate_code()`（compile 检查）、`error_hint()`（按异常类型生成可操作提示）。无 FreeCAD 导入，可独立测试。 |
@@ -107,6 +108,7 @@ Agent 循环的核心逻辑拆分为两层：
 | `core/vision_client.py` | 视觉模型 API 客户端（`analyze_image()`、`image_file_to_base64()`）。使用 OpenAI 兼容的 chat completions API 发送 base64 图片。纯 urllib，无外部依赖。未配置时返回错误提示。 |
 | `core/session.py` | `ChatSession` — 有序消息列表，含 system/user/assistant/tool 角色。含 `parameters` 参数表。支持序列化/反序列化。`session_store.py` 持久化到 `Mod/CadAgent/sessions/`。**首次启动自动迁移旧会话**从 `AppData/Roaming/FreeCAD/v1-1/CadAgent/sessions/`。 |
 | `core/doc_analyzer.py` | 从 FreeCAD 文档提取包围盒、体积、质心、圆柱/圆锥/球体特征、平面、孔阵、对称性等信息。依赖 `geometry_analyzer.py` 做纯数据分析。 |
+| `core/quality.py` | CAD 质量门控：`analyze_document_quality()` 对 FreeCAD 文档执行结构化质量检查，返回 `QualityReport`（pass/fail/warn + 结构化 `QualityIssue` 列表）。两层设计：`analyze_quality_from_infos()` 纯分析（无 FreeCAD 依赖），`analyze_document_quality()` FreeCAD 集成层。检查项：无实体、多实体、Compound 形状、负体积、无效形状、异常尺寸。`format_quality_report()` 格式化为 LLM 可读字符串（`OK:`/`FAIL:`/`WARN:` 前缀）。 |
 | `core/geometry_analyzer.py` | 纯数据结构的几何分析（dataclass），无 FreeCAD 导入。`ShapeInfo`、`FaceInfo` 等数据类。 |
 | `core/text_utils.py` | 文本工具：`strip_markdown()` 移除 Markdown 代码围栏。 |
 | `core/snapshot.py` | 基于 `.FCStd` 文件的撤销栈（最多 10 个）。`take_snapshot()` / `take_snapshot_for_doc()` 在每次 `execute_code` 前调用，`restore_latest_snapshot()` 用于撤销。快照保存在 `Mod/CadAgent/snapshots/`。**首次启动自动迁移旧快照**从 `AppData/Roaming/FreeCAD/v1-1/CadAgent/snapshots/`。 |
@@ -139,12 +141,35 @@ Agent 循环的核心逻辑拆分为两层：
 6. `exec(code, namespace)` — 在受限沙箱中执行：
    - `SAFE_BUILTINS` 白名单（不含 `os`、`sys`、`subprocess`、`open`、`eval`、`exec`）
    - 预注入命名空间：`FreeCAD`、`FreeCADGui`、`Part`、`math`、`doc`（目标或活动文档）。向量使用 `FreeCAD.Vector(...)`。
+   - CAD helper 函数：`extract_solid`、`safe_fuse`、`safe_cut`、`make_hollow_cylinder`、`make_ring`、`make_box_handle`、`ensure_doc`（从 `agent/cad_helpers.py` 导入，供 LLM 代码直接调用）
+   - `_BUILTIN_NAMES` 保护这些注入名称不被 `_save_user_vars` 覆盖
    - 从 `_EXEC_NAMESPACE` 注入前次迭代的变量（含 FreeCAD 形状对象）
 7. 成功时：调用 `analyze_document()` 返回几何分析（包围盒、体积、圆柱特征等）和拓扑警告（如有）
 8. 参数提取：`_extract_parameters(code)` 提取 `UPPER_CASE = number` 参数定义
 9. 出错时：`error_hint(exception, code)` 生成可操作提示
 
 > **注**：`auto_fix_code()`、`_post_exec_validate()`、`_compute_delta()` 已在重构中移除（commit `a276330`、`ac10f22`）。几何分析由 `analyze_document()` 在执行后作为信息性输出提供。
+
+### Quality Gate（质量门控）
+
+Agent 循环包含质量门控机制，阻止 LLM 在 CAD 质量检查失败时结束：
+
+1. **`execute_code` 结果跟踪**：`AgentLoop.handle_tool_results()` 解析每个 `execute_code` 结果的第一行（`OK:`/`FAIL:`/`ERROR:` 前缀），记录 `_last_quality_passed` 状态
+2. **`_check_quality_gate()`**：在 FINISH 前检查。若最后一次 `execute_code` 结果为 FAIL/ERROR 且有文档上下文，返回 `(False, reason)`
+3. **`_quality_gate_block()`**：注入质量反馈消息到会话，返回 CALL_LLM 让 LLM 继续修复
+
+质量检查由 `core/quality.py` 的 `analyze_document_quality()` 在 `execute_code` 成功执行后自动调用。检查内容包括：无实体、多实体未合并、Compound 形状、负体积、无效形状、异常尺寸。结果通过 `format_quality_report()` 格式化为 `OK:`/`FAIL:` 前缀字符串。
+
+### Auto-fix 重试（Phase 5）
+
+当 `execute_code` 出错时，`error_hint()` 可能返回高置信度的自动修复代码。此时会执行一次重试：
+
+1. `restore_latest_snapshot()` 恢复执行前快照
+2. `_clean_stale_namespace_vars()` 清除失效的 FreeCAD 引用
+3. 用修复后的代码重新执行
+4. 重试成功则返回结果（包含 "Auto-fixed" 标记），失败则返回原始错误
+
+重试仅执行一次，避免无限循环。仅对高置信度机械错误（如缺少 `doc.recompute()` 调用）触发。
 
 ## 配置
 
