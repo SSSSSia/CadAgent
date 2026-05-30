@@ -47,6 +47,9 @@ class _MockShape:
     def translate(self, vector):
         self._translated = (vector.x, vector.y, vector.z)
 
+    def rotate(self, center, axis, angle):
+        self._rotated = (center, axis, angle)
+
 
 class _MockVector:
     def __init__(self, x=0, y=0, z=0):
@@ -73,11 +76,15 @@ def _setup_mocks():
     def make_cylinder(r, h):
         return _MockShape("Solid", volume=3.14159 * r * r * h)
 
-    def make_box(x, y, z):
+    def make_box(x, y, z, origin=None):
         return _MockShape("Solid", volume=x * y * z)
+
+    def make_torus(r1, r2):
+        return _MockShape("Solid", volume=2 * 3.14159 * r1 * 3.14159 * r2 * r2)
 
     mock_part.makeCylinder = make_cylinder
     mock_part.makeBox = make_box
+    mock_part.makeTorus = make_torus
 
     sys.modules["FreeCAD"] = mock_freecad
     sys.modules["Part"] = mock_part
@@ -123,6 +130,7 @@ safe_cut = _mod.safe_cut
 make_hollow_cylinder = _mod.make_hollow_cylinder
 make_ring = _mod.make_ring
 make_box_handle = _mod.make_box_handle
+make_arc_handle = _mod.make_arc_handle
 ensure_doc = _mod.ensure_doc
 
 
@@ -291,6 +299,44 @@ class TestMakeBoxHandle:
 
 
 # ===========================================================================
+# make_arc_handle tests
+# ===========================================================================
+
+
+class TestMakeArcHandle:
+
+    def test_basic_creates_shape(self):
+        result = make_arc_handle(40, 6, 25, 50)
+        assert isinstance(result, _MockShape)
+
+    def test_positioning(self):
+        """Verify handle is translated to overlap with cup wall."""
+        result = make_arc_handle(40, 6, 25, 50)
+        assert result._translated == (40, 0, 50)
+
+    def test_rotations_applied(self):
+        """Verify two rotations are applied to orient the arc in XZ plane."""
+        result = make_arc_handle(40, 6, 25, 50)
+        assert hasattr(result, "_rotated")
+
+    def test_negative_handle_r_raises(self):
+        with pytest.raises(ValueError, match="handle_r.*must be positive"):
+            make_arc_handle(40, -1, 25, 50)
+
+    def test_zero_handle_r_raises(self):
+        with pytest.raises(ValueError, match="handle_r.*must be positive"):
+            make_arc_handle(40, 0, 25, 50)
+
+    def test_arc_r_not_greater_than_handle_r_raises(self):
+        with pytest.raises(ValueError, match="arc_r.*must be greater"):
+            make_arc_handle(40, 10, 5, 50)
+
+    def test_arc_r_equals_handle_r_raises(self):
+        with pytest.raises(ValueError, match="arc_r.*must be greater"):
+            make_arc_handle(40, 10, 10, 50)
+
+
+# ===========================================================================
 # ensure_doc tests
 # ===========================================================================
 
@@ -348,7 +394,7 @@ class TestBuiltinNamesCoverage:
         expected = {
             "extract_solid", "safe_fuse", "safe_cut",
             "make_hollow_cylinder", "make_ring", "make_box_handle",
-            "ensure_doc",
+            "make_arc_handle", "ensure_doc",
         }
         for name in expected:
             assert f'"{name}"' in source, (

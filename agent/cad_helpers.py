@@ -130,6 +130,48 @@ def make_box_handle(cup_radius, width, depth, height, z):
     return extract_solid(handle)
 
 
+def make_arc_handle(cup_radius, handle_r, arc_r, z_center):
+    """Create an arc-shaped (half-torus) handle for cup-shaped parts.
+
+    Uses a half-torus to create a smooth curved handle.  The handle
+    connects to the cup at two points (top/bottom) and curves outward.
+    Vertical span ≈ 2 * arc_r;  outward depth ≈ arc_r.
+
+    The inner surface of the handle rod overlaps the cup wall for
+    reliable safe_fuse operations.
+
+    Args:
+        cup_radius: Outer radius of the cup body (mm).
+        handle_r: Cross-section radius of the handle rod (mm).
+        arc_r: Arc radius — controls handle size.  Height ≈ 2*arc_r,
+               depth ≈ arc_r (mm).
+        z_center: Z position of handle vertical center (mm).
+    """
+    if handle_r <= 0:
+        raise ValueError(f"handle_r ({handle_r}) must be positive")
+    if arc_r <= handle_r:
+        raise ValueError(
+            f"arc_r ({arc_r}) must be greater than handle_r ({handle_r})"
+        )
+
+    # Half-torus (180° sweep) around Z axis in XY plane
+    torus = Part.makeTorus(arc_r, handle_r)
+    s = arc_r + handle_r + 1
+    cutter = Part.makeBox(
+        2 * s, s, 2 * (handle_r + 1),
+        FreeCAD.Vector(-s, -s, -(handle_r + 1)),
+    )
+    handle = safe_cut(torus, cutter)
+
+    # Rotate from XY plane into XZ plane, curving in +X direction
+    handle.rotate(FreeCAD.Vector(0, 0, 0), FreeCAD.Vector(0, 0, 1), -90)
+    handle.rotate(FreeCAD.Vector(0, 0, 0), FreeCAD.Vector(1, 0, 0), 90)
+
+    # Position: tube center at connection points sits on the cup wall
+    handle.translate(FreeCAD.Vector(cup_radius, 0, z_center))
+    return extract_solid(handle)
+
+
 def ensure_doc(name=None):
     """Get or create a FreeCAD document.
 

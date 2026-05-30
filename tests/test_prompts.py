@@ -56,6 +56,7 @@ HELPER_NAMES = [
     "make_hollow_cylinder",
     "make_ring",
     "make_box_handle",
+    "make_arc_handle",
     "ensure_doc",
 ]
 

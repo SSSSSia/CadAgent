@@ -38,7 +38,7 @@ summarize or claim completion.
 for vectors, FreeCAD.ActiveDocument for the active document. \
 Do not use aliases such as Gui, App, or bare Vector.
 - Pre-injected helpers: extract_solid, safe_fuse, safe_cut, make_hollow_cylinder, \
-make_ring, make_box_handle, ensure_doc — use these instead of raw boolean + Solids[0]
+make_ring, make_box_handle, make_arc_handle, ensure_doc — use these instead of raw boolean + Solids[0]
 - For new documents: doc = ensure_doc("Design") or FreeCAD.newDocument("Design")
 - Add shapes: obj = doc.addObject("Part::Feature", "Name"); obj.Shape = shape
 - All dimensions in mm. No fillet or chamfer — they cause topology errors.
@@ -74,12 +74,13 @@ CAD Helper Functions (pre-injected, use directly):
 - make_hollow_cylinder(outer_r, inner_r, height, bottom=0) — hollow cup body
 - make_ring(outer_r, inner_r, height) — flat annular ring
 - make_box_handle(cup_radius, width, depth, height, z) — box handle overlapping cup wall
+- make_arc_handle(cup_radius, handle_r, arc_r, z_center) — arc (half-torus) handle for cups
 - ensure_doc(name=None) — get or create document
 
 Example — mug:
   doc = ensure_doc("Mug")
   body = make_hollow_cylinder(40, 35, 90, 5)
-  handle = make_box_handle(40, 12, 45, 55, 22)
+  handle = make_arc_handle(40, 6, 25, 50)
   body = safe_fuse(body, handle)
   rim = make_ring(43, 35, 3)
   rim.translate(FreeCAD.Vector(0, 0, 89))
@@ -143,7 +144,7 @@ summarize or claim completion.
 for vectors, FreeCAD.ActiveDocument for the active document. \
 Do not use aliases such as Gui, App, or bare Vector.
 - Pre-injected helpers: extract_solid, safe_fuse, safe_cut, make_hollow_cylinder, \
-make_ring, make_box_handle, ensure_doc — use these instead of raw boolean + Solids[0]
+make_ring, make_box_handle, make_arc_handle, ensure_doc — use these instead of raw boolean + Solids[0]
 - For new documents: doc = ensure_doc("Design") or FreeCAD.newDocument("Design")
 - Add shapes: obj = doc.addObject("Part::Feature", "Name"); obj.Shape = shape
 - All dimensions in mm. No fillet or chamfer — they cause topology errors.
@@ -179,12 +180,13 @@ CAD Helper Functions (pre-injected, use directly):
 - make_hollow_cylinder(outer_r, inner_r, height, bottom=0) — hollow cup body
 - make_ring(outer_r, inner_r, height) — flat annular ring
 - make_box_handle(cup_radius, width, depth, height, z) — box handle overlapping cup wall
+- make_arc_handle(cup_radius, handle_r, arc_r, z_center) — arc (half-torus) handle for cups
 - ensure_doc(name=None) — get or create document
 
 Example — mug:
   doc = ensure_doc("Mug")
   body = make_hollow_cylinder(40, 35, 90, 5)
-  handle = make_box_handle(40, 12, 45, 55, 22)
+  handle = make_arc_handle(40, 6, 25, 50)
   body = safe_fuse(body, handle)
   rim = make_ring(43, 35, 3)
   rim.translate(FreeCAD.Vector(0, 0, 89))
@@ -211,7 +213,7 @@ STRICT OUTPUT RULES:
 1. Only return valid Python code. No markdown fences. No explanations.
 2. Available modules: FreeCAD, FreeCADGui, Part, math. Do not use aliases.
 3. Pre-injected helpers: extract_solid, safe_fuse, safe_cut, \
-make_hollow_cylinder, make_ring, make_box_handle, ensure_doc — use these \
+make_hollow_cylinder, make_ring, make_box_handle, make_arc_handle, ensure_doc — use these \
 instead of raw boolean + Solids[0]
 4. Create doc: doc = FreeCAD.newDocument("Design")
 5. Build shapes with Part module, add to document:
@@ -245,11 +247,13 @@ CAD Helper Functions (pre-injected, use directly):
 - make_hollow_cylinder(outer_r, inner_r, height, bottom=0) — hollow cup body
 - make_ring(outer_r, inner_r, height) — flat annular ring
 - make_box_handle(cup_radius, width, depth, height, z) — box handle
+- make_arc_handle(cup_radius, handle_r, arc_r, z_center) — arc (half-torus) handle
 - ensure_doc(name=None) — get or create document
 
 QUALITY: Result must be a single manifold solid. Use safe_fuse/safe_cut for \
 boolean ops. Build the simplest valid solid first. Avoid loft, makePipe, sweep \
-in the first pass. For hollow parts: make_hollow_cylinder. For handles: make_box_handle. \
+in the first pass. For hollow parts: make_hollow_cylinder. For handles: make_arc_handle \
+(curved) or make_box_handle (rectangular). \
 For fuse to work, shapes MUST physically overlap by at least 0.5mm.
 
 EXAMPLE - flanged cylinder with bolt holes:
@@ -284,7 +288,7 @@ STRICT OUTPUT RULES:
 1. Only return valid Python code. No markdown fences. No explanations.
 2. Available modules: FreeCAD, FreeCADGui, Part, math. Do not use aliases.
 3. Pre-injected helpers: extract_solid, safe_fuse, safe_cut, \
-make_hollow_cylinder, make_ring, make_box_handle, ensure_doc — use these \
+make_hollow_cylinder, make_ring, make_box_handle, make_arc_handle, ensure_doc — use these \
 instead of raw boolean + Solids[0]
 4. Access existing doc: doc = FreeCAD.ActiveDocument
 5. Find existing objects: Variables from previous execute_code calls persist, reuse them directly.
@@ -314,6 +318,7 @@ CAD Helper Functions (pre-injected, use directly):
 - make_hollow_cylinder(outer_r, inner_r, height, bottom=0) — hollow cup body
 - make_ring(outer_r, inner_r, height) — flat annular ring
 - make_box_handle(cup_radius, width, depth, height, z) — box handle
+- make_arc_handle(cup_radius, handle_r, arc_r, z_center) — arc (half-torus) handle
 - ensure_doc(name=None) — get or create document
 
 QUALITY: Result must be a single manifold solid. Build the simplest valid \
@@ -332,7 +337,7 @@ STRICT OUTPUT RULES:
 1. Only return valid Python code. No markdown fences. No explanations.
 2. Available modules: FreeCAD, FreeCADGui, Part, math. Do not use aliases.
 3. Pre-injected helpers: extract_solid, safe_fuse, safe_cut, \
-make_hollow_cylinder, make_ring, make_box_handle, ensure_doc — use these \
+make_hollow_cylinder, make_ring, make_box_handle, make_arc_handle, ensure_doc — use these \
 instead of raw boolean + Solids[0]
 4. Create NEW doc: doc = FreeCAD.newDocument("Derived")
 5. Build the new part using dimensions from the reference context
@@ -363,6 +368,7 @@ CAD Helper Functions (pre-injected, use directly):
 - make_hollow_cylinder(outer_r, inner_r, height, bottom=0) — hollow cup body
 - make_ring(outer_r, inner_r, height) — flat annular ring
 - make_box_handle(cup_radius, width, depth, height, z) — box handle
+- make_arc_handle(cup_radius, handle_r, arc_r, z_center) — arc (half-torus) handle
 - ensure_doc(name=None) — get or create document
 
 QUALITY: Result must be a single manifold solid. Build the simplest valid \
@@ -381,7 +387,7 @@ STRICT OUTPUT RULES:
 1. Only return valid Python code. No markdown fences. No explanations.
 2. Available modules: FreeCAD, FreeCADGui, Part, math. Do not use aliases.
 3. Pre-injected helpers: extract_solid, safe_fuse, safe_cut, \
-make_hollow_cylinder, make_ring, make_box_handle, ensure_doc — use these \
+make_hollow_cylinder, make_ring, make_box_handle, make_arc_handle, ensure_doc — use these \
 instead of raw boolean + Solids[0]
 4. Create NEW doc: doc = FreeCAD.newDocument("Variant")
 5. Rebuild the same structure with updated dimensions from user request
@@ -412,6 +418,7 @@ CAD Helper Functions (pre-injected, use directly):
 - make_hollow_cylinder(outer_r, inner_r, height, bottom=0) — hollow cup body
 - make_ring(outer_r, inner_r, height) — flat annular ring
 - make_box_handle(cup_radius, width, depth, height, z) — box handle
+- make_arc_handle(cup_radius, handle_r, arc_r, z_center) — arc (half-torus) handle
 - ensure_doc(name=None) — get or create document
 
 QUALITY: Result must be a single manifold solid. Build the simplest valid \

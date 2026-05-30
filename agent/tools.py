@@ -24,7 +24,8 @@ from core.logger import log_info, log_warning, log_error
 from agent.code_fixes import pre_validate_code, error_hint
 from agent.cad_helpers import (
     extract_solid, safe_fuse, safe_cut,
-    make_hollow_cylinder, make_ring, make_box_handle, ensure_doc,
+    make_hollow_cylinder, make_ring, make_box_handle, make_arc_handle,
+    ensure_doc,
 )
 from agent.tool_dispatch import register_tool, dispatch_tool  # noqa: F401
 
@@ -41,7 +42,7 @@ _EXEC_NAMESPACE: dict = {}
 _BUILTIN_NAMES = frozenset({
     "FreeCAD", "FreeCADGui", "Part", "math", "doc", "__builtins__",
     "extract_solid", "safe_fuse", "safe_cut",
-    "make_hollow_cylinder", "make_ring", "make_box_handle", "ensure_doc",
+    "make_hollow_cylinder", "make_ring", "make_box_handle", "make_arc_handle", "ensure_doc",
 })
 
 # Only these types are safe to serialize to disk for session persistence.
@@ -260,6 +261,7 @@ def _tool_execute_code(args_json: str) -> str:
         "make_hollow_cylinder": make_hollow_cylinder,
         "make_ring": make_ring,
         "make_box_handle": make_box_handle,
+        "make_arc_handle": make_arc_handle,
         "ensure_doc": ensure_doc,
     }
     # Inject variables from previous execute_code calls (includes FreeCAD objects)
@@ -417,6 +419,7 @@ def _attempt_auto_fix(
         "make_hollow_cylinder": make_hollow_cylinder,
         "make_ring": make_ring,
         "make_box_handle": make_box_handle,
+        "make_arc_handle": make_arc_handle,
         "ensure_doc": ensure_doc,
     }
     namespace.update(_EXEC_NAMESPACE)
