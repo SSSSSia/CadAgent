@@ -13,7 +13,7 @@ import os
 import time
 
 import FreeCAD
-import FreeCADGui as Gui
+import FreeCADGui
 
 from PySide6 import QtCore, QtWidgets
 
@@ -386,7 +386,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             except Exception as e:
                 log_warning(f"Failed to save document state: {e}")
             try:
-                gui_doc = Gui.activeDocument()
+                gui_doc = FreeCADGui.activeDocument()
                 if gui_doc:
                     view = gui_doc.activeView()
                     if view:

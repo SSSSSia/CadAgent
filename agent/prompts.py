@@ -34,10 +34,11 @@ CRITICAL RULES:
 as the default path.
 - If execute_code returns FAIL or ERROR, fix geometry with execute_code — do NOT \
 summarize or claim completion.
-- Pre-imported: FreeCAD, Part, math, Gui, doc (FreeCAD.ActiveDocument), Vector, App
+- Available modules: FreeCAD, FreeCADGui, Part, math. Use FreeCAD.Vector(...) \
+for vectors, FreeCAD.ActiveDocument for the active document. \
+Do not use aliases such as Gui, App, or bare Vector.
 - Pre-injected helpers: extract_solid, safe_fuse, safe_cut, make_hollow_cylinder, \
 make_ring, make_box_handle, ensure_doc — use these instead of raw boolean + Solids[0]
-- **NEVER use 'FreeCADGui'** — always use the pre-imported 'Gui' instead.
 - For new documents: doc = ensure_doc("Design") or FreeCAD.newDocument("Design")
 - Add shapes: obj = doc.addObject("Part::Feature", "Name"); obj.Shape = shape
 - All dimensions in mm. No fillet or chamfer — they cause topology errors.
@@ -63,7 +64,7 @@ Part API Quick Reference:
 - Part.makeBox(x,y,z), Part.makeCylinder(r,h), Part.makeCone(r1,r2,h)
 - Part.makeSphere(r), Part.makeTorus(r1,r2)
 - Part.Ellipse(): e=Part.Ellipse(); e.MajorRadius=r1; e.MinorRadius=r2; edge=e.toShape()
-- shape.translate(Vector) IN-PLACE, a.cut(b) NEW, a.fuse(b) NEW
+- shape.translate(FreeCAD.Vector) IN-PLACE, a.cut(b) NEW, a.fuse(b) NEW
 - FreeCAD.Vector(x,y,z)
 
 CAD Helper Functions (pre-injected, use directly):
@@ -81,11 +82,12 @@ Example — mug:
   handle = make_box_handle(40, 12, 45, 55, 22)
   body = safe_fuse(body, handle)
   rim = make_ring(43, 35, 3)
-  rim.translate(Vector(0, 0, 89))
+  rim.translate(FreeCAD.Vector(0, 0, 89))
   body = safe_fuse(body, rim)
   obj = doc.addObject("Part::Feature", "Mug")
   obj.Shape = extract_solid(body)
   doc.recompute()
+  FreeCADGui.SendMsgToActiveView("ViewFit")
 
 For holes: for-loop + math.cos/sin + safe_cut. For axisymmetric: wire.revolve().
 
@@ -137,10 +139,11 @@ CRITICAL RULES:
 as the default path.
 - If execute_code returns FAIL or ERROR, fix geometry with execute_code — do NOT \
 summarize or claim completion.
-- Pre-imported: FreeCAD, Part, math, Gui, doc (FreeCAD.ActiveDocument), Vector, App
+- Available modules: FreeCAD, FreeCADGui, Part, math. Use FreeCAD.Vector(...) \
+for vectors, FreeCAD.ActiveDocument for the active document. \
+Do not use aliases such as Gui, App, or bare Vector.
 - Pre-injected helpers: extract_solid, safe_fuse, safe_cut, make_hollow_cylinder, \
 make_ring, make_box_handle, ensure_doc — use these instead of raw boolean + Solids[0]
-- **NEVER use 'FreeCADGui'** — always use the pre-imported 'Gui' instead.
 - For new documents: doc = ensure_doc("Design") or FreeCAD.newDocument("Design")
 - Add shapes: obj = doc.addObject("Part::Feature", "Name"); obj.Shape = shape
 - All dimensions in mm. No fillet or chamfer — they cause topology errors.
@@ -166,7 +169,7 @@ Part API Quick Reference:
 - Part.makeBox(x,y,z), Part.makeCylinder(r,h), Part.makeCone(r1,r2,h)
 - Part.makeSphere(r), Part.makeTorus(r1,r2)
 - Part.Ellipse(): e=Part.Ellipse(); e.MajorRadius=r1; e.MinorRadius=r2; edge=e.toShape()
-- shape.translate(Vector) IN-PLACE, a.cut(b) NEW, a.fuse(b) NEW
+- shape.translate(FreeCAD.Vector) IN-PLACE, a.cut(b) NEW, a.fuse(b) NEW
 - FreeCAD.Vector(x,y,z)
 
 CAD Helper Functions (pre-injected, use directly):
@@ -184,11 +187,12 @@ Example — mug:
   handle = make_box_handle(40, 12, 45, 55, 22)
   body = safe_fuse(body, handle)
   rim = make_ring(43, 35, 3)
-  rim.translate(Vector(0, 0, 89))
+  rim.translate(FreeCAD.Vector(0, 0, 89))
   body = safe_fuse(body, rim)
   obj = doc.addObject("Part::Feature", "Mug")
   obj.Shape = extract_solid(body)
   doc.recompute()
+  FreeCADGui.SendMsgToActiveView("ViewFit")
 
 For holes: for-loop + math.cos/sin + safe_cut. For axisymmetric: wire.revolve().
 
@@ -205,7 +209,7 @@ it as a 3D model.
 
 STRICT OUTPUT RULES:
 1. Only return valid Python code. No markdown fences. No explanations.
-2. Pre-imported: FreeCAD, Part, math, Gui
+2. Available modules: FreeCAD, FreeCADGui, Part, math. Do not use aliases.
 3. Pre-injected helpers: extract_solid, safe_fuse, safe_cut, \
 make_hollow_cylinder, make_ring, make_box_handle, ensure_doc — use these \
 instead of raw boolean + Solids[0]
@@ -225,7 +229,7 @@ Part API:
 - Part.makeCone(r1,r2,h)
 - Part.makeSphere(r)
 - Part.makeTorus(r1,r2)
-- shape.translate(Vector)   IN-PLACE
+- shape.translate(FreeCAD.Vector)   IN-PLACE
 - a.cut(b)                  NEW shape A-B
 - a.fuse(b)                 NEW shape A+B
 - a.common(b)               NEW shape intersection
@@ -278,7 +282,7 @@ CURRENT DOCUMENT CONTEXT:
 
 STRICT OUTPUT RULES:
 1. Only return valid Python code. No markdown fences. No explanations.
-2. Pre-imported: FreeCAD, Part, math, Gui
+2. Available modules: FreeCAD, FreeCADGui, Part, math. Do not use aliases.
 3. Pre-injected helpers: extract_solid, safe_fuse, safe_cut, \
 make_hollow_cylinder, make_ring, make_box_handle, ensure_doc — use these \
 instead of raw boolean + Solids[0]
@@ -298,7 +302,7 @@ Part API:
 - Part.makeCone(r1,r2,h)
 - Part.makeSphere(r)
 - Part.makeTorus(r1,r2)
-- shape.translate(Vector)   IN-PLACE
+- shape.translate(FreeCAD.Vector)   IN-PLACE
 - a.cut(b)                  NEW shape A-B
 - a.fuse(b)                 NEW shape A+B
 - FreeCAD.Vector(x,y,z)
@@ -326,7 +330,7 @@ CURRENT DOCUMENT CONTEXT (reference geometry):
 
 STRICT OUTPUT RULES:
 1. Only return valid Python code. No markdown fences. No explanations.
-2. Pre-imported: FreeCAD, Part, math, Gui
+2. Available modules: FreeCAD, FreeCADGui, Part, math. Do not use aliases.
 3. Pre-injected helpers: extract_solid, safe_fuse, safe_cut, \
 make_hollow_cylinder, make_ring, make_box_handle, ensure_doc — use these \
 instead of raw boolean + Solids[0]
@@ -347,7 +351,7 @@ Part API:
 - Part.makeCone(r1,r2,h)
 - Part.makeSphere(r)
 - Part.makeTorus(r1,r2)
-- shape.translate(Vector)   IN-PLACE
+- shape.translate(FreeCAD.Vector)   IN-PLACE
 - a.cut(b)                  NEW shape A-B
 - a.fuse(b)                 NEW shape A+B
 - FreeCAD.Vector(x,y,z)
@@ -375,7 +379,7 @@ CURRENT DOCUMENT CONTEXT (reference geometry):
 
 STRICT OUTPUT RULES:
 1. Only return valid Python code. No markdown fences. No explanations.
-2. Pre-imported: FreeCAD, Part, math, Gui
+2. Available modules: FreeCAD, FreeCADGui, Part, math. Do not use aliases.
 3. Pre-injected helpers: extract_solid, safe_fuse, safe_cut, \
 make_hollow_cylinder, make_ring, make_box_handle, ensure_doc — use these \
 instead of raw boolean + Solids[0]
@@ -396,7 +400,7 @@ Part API:
 - Part.makeCone(r1,r2,h)
 - Part.makeSphere(r)
 - Part.makeTorus(r1,r2)
-- shape.translate(Vector)   IN-PLACE
+- shape.translate(FreeCAD.Vector)   IN-PLACE
 - a.cut(b)                  NEW shape A-B
 - a.fuse(b)                 NEW shape A+B
 - FreeCAD.Vector(x,y,z)

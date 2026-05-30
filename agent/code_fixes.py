@@ -37,15 +37,24 @@ def error_hint(error: Exception, code: str) -> tuple[str, str | None]:
     _MAKE_FNS = ("makeBox", "makeCylinder", "makeCone", "makeSphere", "makeTorus")
 
     if e_type == "NameError":
-        # Check for FreeCADGui — the pre-imported name is 'Gui'
-        if "FreeCADGui" in e_str or "FreeCADGui" in code:
+        # Check for bare Gui or misspelled FreeCADGui
+        if "'Gui'" in e_str or ("Gui" in code and "FreeCADGui" not in code):
             hints.append(
-                "Hint: 'FreeCADGui' is NOT pre-imported. Use 'Gui' instead. "
-                "Replace all 'FreeCADGui' with 'Gui' in your code."
+                "Hint: 'Gui' is not available as a bare name. "
+                "Use 'FreeCADGui' instead (the official module name). "
+                "Replace 'Gui.' with 'FreeCADGui.' in your code."
             )
-            if "FreeCADGui" in code:
-                fixed_code = code.replace("FreeCADGui", "Gui")
+            if re.search(r'(?<!FreeCAD)\bGui\b', code):
+                fixed_code = re.sub(r'(?<!FreeCAD)\bGui\b', 'FreeCADGui', code)
             # Fall through to check for other issues too
+        elif re.search(r'\bFreecadGUI\b|\bFreeCADgui\b|\bfreecadgui\b', code, re.IGNORECASE):
+            hints.append(
+                "Hint: Use 'FreeCADGui' (exact camelCase) as the module name."
+            )
+            fixed_code = re.sub(
+                r'\bFreecadGUI\b|\bFreeCADgui\b|\bfreecadgui\b',
+                'FreeCADGui', code, flags=re.IGNORECASE
+            )
 
         # Check if the undefined name is a bare Part constructor
         for fn in _MAKE_FNS:
@@ -60,7 +69,8 @@ def error_hint(error: Exception, code: str) -> tuple[str, str | None]:
         if not hints:
             hints.append(
                 "Hint: A variable is used before being defined. "
-                "Pre-imported names: FreeCAD, Part, math, Gui, doc, Vector, App. "
+                "Available modules: FreeCAD, FreeCADGui, Part, math, doc. "
+                "Use FreeCAD.Vector for vectors. "
                 "Make sure you assign the result of each operation to a variable."
             )
 

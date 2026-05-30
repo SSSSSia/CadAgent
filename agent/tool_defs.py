@@ -12,7 +12,7 @@ TOOL_DEFINITIONS = [
             "name": "execute_code",
             "description": (
                 "Execute FreeCAD Python code to create or modify 3D geometry. "
-                "FreeCAD, Part, math, Gui are pre-imported. "
+                "FreeCAD, FreeCADGui, Part, math are pre-imported. "
                 "CAD helpers are pre-injected: extract_solid, safe_fuse, safe_cut, "
                 "make_hollow_cylinder, make_ring, make_box_handle, ensure_doc. "
                 "Variables persist between calls — reuse them directly."
@@ -24,7 +24,7 @@ TOOL_DEFINITIONS = [
                         "type": "string",
                         "description": (
                             "FreeCAD Python code. "
-                            "Pre-imported: FreeCAD, Part, math, Gui. "
+                            "Pre-imported: FreeCAD, FreeCADGui, Part, math. "
                             "Pre-injected helpers: extract_solid, safe_fuse, safe_cut, "
                             "make_hollow_cylinder, make_ring, make_box_handle, ensure_doc."
                         )

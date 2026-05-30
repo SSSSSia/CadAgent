@@ -48,19 +48,18 @@ def test_syntax_error_bad_indent():
 def test_name_error_hint():
     err = NameError("name 'doc' is not defined")
     hint, fixed = error_hint(err, "doc.recompute()")
-    assert "Pre-imported" in hint
+    assert "FreeCADGui" in hint
     assert "doc" in hint
     assert fixed is None
 
 
-def test_name_error_freecadgui_auto_fix():
-    err = NameError("name 'FreeCADGui' is not defined")
-    hint, fixed = error_hint(err, "FreeCADGui.updateGui()")
-    assert "Gui" in hint
+def test_name_error_bare_gui_auto_fix():
+    err = NameError("name 'Gui' is not defined")
+    hint, fixed = error_hint(err, "Gui.updateGui()")
     assert "FreeCADGui" in hint
     assert fixed is not None
-    assert "FreeCADGui" not in fixed
-    assert "Gui.updateGui()" in fixed
+    assert "FreeCADGui.updateGui()" in fixed
+    assert "Gui." not in fixed.replace("FreeCADGui.", "")
 
 
 def test_name_error_bare_makebox_auto_fix():
@@ -74,7 +73,7 @@ def test_name_error_bare_makebox_auto_fix():
 
 def test_attribute_error_none_translate():
     err = AttributeError("'NoneType' object has no attribute 'Shape'")
-    hint, fixed = error_hint(err, "shape = shape.translate(Vector(1,2,3))")
+    hint, fixed = error_hint(err, "shape = shape.translate(FreeCAD.Vector(1,2,3))")
     assert "translate" in hint
     assert fixed is not None
     assert "shape = shape.translate" not in fixed

@@ -15,7 +15,7 @@ import re
 import traceback
 
 import FreeCAD
-import FreeCADGui as Gui
+import FreeCADGui
 import Part
 import math
 
@@ -39,11 +39,9 @@ _PARAM_STORE: dict[str, float | int] = {}
 # variables (including FreeCAD shapes) defined in earlier iterations.
 _EXEC_NAMESPACE: dict = {}
 _BUILTIN_NAMES = frozenset({
-    "FreeCAD", "Part", "math", "Gui", "doc", "Vector", "App",
-    "pi", "sin", "cos", "sqrt", "__builtins__",
+    "FreeCAD", "FreeCADGui", "Part", "math", "doc", "__builtins__",
     "extract_solid", "safe_fuse", "safe_cut",
     "make_hollow_cylinder", "make_ring", "make_box_handle", "ensure_doc",
-    "FreeCADGui",
 })
 
 # Only these types are safe to serialize to disk for session persistence.
@@ -224,17 +222,11 @@ def _tool_execute_code(args_json: str) -> str:
 
     namespace = {
         "FreeCAD": FreeCAD,
+        "FreeCADGui": FreeCADGui,
         "Part": Part,
         "math": math,
-        "Gui": Gui,
         "doc": target_doc if target_doc else FreeCAD.ActiveDocument,
         "__builtins__": SAFE_BUILTINS,
-        "Vector": FreeCAD.Vector,
-        "App": FreeCAD,
-        "pi": math.pi,
-        "sin": math.sin,
-        "cos": math.cos,
-        "sqrt": math.sqrt,
         "extract_solid": extract_solid,
         "safe_fuse": safe_fuse,
         "safe_cut": safe_cut,
@@ -242,7 +234,6 @@ def _tool_execute_code(args_json: str) -> str:
         "make_ring": make_ring,
         "make_box_handle": make_box_handle,
         "ensure_doc": ensure_doc,
-        "FreeCADGui": Gui,
     }
     # Inject variables from previous execute_code calls (includes FreeCAD objects)
     namespace.update(_EXEC_NAMESPACE)
@@ -425,7 +416,7 @@ def _tool_capture_view(args_json: str) -> str:
         "looks correct."
     )
 
-    gui_doc = Gui.activeDocument()
+    gui_doc = FreeCADGui.activeDocument()
     if gui_doc is None:
         return "ERROR: No active 3D view to capture. Open a document first."
 
@@ -477,7 +468,7 @@ def _tool_capture_view(args_json: str) -> str:
         if pixmap is None:
             try:
                 from PySide6 import QtWidgets
-                main_window = Gui.getMainWindow()
+                main_window = FreeCADGui.getMainWindow()
                 mdi_area = main_window.findChild(QtWidgets.QMdiArea)
                 if mdi_area and mdi_area.activeSubWindow():
                     widget = mdi_area.activeSubWindow().widget()

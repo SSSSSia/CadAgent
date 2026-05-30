@@ -151,7 +151,7 @@ class SnapshotManager:
             return "ERROR: No snapshot available to restore."
 
         import FreeCAD
-        import FreeCADGui as Gui
+        import FreeCADGui
 
         snapshot_path = entry["path"]
         doc_name = entry["doc_name"]
@@ -171,7 +171,7 @@ class SnapshotManager:
                 restored_doc.FileName = original_path
 
             try:
-                gui_doc = Gui.activeDocument()
+                gui_doc = FreeCADGui.activeDocument()
                 if gui_doc:
                     view = gui_doc.activeView()
                     if view:

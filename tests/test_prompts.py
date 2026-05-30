@@ -94,7 +94,10 @@ class TestPromptForbiddenContent:
         ("makePipe(profile)", "makePipe as default handle solution"),
         ("wire.makePipe()", "makePipe in wire context"),
         ("NEVER use makeBox for handles", "anti-makeBox rule"),
-        ("FreeCADGui (as Gui)", "confusing legacy import wording"),
+        ("NEVER use 'FreeCADGui'", "anti-FreeCADGui rule — now the official name"),
+        ("Pre-imported: FreeCAD, Part, math, Gui", "old alias-based pre-import list"),
+        ("import FreeCADGui as Gui", "import alias for FreeCADGui"),
+        ("rim.translate(Vector(", "bare Vector in example code"),
     ]
 
     @pytest.mark.parametrize("name,prompt", list(ALL_PROMPTS.items()))

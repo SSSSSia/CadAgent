@@ -138,7 +138,7 @@ Agent 循环的核心逻辑拆分为两层：
 5. `take_snapshot()` — 执行前创建快照（支持撤销）
 6. `exec(code, namespace)` — 在受限沙箱中执行：
    - `SAFE_BUILTINS` 白名单（不含 `os`、`sys`、`subprocess`、`open`、`eval`、`exec`）
-   - 预注入命名空间：`FreeCAD`、`Part`、`math`、`Gui`、`doc`（目标或活动文档）、`Vector`、`App`、`pi`、`sin`、`cos`、`sqrt`
+   - 预注入命名空间：`FreeCAD`、`FreeCADGui`、`Part`、`math`、`doc`（目标或活动文档）。向量使用 `FreeCAD.Vector(...)`。
    - 从 `_EXEC_NAMESPACE` 注入前次迭代的变量（含 FreeCAD 形状对象）
 7. 成功时：调用 `analyze_document()` 返回几何分析（包围盒、体积、圆柱特征等）和拓扑警告（如有）
 8. 参数提取：`_extract_parameters(code)` 提取 `UPPER_CASE = number` 参数定义
