@@ -48,6 +48,14 @@ _BUILTIN_NAMES = frozenset({
 # Only these types are safe to serialize to disk for session persistence.
 _PERSISTABLE_TYPES = (int, float, str, bool, type(None))
 
+# Loop temporaries that LLM-generated code commonly uses — excluded from
+# session persistence because they are meaningless across sessions.
+_LOOP_TEMPORARY_NAMES = frozenset({
+    "i", "j", "k", "n", "idx", "count",
+    "x", "y", "z", "dx", "dy", "dz",
+    "r", "t", "angle", "s",
+})
+
 _PARAM_PATTERN = re.compile(r'^([A-Z][A-Z0-9_]*)\s*=\s*([-+]?[\d.]+)\s*$')
 
 
@@ -98,9 +106,14 @@ def get_persistent_vars() -> dict:
     """Return serializable subset of exec namespace (for session persistence to disk).
 
     FreeCAD C++ objects are excluded — they can't be serialized and would be
-    stale after deserialization. Only primitive types survive disk round-trips.
+    stale after deserialization. Loop temporaries (i, x, z, angle, etc.) are
+    also excluded to avoid polluting new sessions with meaningless values.
+    Only primitive types with meaningful names survive disk round-trips.
     """
-    return {k: v for k, v in _EXEC_NAMESPACE.items() if isinstance(v, _PERSISTABLE_TYPES)}
+    return {
+        k: v for k, v in _EXEC_NAMESPACE.items()
+        if isinstance(v, _PERSISTABLE_TYPES) and k not in _LOOP_TEMPORARY_NAMES
+    }
 
 
 def set_persistent_vars(vars: dict) -> None:

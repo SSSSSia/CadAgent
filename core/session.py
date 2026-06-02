@@ -15,6 +15,8 @@ from datetime import datetime
 class ChatSession:
     """一次完整的设计会话，包含多轮 Agent 交互。"""
 
+    SESSION_VERSION = 1  # Bump when serialization format changes
+
     def __init__(self):
         self.session_id = uuid.uuid4().hex[:12]
         self.created_at = datetime.now().isoformat()
@@ -26,6 +28,7 @@ class ChatSession:
         self.parametric_code: str = ""
         self.persistent_vars: dict = {}
         self._system_prompt: str = ""
+        self._version: int = self.SESSION_VERSION
 
     def set_system_prompt(self, prompt: str):
         """设置 system prompt（只在第一次或新建会话时调用）。"""
@@ -97,6 +100,7 @@ class ChatSession:
     def to_dict(self) -> dict:
         """序列化为字典（用于持久化）。"""
         return {
+            "version": self._version,
             "session_id": self.session_id,
             "created_at": self.created_at,
             "summary": self.summary,
@@ -112,6 +116,7 @@ class ChatSession:
     def from_dict(cls, data: dict) -> ChatSession:
         """从字典反序列化。"""
         session = cls.__new__(cls)
+        session._version = data.get("version", 0)  # 0 = legacy format
         session.session_id = data.get("session_id", uuid.uuid4().hex[:12])
         session.created_at = data.get("created_at", datetime.now().isoformat())
         session.messages = data.get("messages", [])

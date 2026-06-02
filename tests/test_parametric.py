@@ -137,3 +137,61 @@ class TestSessionParameters:
         s.clear()
         assert len(s.messages) == 1
         assert s.messages[0]["role"] == "system"
+
+
+# ---------------------------------------------------------------------------
+# Tests for loop-temporary filtering in get_persistent_vars
+# Replicate the pure logic here to avoid importing agent/tools.py (FreeCAD).
+# ---------------------------------------------------------------------------
+
+_LOOP_TEMPORARY_NAMES = frozenset({
+    "i", "j", "k", "n", "idx", "count",
+    "x", "y", "z", "dx", "dy", "dz",
+    "r", "t", "angle", "s",
+})
+
+_PERSISTABLE_TYPES = (int, float, str, bool, type(None))
+
+
+def _filter_persistent_vars(namespace: dict) -> dict:
+    """Replica of get_persistent_vars filtering logic."""
+    return {
+        k: v for k, v in namespace.items()
+        if isinstance(v, _PERSISTABLE_TYPES) and k not in _LOOP_TEMPORARY_NAMES
+    }
+
+
+class TestPersistentVarsFilter:
+    def test_excludes_loop_temporaries(self):
+        ns = {"i": 1, "x": 2.0, "angle": 45, "t": 0.5, "r": 10}
+        result = _filter_persistent_vars(ns)
+        assert result == {}
+
+    def test_includes_named_vars(self):
+        ns = {"outer_radius": 40.0, "cup_height": 100, "wall_thickness": 2.5}
+        result = _filter_persistent_vars(ns)
+        assert result == ns
+
+    def test_mixed_vars_filters_only_temporaries(self):
+        ns = {
+            "outer_radius": 40.0,
+            "i": 3,
+            "height": 100,
+            "angle": 1.57,
+            "base_thickness": 5,
+            "z": 10.0,
+        }
+        result = _filter_persistent_vars(ns)
+        assert result == {"outer_radius": 40.0, "height": 100, "base_thickness": 5}
+
+    def test_excludes_non_persistable_types(self):
+        ns = {"outer_radius": 40.0, "shape": object(), "data": [1, 2, 3]}
+        result = _filter_persistent_vars(ns)
+        assert result == {"outer_radius": 40.0}
+
+    def test_empty_namespace(self):
+        assert _filter_persistent_vars({}) == {}
+
+    def test_all_temporaries_filtered(self):
+        ns = {k: 1 for k in _LOOP_TEMPORARY_NAMES}
+        assert _filter_persistent_vars(ns) == {}

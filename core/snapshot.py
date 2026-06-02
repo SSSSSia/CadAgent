@@ -2,6 +2,8 @@
 
 Saves .FCStd snapshots before each execute_code call.
 Maintains a bounded stack of snapshots (max 10) with automatic cleanup.
+Each snapshot is tagged with a session_id so they can be cleaned up
+when a session is deleted or switched.
 """
 from __future__ import annotations
 
@@ -25,6 +27,13 @@ class SnapshotManager:
         self._stack: list[dict] = []
         self._orphan_cleaned: bool = False
         self._max_snapshots: int = max_snapshots or _config.MAX_SNAPSHOTS
+        self._session_id: str | None = None
+
+    # --- Session ID ---
+
+    def set_session_id(self, session_id: str | None) -> None:
+        """Set the current session ID for tagging new snapshots."""
+        self._session_id = session_id
 
     # --- Snapshot directory ---
 
@@ -63,8 +72,13 @@ class SnapshotManager:
 
     # --- Orphan cleanup ---
 
-    def cleanup_orphans(self) -> None:
-        """Remove orphan snapshot files older than 24 hours from disk."""
+    def cleanup_orphans(self, max_age_seconds: int = 3600) -> None:
+        """Remove orphan snapshot files older than max_age_seconds from disk.
+
+        Defaults to 1 hour — snapshots are transient undo files.  Runs at
+        most once per SnapshotManager lifetime to avoid repeated directory
+        scans.
+        """
         if self._orphan_cleaned:
             return
         self._orphan_cleaned = True
@@ -80,7 +94,7 @@ class SnapshotManager:
             if path in known_paths:
                 continue
             try:
-                if now - os.path.getmtime(path) > 86400:
+                if now - os.path.getmtime(path) > max_age_seconds:
                     os.remove(path)
                     log_warning(f"Cleaned orphan snapshot: {f}")
             except OSError:
@@ -109,7 +123,17 @@ class SnapshotManager:
 
         self._counter += 1
         snap_dir = self.get_snapshot_dir()
-        snapshot_filename = f"{doc.Name}_{self._counter:04d}_{int(time.time())}.FCStd"
+
+        # Embed session_id in filename when available for targeted cleanup.
+        if self._session_id:
+            snapshot_filename = (
+                f"{doc.Name}_{self._counter:04d}"
+                f"_{self._session_id}_{int(time.time())}.FCStd"
+            )
+        else:
+            snapshot_filename = (
+                f"{doc.Name}_{self._counter:04d}_{int(time.time())}.FCStd"
+            )
         snapshot_path = os.path.join(snap_dir, snapshot_filename)
 
         doc.saveAs(snapshot_path)
@@ -124,6 +148,7 @@ class SnapshotManager:
             "path": snapshot_path,
             "doc_name": doc.Name,
             "original_path": original_path,
+            "session_id": self._session_id,
             "time": time.time(),
         })
 
@@ -200,6 +225,27 @@ class SnapshotManager:
         self._stack.clear()
         self._counter = 0
 
+    def cleanup_for_session(self, session_id: str) -> int:
+        """Remove snapshot entries (and disk files) for a given session.
+
+        Entries without a session_id (legacy snapshots) are preserved.
+        Returns the number of entries removed.
+        """
+        remaining: list[dict] = []
+        removed = 0
+        for entry in self._stack:
+            if entry.get("session_id") == session_id:
+                try:
+                    if os.path.isfile(entry["path"]):
+                        os.remove(entry["path"])
+                except OSError as e:
+                    log_warning(f"Failed to delete snapshot {entry['path']}: {e}")
+                removed += 1
+            else:
+                remaining.append(entry)
+        self._stack = remaining
+        return removed
+
     # --- Internal ---
 
     def _cleanup_old(self) -> None:
@@ -247,3 +293,13 @@ def cleanup_all_snapshots() -> None:
 def take_snapshot_for_doc(doc) -> str | None:
     """Take a snapshot of a specific document (not necessarily active)."""
     return _default_manager.take(doc)
+
+
+def set_snapshot_session_id(session_id: str | None) -> None:
+    """Set the current session ID on the default snapshot manager."""
+    _default_manager.set_session_id(session_id)
+
+
+def cleanup_session_snapshots(session_id: str) -> int:
+    """Remove snapshots associated with a session from the default manager."""
+    return _default_manager.cleanup_for_session(session_id)

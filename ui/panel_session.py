@@ -30,15 +30,16 @@ class _PanelSessionMixin:
     def _on_session_selected(self, index):
         self.btn_delete_session.setEnabled(index > 0)
         if index <= 0:
+            # Bug 2 fix: use _sync_all_state to clear all three layers
+            # (previously only cleared persistent_vars, missing snapshots & params)
             if self._llm_thread and self._llm_thread.isRunning():
                 self._refresh_session_list()
                 return
             self._store.save_if_not_empty(self._session)
-            from agent.tools import clear_persistent_vars
-            clear_persistent_vars()
             from core.session import ChatSession
             self._session = ChatSession()
             self._current_session_id = self._session.session_id
+            self._sync_all_state(new_session_id=self._session.session_id)
             self._mode = "auto"
             self._controller = None
             self._loop = None
@@ -61,8 +62,11 @@ class _PanelSessionMixin:
             self._refresh_session_list()
             return
         self._store.save_if_not_empty(self._session)
-        from agent.tools import clear_persistent_vars
-        clear_persistent_vars()
+
+        # Bug 1 fix: clear ALL state layers (including snapshot stack)
+        # before loading the new session so undo doesn't restore wrong-session snapshots.
+        self._sync_all_state()
+
         loaded = self._store.load(session_id)
         if loaded is None:
             self._append_system_msg("加载会话失败。")
@@ -71,6 +75,10 @@ class _PanelSessionMixin:
         self._session = loaded
         self._current_session_id = loaded.session_id
         self._mode = loaded.last_mode
+
+        # Tag new snapshots with this session's ID
+        from core.snapshot import set_snapshot_session_id
+        set_snapshot_session_id(loaded.session_id)
 
         # Sync parameters and persistent vars from loaded session to tool store
         if loaded.parameters:
@@ -176,12 +184,15 @@ class _PanelSessionMixin:
             self._append_system_msg("Failed to delete session.")
             return
 
+        # Bug 8 fix: clean up snapshots associated with deleted session
+        from core.snapshot import cleanup_session_snapshots
+        cleanup_session_snapshots(session_id)
+
         if is_active:
-            from agent.tools import clear_persistent_vars
-            clear_persistent_vars()
             from core.session import ChatSession
             self._session = ChatSession()
             self._current_session_id = self._session.session_id
+            self._sync_all_state(new_session_id=self._session.session_id)
             self._controller = None
             self._loop = None
             self._streaming_text = ""

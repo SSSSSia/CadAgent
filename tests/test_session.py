@@ -160,3 +160,38 @@ class TestSerialization:
         }
         s = ChatSession.from_dict(d)
         assert s._system_prompt == "my prompt"
+
+
+class TestVersion:
+    def test_to_dict_has_version(self):
+        s = ChatSession()
+        d = s.to_dict()
+        assert "version" in d
+        assert d["version"] == 1
+
+    def test_new_session_has_current_version(self):
+        s = ChatSession()
+        assert s._version == ChatSession.SESSION_VERSION
+
+    def test_from_dict_old_format_defaults_version(self):
+        d = {"session_id": "abc123", "messages": []}
+        s = ChatSession.from_dict(d)
+        assert s._version == 0
+
+    def test_from_dict_with_version(self):
+        d = {"version": 2, "session_id": "abc123", "messages": []}
+        s = ChatSession.from_dict(d)
+        assert s._version == 2
+
+    def test_round_trip_preserves_version(self):
+        s = ChatSession()
+        d = s.to_dict()
+        s2 = ChatSession.from_dict(d)
+        assert s2._version == s._version
+
+    def test_clear_does_not_change_session_id(self):
+        s = ChatSession()
+        original_id = s.session_id
+        s.add_user_message("hi")
+        s.clear()
+        assert s.session_id == original_id

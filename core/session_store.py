@@ -132,3 +132,24 @@ class SessionStore:
         if not any(m.get("role") == "user" for m in session.messages):
             return ""
         return self.save(session)
+
+    def cleanup_session_snapshots(self, session_id: str) -> int:
+        """Remove snapshot files associated with a session from disk.
+
+        Scans the snapshots/ directory for files whose names contain the
+        session_id (format: {doc}_{counter}_{session_id}_{timestamp}.FCStd).
+        Returns the number of files removed.
+        """
+        from core.snapshot import SnapshotManager
+        snap_dir = SnapshotManager.get_snapshot_dir()
+        removed = 0
+        if not os.path.isdir(snap_dir):
+            return removed
+        for f in os.listdir(snap_dir):
+            if f.endswith(".FCStd") and session_id in f:
+                try:
+                    os.remove(os.path.join(snap_dir, f))
+                    removed += 1
+                except OSError:
+                    pass
+        return removed

@@ -167,3 +167,148 @@ def test_module_has_snapshot_empty():
 
 def test_module_snapshot_count():
     assert _mod.snapshot_count() == 0
+
+
+# ---- Session ID support ----
+
+def test_session_id_defaults_none():
+    m = SnapshotManager()
+    assert m._session_id is None
+
+
+def test_set_session_id():
+    m = SnapshotManager()
+    m.set_session_id("abc123")
+    assert m._session_id == "abc123"
+
+
+def test_set_session_id_none_resets():
+    m = SnapshotManager()
+    m.set_session_id("abc123")
+    m.set_session_id(None)
+    assert m._session_id is None
+
+
+def test_cleanup_for_session_removes_matching():
+    m = SnapshotManager(max_snapshots=10)
+    tmpdir = tempfile.mkdtemp()
+    # Add entries for session "aaa"
+    for i in range(3):
+        path = os.path.join(tmpdir, f"snap_aaa_{i}.FCStd")
+        with open(path, "w") as f:
+            f.write(f"snapshot {i}")
+        m._stack.append({
+            "path": path,
+            "doc_name": "test_doc",
+            "original_path": "",
+            "session_id": "aaa",
+            "time": float(i),
+        })
+    # Add entry for session "bbb"
+    path_b = os.path.join(tmpdir, f"snap_bbb_0.FCStd")
+    with open(path_b, "w") as f:
+        f.write("snapshot b")
+    m._stack.append({
+        "path": path_b,
+        "doc_name": "test_doc",
+        "original_path": "",
+        "session_id": "bbb",
+        "time": 10.0,
+    })
+    # Add legacy entry (no session_id)
+    path_legacy = os.path.join(tmpdir, f"snap_legacy.FCStd")
+    with open(path_legacy, "w") as f:
+        f.write("legacy snapshot")
+    m._stack.append({
+        "path": path_legacy,
+        "doc_name": "test_doc",
+        "original_path": "",
+        "session_id": None,
+        "time": 0.0,
+    })
+
+    assert m.count() == 5
+    removed = m.cleanup_for_session("aaa")
+    assert removed == 3
+    assert m.count() == 2
+
+    # aaa files should be deleted
+    for i in range(3):
+        assert not os.path.isfile(os.path.join(tmpdir, f"snap_aaa_{i}.FCStd"))
+    # bbb and legacy should survive
+    assert os.path.isfile(path_b)
+    assert os.path.isfile(path_legacy)
+
+    # Cleanup
+    for p in [path_b, path_legacy]:
+        os.remove(p)
+    os.rmdir(tmpdir)
+
+
+def test_cleanup_for_session_preserves_no_id_entries():
+    m = SnapshotManager(max_snapshots=10)
+    tmpdir = tempfile.mkdtemp()
+    path = os.path.join(tmpdir, "snap_old.FCStd")
+    with open(path, "w") as f:
+        f.write("old snapshot")
+    m._stack.append({
+        "path": path,
+        "doc_name": "test_doc",
+        "original_path": "",
+        "session_id": None,
+        "time": 0.0,
+    })
+    removed = m.cleanup_for_session("some_session")
+    assert removed == 0
+    assert m.count() == 1
+    assert os.path.isfile(path)
+    os.remove(path)
+    os.rmdir(tmpdir)
+
+
+def test_cleanup_for_session_nonexistent_id():
+    m = SnapshotManager()
+    removed = m.cleanup_for_session("nonexistent")
+    assert removed == 0
+
+
+# ---- Module-level session functions ----
+
+def test_module_set_snapshot_session_id():
+    _mod.set_snapshot_session_id("test123")
+    assert _mod._default_manager._session_id == "test123"
+    _mod.set_snapshot_session_id(None)  # reset
+
+
+def test_module_cleanup_session_snapshots():
+    assert callable(_mod.cleanup_session_snapshots)
+
+
+# ---- Orphan cleanup threshold ----
+
+def test_cleanup_orphans_default_1h():
+    m = SnapshotManager()
+    tmpdir = tempfile.mkdtemp()
+    # Create a file "older" than 1 hour by backdating mtime
+    import time as _time
+    old_path = os.path.join(tmpdir, "old_orphan.FCStd")
+    with open(old_path, "w") as f:
+        f.write("old")
+    # Set mtime to 2 hours ago
+    two_hours_ago = _time.time() - 7200
+    os.utime(old_path, (two_hours_ago, two_hours_ago))
+
+    # Create a recent file (should survive)
+    recent_path = os.path.join(tmpdir, "recent_orphan.FCStd")
+    with open(recent_path, "w") as f:
+        f.write("recent")
+
+    # Override get_snapshot_dir to use tmpdir
+    m.get_snapshot_dir = lambda: tmpdir
+    m.cleanup_orphans()
+
+    assert not os.path.isfile(old_path)   # >1h old, removed
+    assert os.path.isfile(recent_path)     # recent, kept
+
+    os.remove(recent_path)
+    os.rmdir(tmpdir)

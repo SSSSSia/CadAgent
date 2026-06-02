@@ -127,10 +127,9 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
 
     def __init__(self, parent=None):
         super().__init__("CadAgent", parent)
-        from agent.tools import clear_persistent_vars
-        clear_persistent_vars()
         self._session = ChatSession()
         self._current_session_id = self._session.session_id
+        self._sync_all_state(new_session_id=self._session.session_id)
         self._controller = None
         self._loop: AgentLoop | None = None
         self._mode = "auto"
@@ -155,6 +154,23 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         from ui.theme import get_theme_colors
         self._theme_colors = get_theme_colors()
         self._apply_dynamic_styles()
+
+    # ---- Session lifecycle: unified state synchronization ----
+
+    def _sync_all_state(self, new_session_id=None):
+        """Synchronize all three state layers for a session transition.
+
+        Clears persistent vars, param store, and snapshots in one place.
+        Every lifecycle method (new, switch, delete, close) should call
+        this instead of doing partial cleanup.
+        """
+        from agent.tools import clear_persistent_vars, set_param_store
+        from core.snapshot import cleanup_all_snapshots, set_snapshot_session_id
+        clear_persistent_vars()
+        set_param_store({})
+        cleanup_all_snapshots()
+        if new_session_id:
+            set_snapshot_session_id(new_session_id)
 
     # ---- Event filter for multi-line input ----
 
@@ -439,12 +455,9 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             self._llm_thread.quit()
             self._llm_thread.wait(3000)
         self._store.save_if_not_empty(self._session)
-        from agent.tools import clear_persistent_vars
-        clear_persistent_vars()
-        from core.snapshot import cleanup_all_snapshots
-        cleanup_all_snapshots()
         self._session = ChatSession()
         self._current_session_id = self._session.session_id
+        self._sync_all_state(new_session_id=self._session.session_id)
         self._controller = None
         self._loop = None
         self._streaming_text = ""
@@ -528,4 +541,6 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
 
     def closeEvent(self, event):
         self._store.save_current_on_close(self._session)
+        from core.snapshot import cleanup_all_snapshots
+        cleanup_all_snapshots()
         super().closeEvent(event)

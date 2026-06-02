@@ -23,7 +23,7 @@ pytest tests/test_token_budget.py::test_trim_preserves_system_prompt
 
 测试使用 `importlib.util.spec_from_file_location` 加载导入了 FreeCAD 的模块，从而完全避免 FreeCAD 依赖。部分测试（如 `test_parametric`）在测试文件中复制被测函数以避免导入 FreeCAD 依赖模块。为新模块编写测试时应遵循相同模式。
 
-当前测试文件：`test_react_parser`、`test_token_budget`、`test_chat_renderer`、`test_config`、`test_session`、`test_code_fixes`、`test_geometry_analyzer`、`test_agent_loop`、`test_tool_dispatch`、`test_parametric`、`test_multi_doc_tools`、`test_snapshot`、`test_text_utils`、`test_vision_client`、`test_cad_helpers`、`test_quality`、`test_tool_quality_integration`、`test_import_naming`、`test_prompts`（共 488 个测试）。
+当前测试文件：`test_react_parser`、`test_token_budget`、`test_chat_renderer`、`test_config`、`test_session`、`test_code_fixes`、`test_geometry_analyzer`、`test_agent_loop`、`test_tool_dispatch`、`test_parametric`、`test_multi_doc_tools`、`test_snapshot`、`test_text_utils`、`test_vision_client`、`test_cad_helpers`、`test_quality`、`test_tool_quality_integration`、`test_import_naming`、`test_prompts`（共 506 个测试）。
 
 ## 架构
 
@@ -97,7 +97,7 @@ Agent 循环的核心逻辑拆分为两层：
 | `InitGui.py` | FreeCAD 工作台注册。方法体中**必须使用局部导入**，因为 FreeCAD 通过 `exec()` 加载此文件。 |
 | `agent/loop.py` | 纯逻辑状态机（`AgentLoop`），返回 `LoopAction` 指令。无 Qt/FreeCAD 依赖。 |
 | `agent/controller.py` | 共享状态容器（session + result + mode），供 UI 驱动的 Agent 循环使用。本身不是循环。 |
-| `agent/cad_helpers.py` | 稳定的 CAD 辅助函数（`extract_solid`、`safe_fuse`、`safe_cut`、`make_hollow_cylinder`、`make_ring`、`make_box_handle`、`ensure_doc`），注入 `execute_code` 命名空间供 LLM 生成的代码使用。包装布尔运算等 LLM 常犯错误的模式，对无效几何抛出清晰 ValueError。依赖 FreeCAD，通过 mock 测试。 |
+| `agent/cad_helpers.py` | 稳定的 CAD 辅助函数（`extract_solid`、`safe_fuse`、`safe_cut`、`make_hollow_cylinder`、`make_ring`、`make_box_handle`、`make_arc_handle`、`ensure_doc`），注入 `execute_code` 命名空间供 LLM 生成的代码使用。包装布尔运算等 LLM 常犯错误的模式，对无效几何抛出清晰 ValueError。依赖 FreeCAD，通过 mock 测试。 |
 | `agent/tools.py` | 5 个工具实现（`_tool_execute_code`、`_tool_undo_last`、`_tool_export_step`、`_tool_capture_view`、`_tool_analyze_image`），在文件末尾通过 `register_tool(name, fn)` 注册。每个工具接收 JSON 参数字符串，返回结果字符串。`execute_code` 执行 validate→exec→quality gate→hint 流水线（见下文）并在执行前创建快照。含参数化提取、多文档支持、auto-fix 重试。`capture_view` 使用 QBuffer 截取视口截图，`analyze_image` 读取用户上传图片。 |
 | `agent/tool_dispatch.py` | 纯路由：`register_tool()` 注册、`dispatch_tool()` 按名称查表调用。无 FreeCAD 依赖。 |
 | `agent/tool_defs.py` | OpenAI function calling API 的 JSON Schema 定义（5 个工具）。 |
@@ -141,7 +141,7 @@ Agent 循环的核心逻辑拆分为两层：
 6. `exec(code, namespace)` — 在受限沙箱中执行：
    - `SAFE_BUILTINS` 白名单（不含 `os`、`sys`、`subprocess`、`open`、`eval`、`exec`）
    - 预注入命名空间：`FreeCAD`、`FreeCADGui`、`Part`、`math`、`doc`（目标或活动文档）。向量使用 `FreeCAD.Vector(...)`。
-   - CAD helper 函数：`extract_solid`、`safe_fuse`、`safe_cut`、`make_hollow_cylinder`、`make_ring`、`make_box_handle`、`ensure_doc`（从 `agent/cad_helpers.py` 导入，供 LLM 代码直接调用）
+   - CAD helper 函数：`extract_solid`、`safe_fuse`、`safe_cut`、`make_hollow_cylinder`、`make_ring`、`make_box_handle`、`make_arc_handle`、`ensure_doc`（从 `agent/cad_helpers.py` 导入，供 LLM 代码直接调用）
    - `_BUILTIN_NAMES` 保护这些注入名称不被 `_save_user_vars` 覆盖
    - 从 `_EXEC_NAMESPACE` 注入前次迭代的变量（含 FreeCAD 形状对象）
 7. 成功时：调用 `analyze_document()` 返回几何分析（包围盒、体积、圆柱特征等）和拓扑警告（如有）
