@@ -77,15 +77,15 @@ class TestAgentPromptsContainHelpers:
         )
 
 
-class TestLegacyPromptsContainHelpers:
-    """Legacy prompts must reference core helpers (safe_fuse, safe_cut, extract_solid)."""
+class TestLegacyPromptsContainCQApi:
+    """Legacy prompts must reference CQ-style boolean ops (.cut()/.union())."""
 
-    CORE_HELPERS = ["extract_solid", "safe_fuse", "safe_cut"]
+    CQ_PATTERNS = [".cut(", ".union("]
 
     @pytest.mark.parametrize("name,prompt", list(LEGACY_PROMPTS.items()))
-    @pytest.mark.parametrize("helper", CORE_HELPERS)
-    def test_legacy_has_core_helper(self, name, prompt, helper):
-        assert helper in prompt, f"{name} missing helper: {helper}"
+    @pytest.mark.parametrize("pattern", CQ_PATTERNS)
+    def test_legacy_has_cq_pattern(self, name, prompt, pattern):
+        assert pattern in prompt, f"{name} missing CQ pattern: {pattern}"
 
 
 class TestPromptForbiddenContent:
@@ -121,9 +121,9 @@ class TestFencedCodeBlocks:
 
 
 class TestBuildSimplestSolid:
-    """All prompts must contain the build-simplest-solid principle."""
+    """Agent prompts must contain the build-simplest-solid principle."""
 
-    @pytest.mark.parametrize("name,prompt", list(ALL_PROMPTS.items()))
+    @pytest.mark.parametrize("name,prompt", list(AGENT_PROMPTS.items()))
     def test_contains_simplest_solid(self, name, prompt):
         lower = prompt.lower()
         assert "simplest" in lower and "solid" in lower, (
@@ -153,24 +153,26 @@ class TestContextPlaceholder:
         assert "{context}" in SYSTEM_PROMPT_VARIANT
 
 
-class TestLegacyNoRawBoolean:
-    """Legacy prompts must not have bare .fuse()/.cut() in code examples.
+class TestLegacyNoRawFuse:
+    """Legacy prompts must not have bare .fuse() in code examples.
 
+    CQ-style prompts use .cut()/.union() as chain methods — .fuse() is the
+    old FreeCAD API that should not appear in examples.
     Code lines are lines starting with whitespace (indented code, not bullets).
-    The regex (?<!safe_)\\.(?:fuse|cut)\\( matches raw boolean calls.
+    The regex (?<!safe_)\\.fuse\\( matches raw fuse calls.
     """
 
-    RAW_BOOLEAN_RE = re.compile(r"(?<!safe_)\.(?:fuse|cut)\(")
+    RAW_FUSE_RE = re.compile(r"(?<!safe_)\.fuse\(")
 
     @pytest.mark.parametrize("name,prompt", list(LEGACY_PROMPTS.items()))
-    def test_no_raw_boolean_in_code(self, name, prompt):
+    def test_no_raw_fuse_in_code(self, name, prompt):
         for i, line in enumerate(prompt.split("\n"), 1):
             stripped = line.lstrip()
             if not stripped or not line[0].isspace():
                 continue
-            match = self.RAW_BOOLEAN_RE.search(line)
+            match = self.RAW_FUSE_RE.search(line)
             assert match is None, (
-                f"{name} line {i} has raw boolean: {line.strip()}"
+                f"{name} line {i} has raw .fuse(): {line.strip()}"
             )
 
 

@@ -172,6 +172,28 @@ def make_arc_handle(cup_radius, handle_r, arc_r, z_center):
     return extract_solid(handle)
 
 
+def cq_show(result, label="Part", doc=None):
+    """Add a Workplane or FreeCAD shape to the document and recompute.
+
+    This is the CQ-style bridge to FreeCAD's document model.  Call it
+    after building geometry to make the result visible in the viewport.
+
+    Args:
+        result: A cq.Workplane or raw FreeCAD shape.
+        label:  Document object label (default "Part").
+        doc:    Target document (defaults to ActiveDocument).
+    """
+    if doc is None:
+        doc = FreeCAD.ActiveDocument
+    if doc is None:
+        doc = FreeCAD.newDocument("CadAgentModel")
+    shape = result.solid() if hasattr(result, "solid") else result
+    obj = doc.addObject("Part::Feature", label)
+    obj.Shape = shape
+    doc.recompute()
+    return obj
+
+
 def ensure_doc(name=None):
     """Get or create a FreeCAD document.
 

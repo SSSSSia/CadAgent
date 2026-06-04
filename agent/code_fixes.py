@@ -8,6 +8,12 @@ import re
 
 _BOOL_OPS = r'(?:cut|fuse|common)'
 
+# CadQuery-style API names
+_CQ_METHODS = ("box", "cylinder", "cone", "sphere", "torus", "extrude", "cut",
+               "union", "intersect", "translate", "rotate", "mirror", "circle",
+               "rect", "polygon", "workplane", "solid", "val")
+_CQ_MAKES = ("makeBox", "makeCylinder", "makeCone", "makeSphere", "makeTorus")
+
 
 def pre_validate_code(code: str) -> tuple[bool, str]:
     """Validate code syntax via compile(). Returns (ok, error_msg)."""
@@ -37,6 +43,43 @@ def error_hint(error: Exception, code: str) -> tuple[str, str | None]:
     _MAKE_FNS = ("makeBox", "makeCylinder", "makeCone", "makeSphere", "makeTorus")
 
     if e_type == "NameError":
+        # CQ mode: bare Part constructor (should use cq API instead)
+        if "cadquery" in e_str.lower() or "import cadquery" in code:
+            hints.append(
+                "Hint: Do NOT 'import cadquery'. "
+                "The 'cq' module is pre-injected — use cq.Workplane('XY') directly."
+            )
+            fixed_code = code.replace("import cadquery", "").replace("import cadquery as cq", "")
+            fixed_code = fixed_code.replace("cq", "cq", 1)  # keep at least one cq reference
+            # Remove blank lines left by removed import
+            import re as _re
+            fixed_code = _re.sub(r'\n\s*\n\s*\n', '\n\n', fixed_code)
+
+        # CQ mode: bare Part constructor — suggest CQ equivalent
+        if not hints:
+            for fn in _CQ_MAKES:
+                if fn in e_str and "Part" not in e_str:
+                    fixed_code = re.sub(
+                        r'(?<!\w)' + fn + r'\s*\(',
+                        f'Part.{fn}(', code
+                    )
+                    if fixed_code != code:
+                        hints.append(
+                            f"Hint: '{fn}' needs 'Part.' prefix. "
+                            f"Or use cq.Workplane API: cq.Workplane('XY').{fn[4:].lower()}(...)"
+                        )
+                    break
+
+        # CQ mode: bare CQ method called without Workplane
+        if not hints:
+            for m in _CQ_METHODS:
+                if f"'{m}'" in e_str or f'"{m}"' in e_str:
+                    hints.append(
+                        f"Hint: '{m}' is a method on cq.Workplane, not a standalone function. "
+                        f"Use: cq.Workplane('XY').{m}(...)"
+                    )
+                    break
+
         # Check for bare Gui or misspelled FreeCADGui
         if "'Gui'" in e_str or ("Gui" in code and "FreeCADGui" not in code):
             hints.append(
@@ -75,6 +118,14 @@ def error_hint(error: Exception, code: str) -> tuple[str, str | None]:
             )
 
     elif e_type == "AttributeError":
+        # CQ mode: cylinder() parameter order confusion
+        if "cylinder" in e_str and ("positional" in e_str.lower() or "argument" in e_str.lower()):
+            hints.append(
+                "Hint: cq.Workplane.cylinder uses (height, radius) order — "
+                "HEIGHT first, RADIUS second. Example: cq.Workplane('XY').cylinder(80, 40)"
+            )
+            return "\n".join(hints), None
+
         if "'NoneType'" in e_str:
             # Check if this is a doc/object method on a None variable
             _DOC_METHODS = (
@@ -174,21 +225,49 @@ def error_hint(error: Exception, code: str) -> tuple[str, str | None]:
 
     elif e_type == "TypeError":
         if "translate" in code:
-            # translate called with separate args instead of Vector
-            pat_t = re.compile(r'\.translate\s*\(\s*([^)]+)\)')
-            m = pat_t.search(code)
-            if m and 'Vector' not in m.group(1) and 'FreeCAD' not in m.group(1):
-                args = m.group(1).strip()
-                fixed_code = pat_t.sub(f'.translate(FreeCAD.Vector({args}))', code)
-                hints.append(
-                    "Hint: translate() takes a FreeCAD.Vector, not separate x,y,z. "
-                    "Wrapped args in Vector()."
-                )
+            # Detect CQ-style vs FreeCAD-style code
+            is_cq_code = bool(re.search(r'\bcq\.|Workplane\(|cq_show', code))
+            if is_cq_code:
+                # CQ translate takes a tuple (x, y, z)
+                pat_t = re.compile(r'\.translate\s*\(\s*([^)]+)\)')
+                m = pat_t.search(code)
+                if m and '(' not in m.group(1):
+                    args = m.group(1).strip()
+                    fixed_code = pat_t.sub(f'.translate(({args}))', code)
+                    hints.append(
+                        "Hint: In CQ mode, translate() takes a tuple (x, y, z), "
+                        "not separate arguments. Wrapped in tuple: .translate((x, y, z))"
+                    )
+                else:
+                    hints.append(
+                        "Hint: cq.Workplane.translate() takes a tuple: "
+                        ".translate((x, y, z))"
+                    )
             else:
-                hints.append(
-                    "Hint: translate() takes a FreeCAD.Vector, not separate x,y,z. "
-                    "Use shape.translate(FreeCAD.Vector(x, y, z))."
-                )
+                # FreeCAD translate takes a FreeCAD.Vector
+                pat_t = re.compile(r'\.translate\s*\(\s*([^)]+)\)')
+                m = pat_t.search(code)
+                if m and 'Vector' not in m.group(1) and 'FreeCAD' not in m.group(1):
+                    args = m.group(1).strip()
+                    fixed_code = pat_t.sub(f'.translate(FreeCAD.Vector({args}))', code)
+                    hints.append(
+                        "Hint: translate() takes a FreeCAD.Vector, not separate x,y,z. "
+                        "Wrapped args in Vector()."
+                    )
+                else:
+                    hints.append(
+                        "Hint: translate() takes a FreeCAD.Vector, not separate x,y,z. "
+                        "Use shape.translate(FreeCAD.Vector(x, y, z))."
+                    )
+
+    # ValueError patterns — each returns independently
+    if e_type == "ValueError" and "No pending" in e_str and "extrude" in e_str:
+        hints.append(
+            "Hint: extrude() requires 2D operations before it. "
+            "Add .circle(R), .rect(L, W), or .polygon(n, R) before .extrude(H). "
+            "Example: cq.Workplane('XY').circle(40).extrude(80)"
+        )
+        return "\n".join(hints), None
 
     if e_type == "ValueError" and "Expected 1 solid" in e_str:
         hints.append(
@@ -219,7 +298,7 @@ def error_hint(error: Exception, code: str) -> tuple[str, str | None]:
         )
         return "\n".join(hints), None
 
-    elif "OCC" in e_type or "BRep" in e_type:
+    if "OCC" in e_type or "BRep" in e_type:
         if "collinear" in e_str.lower() or "three points" in e_str.lower():
             hints.append(
                 "Hint: Part.Arc requires 3 NON-collinear points. "

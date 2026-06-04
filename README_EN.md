@@ -6,18 +6,17 @@ An LLM Agent-powered FreeCAD workbench that generates and modifies 3D mechanical
 
 ## Features
 
-- **ReAct Agent Loop** — LLM reasoning → generate FreeCAD Python code → execute → analyze results → self-correct, iterating until the design is complete
+- **CadQuery-Style Code Generation** — Built-in CQ-style chain API (`cq.Workplane("XY").box().cut()`). LLMs generate more accurate code with fewer errors. No CadQuery installation needed — a lightweight runtime translation layer calls FreeCAD Part API directly
+- **ReAct Agent Loop** — LLM reasoning → generate CQ-style code → execute → analyze results → self-correct, iterating until the design is complete
 - **Natural Language Design** — Describe parts in plain text, and the Agent automatically plans and generates 3D models
 - **5 Agent Tools** — Code execution, undo/rollback, STEP export, viewport capture with vision analysis, reference image analysis
 - **Parametric Design** — Define named parameters (e.g. `OD = 200`), update them to automatically regenerate the model
 - **Multi-Document Assembly** — Create parts in separate documents, then combine them into an assembly with positions
 - **Enhanced Geometry Analysis** — Detects cylinders, cones, spheres, helix surfaces, hole patterns, symmetry, and wall thickness
 - **CAD Quality Gate** — Automatic geometry quality check after each code execution (solid integrity, topology validity, dimension sanity). Blocks agent from finishing when quality fails.
-- **CAD Helper Functions** — Built-in extract_solid, safe_fuse, safe_cut and other helpers to prevent common boolean operation errors.
-- **Visual Auxiliary Verification** — capture_view and analyze_image provide supplementary visual checks that do not replace deterministic quality gates.
-- **Unified Model Process** — All models (strong/weak) use the same agent loop and quality gate process.
-- **Weak Model Compatibility** — Auto-detects model capability, provides simplified prompts and code auto-fix for less capable models
-- **Error Self-Correction** — When code execution fails, the Agent reads the error traceback and automatically fixes and retries; high-confidence mechanical errors are auto-fixed once; repeated errors trigger strategy change warnings
+- **CAD Helper Functions** — Built-in CQ-style Workplane API and legacy helpers (extract_solid, safe_fuse, safe_cut) to prevent common boolean operation errors
+- **Visual Auxiliary Verification** — capture_view and analyze_image provide supplementary visual checks
+- **Error Self-Correction** — When code execution fails, the Agent reads the error traceback and automatically fixes and retries; includes CQ-specific error hints (parameter order, import cadquery, etc.)
 - **Streaming Output** — Real-time display of the Agent's reasoning and code generation process
 - **Undo/Rollback** — Automatic document snapshots before each code execution, with unlimited undo support
 - **Session Management** — Multi-turn conversation history persists across FreeCAD sessions
@@ -29,10 +28,15 @@ An LLM Agent-powered FreeCAD workbench that generates and modifies 3D mechanical
 
 ```
 Agent Loop (ReAct):
-  User Input → LLM Reasoning → Tool Call → Observation → Reason Again → ... → Done
+  User Input → LLM Reasoning → Generate CQ-Style Code → Execute → Analyze → Self-Correct → ... → Done
+
+Code Execution Flow:
+  LLM generates: cq.Workplane("XY").box(10,20,30).cut(hole)
+    → cq module translates: .box() → Part.makeBox(), .cut() → safe_cut()
+    → FreeCAD viewport shows 3D model in real-time
 
 Available Tools (5):
-  execute_code       — Execute FreeCAD Python code to create/modify geometry (with CAD quality gate)
+  execute_code       — Execute CadQuery-style code to create/modify geometry (with CAD quality gate)
   undo_last          — Undo the last code execution by restoring a document snapshot
   export_step        — Export document to STEP/IGES file
   capture_view       — Capture 3D viewport and analyze with vision model
@@ -70,7 +74,7 @@ Available Tools (5):
 2. Describe the part you want to design, for example:
    - "Design a flanged cylinder, OD 200mm, flange radius 125mm, height 400mm, with 12 bolt holes"
    - "Create an L-bracket 100x50x30"
-3. Click **Send** — the Agent will automatically reason, generate code, and iterate
+3. Click **Send** — the Agent will automatically reason, generate CQ-style code, and iterate
 4. The 3D model appears in the viewport in real-time; the Agent may perform multiple rounds of optimization
 5. Click **Stop** at any time to interrupt the Agent loop
 6. Click **Settings** or use the menu **CadAgent Settings** to change API configuration and Agent parameters at any time
@@ -90,13 +94,14 @@ CadAgent/
 │   ├── __init__.py
 │   ├── controller.py     # Agent controller (session state, run results)
 │   ├── loop.py           # Pure-logic state machine (AgentLoop), returns LoopAction
-│   ├── prompts.py        # System prompts (Tool Calling + ReAct)
+│   ├── prompts.py        # System prompts (CQ-style, Tool Calling + ReAct)
 │   ├── react_parser.py   # ReAct XML tag parser
 │   ├── tool_defs.py      # Tool JSON Schema definitions (LLM function calling)
 │   ├── tool_dispatch.py  # Registry-based tool routing and dispatch
-│   ├── tools.py          # 5 tool implementations (execute_code, undo_last, export_step, capture_view, analyze_image)
-│   ├── cad_helpers.py    # CAD helper functions (extract_solid, safe_fuse, safe_cut, etc.)
-│   └── code_fixes.py     # Weak model compat: code pre-check, auto-fixes, error hints
+│   ├── tools.py          # 5 tool implementations (with CQ module injection into sandbox)
+│   ├── cq.py             # CadQuery-style chain API (Workplane class, runtime translation layer)
+│   ├── cad_helpers.py    # CAD helper functions (extract_solid, safe_fuse, safe_cut, cq_show, etc.)
+│   └── code_fixes.py     # Code pre-check, auto-fixes, error hints (including CQ-specific patterns)
 ├── core/
 │   ├── __init__.py
 │   ├── config.py         # Environment config, .env loading, runtime reload
@@ -121,7 +126,7 @@ CadAgent/
 │   ├── chat_renderer.py  # Markdown → HTML rendering (with syntax highlighting)
 │   ├── theme.py          # Light/dark mode theme colors
 │   └── settings_dialog.py # Settings dialog (7 provider presets, connection test)
-├── tests/                # 488 unit tests (no FreeCAD dependency)
+├── tests/                # 560 unit tests (no FreeCAD dependency)
 ├── .env.example          # API config template
 ├── .gitignore
 ├── LICENSE
@@ -131,11 +136,12 @@ CadAgent/
 
 ## Technical Details
 
+- **CQ Runtime Translation Layer** — `agent/cq.py` provides a ~320-line `Workplane` class whose methods directly call FreeCAD Part API. LLMs write CadQuery-style chain code; `box()`→`Part.makeBox()`, `cut()`→`safe_cut()`, `translate()` returns new objects (avoiding FreeCAD's in-place mutation trap)
 - **Dual-Layer Architecture** — AgentLoop (pure-logic state machine) separated from UI thread orchestration, independently testable
 - **Thread Safety** — LLM API calls run in a background QThread; FreeCAD API operations (tool execution) return to the main thread via Signal/Slot
-- **Standard Library Only** — HTTP requests use `urllib` — no external Python package dependencies
-- **Compatibility** — Automatically detects whether the model supports Tool Calling, falls back to ReAct XML tag mode when not supported; auto-detects model capability for prompt selection
-- **488 Automated Tests** — Covering core modules (react_parser, token_budget, chat_renderer, config, session, code_fixes, agent_loop, tool_dispatch, quality, parametric, etc.)
+- **Standard Library Only** — HTTP requests use `urllib` — no external Python package dependencies (CadQuery not installed)
+- **Compatibility** — Automatically detects whether the model supports Tool Calling, falls back to ReAct XML tag mode; error hints support both CQ-style and native FreeCAD API patterns
+- **560 Automated Tests** — Covering core modules (react_parser, token_budget, chat_renderer, config, session, code_fixes, agent_loop, tool_dispatch, quality, parametric, cq_workplane, etc.)
 
 ## License
 

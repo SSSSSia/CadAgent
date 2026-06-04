@@ -25,8 +25,9 @@ from agent.code_fixes import pre_validate_code, error_hint
 from agent.cad_helpers import (
     extract_solid, safe_fuse, safe_cut,
     make_hollow_cylinder, make_ring, make_box_handle, make_arc_handle,
-    ensure_doc,
+    ensure_doc, cq_show,
 )
+from agent.cq import Workplane as _CQWorkplane, _cq_module
 from agent.tool_dispatch import register_tool, dispatch_tool  # noqa: F401
 
 
@@ -43,6 +44,7 @@ _BUILTIN_NAMES = frozenset({
     "FreeCAD", "FreeCADGui", "Part", "math", "doc", "__builtins__",
     "extract_solid", "safe_fuse", "safe_cut",
     "make_hollow_cylinder", "make_ring", "make_box_handle", "make_arc_handle", "ensure_doc",
+    "cq", "Workplane", "cq_show",
 })
 
 # Only these types are safe to serialize to disk for session persistence.
@@ -82,6 +84,7 @@ def _clean_stale_namespace_vars() -> list[str]:
     After undo restores a snapshot, Python references to FreeCAD C++ objects
     become invalid (document was closed and reopened). This function detects
     and removes them, keeping primitive types (int, float, str, etc.) intact.
+    Also handles cq.Workplane objects whose internal shapes are stale.
     Returns list of removed variable names.
     """
     import FreeCAD
@@ -90,6 +93,14 @@ def _clean_stale_namespace_vars() -> list[str]:
     stale_keys = []
     for key, val in list(_EXEC_NAMESPACE.items()):
         if isinstance(val, _PERSISTABLE_TYPES):
+            continue
+        # Handle cq.Workplane objects — probe internal shape for staleness
+        if isinstance(val, _CQWorkplane):
+            try:
+                if val._shapes:
+                    _ = val._shapes[-1].isNull()
+            except (ReferenceError, RuntimeError, AttributeError, IndexError):
+                stale_keys.append(key)
             continue
         try:
             doc_attr = getattr(val, "Document", None)
@@ -251,10 +262,11 @@ def _tool_execute_code(args_json: str) -> str:
             f"Code that failed:\n{code}"
         )
 
-    # Auto-create document when none exists and code uses doc.XXX
+    # Auto-create document when none exists and code uses doc.XXX or cq_show()
     doc_is_none = (target_doc is None) and (FreeCAD.ActiveDocument is None)
     auto_created_doc = False
-    if doc_is_none and "doc." in code and "newDocument" not in code:
+    needs_doc = ("doc." in code and "newDocument" not in code) or "cq_show(" in code
+    if doc_is_none and needs_doc:
         doc_create_line = 'doc = FreeCAD.newDocument("CadAgentModel")\n'
         code = doc_create_line + code
         auto_created_doc = True
@@ -276,6 +288,10 @@ def _tool_execute_code(args_json: str) -> str:
         "make_box_handle": make_box_handle,
         "make_arc_handle": make_arc_handle,
         "ensure_doc": ensure_doc,
+        # CQ-style chain API (CadQuery-like wrapper over FreeCAD Part)
+        "cq": _cq_module,
+        "Workplane": _CQWorkplane,
+        "cq_show": cq_show,
     }
     # Inject variables from previous execute_code calls (includes FreeCAD objects)
     namespace.update(_EXEC_NAMESPACE)
@@ -434,6 +450,10 @@ def _attempt_auto_fix(
         "make_box_handle": make_box_handle,
         "make_arc_handle": make_arc_handle,
         "ensure_doc": ensure_doc,
+        # CQ-style chain API
+        "cq": _cq_module,
+        "Workplane": _CQWorkplane,
+        "cq_show": cq_show,
     }
     namespace.update(_EXEC_NAMESPACE)
 

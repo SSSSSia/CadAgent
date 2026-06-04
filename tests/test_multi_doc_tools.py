@@ -134,7 +134,7 @@ def test_agent_prompt_critical_rules():
     assert "CRITICAL RULES" in AGENT_SYSTEM_PROMPT
     assert "Variables PERSIST" in AGENT_SYSTEM_PROMPT
     assert "Boolean ops" in AGENT_SYSTEM_PROMPT
-    assert "translate()" in AGENT_SYSTEM_PROMPT
+    assert ".translate(" in AGENT_SYSTEM_PROMPT
 
 
 def test_react_prompt_critical_rules():
@@ -142,20 +142,20 @@ def test_react_prompt_critical_rules():
     assert "CRITICAL RULES" in REACT_SYSTEM_PROMPT
     assert "Variables PERSIST" in REACT_SYSTEM_PROMPT
     assert "Boolean ops" in REACT_SYSTEM_PROMPT
-    assert "translate()" in REACT_SYSTEM_PROMPT
+    assert ".translate(" in REACT_SYSTEM_PROMPT
 
 
 def test_agent_prompt_vision_rules():
     # Verify vision tool rules are present in agent prompt
     assert "visually verify" in AGENT_SYSTEM_PROMPT
-    assert "vision model to be configured" in AGENT_SYSTEM_PROMPT
+    assert "vision API configured" in AGENT_SYSTEM_PROMPT
     assert "[image: path]" in AGENT_SYSTEM_PROMPT
 
 
 def test_react_prompt_vision_rules():
     # Verify vision tool rules are present in ReAct prompt
     assert "visually verify" in REACT_SYSTEM_PROMPT
-    assert "vision model to be configured" in REACT_SYSTEM_PROMPT
+    assert "vision API configured" in REACT_SYSTEM_PROMPT
     assert "[image: path]" in REACT_SYSTEM_PROMPT
 
 

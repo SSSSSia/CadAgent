@@ -101,8 +101,8 @@ class TestPromptsOfficialNames:
         )
 
     @pytest.mark.parametrize("name,prompt", list(_read_all_prompts().items()))
-    def test_mentions_freecadgui(self, name, prompt):
-        assert "FreeCADGui" in prompt, (
-            f"{name} does not mention 'FreeCADGui' — "
-            "should reference the official module name"
+    def test_mentions_freecadgui_or_cq(self, name, prompt):
+        assert "FreeCADGui" in prompt or "cq.Workplane" in prompt, (
+            f"{name} mentions neither 'FreeCADGui' nor 'cq.Workplane' — "
+            "should reference an official API"
         )

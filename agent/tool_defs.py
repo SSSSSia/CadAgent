@@ -11,10 +11,10 @@ TOOL_DEFINITIONS = [
         "function": {
             "name": "execute_code",
             "description": (
-                "Execute FreeCAD Python code to create or modify 3D geometry. "
-                "FreeCAD, FreeCADGui, Part, math are pre-imported. "
-                "CAD helpers are pre-injected: extract_solid, safe_fuse, safe_cut, "
-                "make_hollow_cylinder, make_ring, make_box_handle, ensure_doc. "
+                "Execute CadQuery-style Python code to create or modify 3D geometry. "
+                "The 'cq' module is pre-injected — use cq.Workplane chain API. "
+                "Use cq_show(result, 'Label') to display shapes in the viewport. "
+                "FreeCAD, Part, math are also available. "
                 "Variables persist between calls — reuse them directly."
             ),
             "parameters": {
@@ -23,10 +23,10 @@ TOOL_DEFINITIONS = [
                     "code": {
                         "type": "string",
                         "description": (
-                            "FreeCAD Python code. "
-                            "Pre-imported: FreeCAD, FreeCADGui, Part, math. "
-                            "Pre-injected helpers: extract_solid, safe_fuse, safe_cut, "
-                            "make_hollow_cylinder, make_ring, make_box_handle, ensure_doc."
+                            "CadQuery-style Python code. "
+                            "Use cq.Workplane chain API. "
+                            "Use cq_show(result, 'Label') to display. "
+                            "FreeCAD, Part, math also available."
                         )
                     },
                     "description": {
