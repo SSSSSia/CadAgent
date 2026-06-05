@@ -9,14 +9,18 @@ An LLM Agent-powered FreeCAD workbench that generates and modifies 3D mechanical
 - **CadQuery-Style Code Generation** — Built-in CQ-style chain API (`cq.Workplane("XY").box().cut()`). LLMs generate more accurate code with fewer errors. No CadQuery installation needed — a lightweight runtime translation layer calls FreeCAD Part API directly
 - **ReAct Agent Loop** — LLM reasoning → generate CQ-style code → execute → analyze results → self-correct, iterating until the design is complete
 - **Natural Language Design** — Describe parts in plain text, and the Agent automatically plans and generates 3D models
-- **5 Agent Tools** — Code execution, undo/rollback, STEP export, viewport capture with vision analysis, reference image analysis
+- **5 Agent Tools** — Code execution, undo/rollback, STEP/IGES/STL/OBJ export (with pre-export quality check), viewport capture with vision analysis, reference image analysis
 - **Parametric Design** — Define named parameters (e.g. `OD = 200`), update them to automatically regenerate the model
 - **Multi-Document Assembly** — Create parts in separate documents, then combine them into an assembly with positions
 - **Enhanced Geometry Analysis** — Detects cylinders, cones, spheres, helix surfaces, hole patterns, symmetry, and wall thickness
 - **CAD Quality Gate** — Automatic geometry quality check after each code execution (solid integrity, topology validity, dimension sanity). Blocks agent from finishing when quality fails.
 - **CAD Helper Functions** — Built-in CQ-style Workplane API and legacy helpers (extract_solid, safe_fuse, safe_cut) to prevent common boolean operation errors
 - **Visual Auxiliary Verification** — capture_view and analyze_image provide supplementary visual checks
-- **Error Self-Correction** — When code execution fails, the Agent reads the error traceback and automatically fixes and retries; includes CQ-specific error hints (parameter order, import cadquery, etc.)
+- **Error Self-Correction** — When code execution fails, the Agent reads the error traceback and automatically fixes and retries; includes CQ-specific error hints (parameter order, import cadquery, etc.). Repeated errors automatically inject targeted repair advice
+- **Progressive Context Injection** — Automatically injects phase-aware reference snippets based on current agent state (first execution, quality failure, repeated errors, approaching iteration limit), saving tokens and focusing LLM attention
+- **Classified Quality Feedback** — When quality gate fails, injects specific fix instructions based on failure type (NO_SOLID, MULTI_SOLID, COMPOUND_SHAPE, etc.) instead of generic "fix geometry"
+- **STL/OBJ Export** — Supports STEP/IGES/STL/OBJ export formats; STL is suitable for 3D printing. Automatic quality check before export
+- **Smart Clarification Policy** — Automatically assumes reasonable defaults (clearance holes, wall thickness, origin position), only asks user when critical dimensions are missing
 - **Streaming Output** — Real-time display of the Agent's reasoning and code generation process
 - **Undo/Rollback** — Automatic document snapshots before each code execution, with unlimited undo support
 - **Session Management** — Multi-turn conversation history persists across FreeCAD sessions
@@ -38,7 +42,7 @@ Code Execution Flow:
 Available Tools (5):
   execute_code       — Execute CadQuery-style code to create/modify geometry (with CAD quality gate)
   undo_last          — Undo the last code execution by restoring a document snapshot
-  export_step        — Export document to STEP/IGES file
+  export_step        — Export document to STEP/IGES/STL/OBJ file (with pre-export quality check)
   capture_view       — Capture 3D viewport and analyze with vision model
   analyze_image      — Analyze a user-uploaded reference image
 ```
@@ -93,8 +97,9 @@ CadAgent/
 ├── agent/
 │   ├── __init__.py
 │   ├── controller.py     # Agent controller (session state, run results)
-│   ├── loop.py           # Pure-logic state machine (AgentLoop), returns LoopAction
-│   ├── prompts.py        # System prompts (CQ-style, Tool Calling + ReAct)
+│   ├── loop.py           # Pure-logic state machine (AgentLoop), returns LoopAction (with progressive context injection)
+│   ├── prompts.py        # System prompts (CQ-style, Tool Calling + ReAct, with planning guidance and clarification policy)
+│   ├── references.py     # Progressive reference snippet constants (auto-injected based on state)
 │   ├── react_parser.py   # ReAct XML tag parser
 │   ├── tool_defs.py      # Tool JSON Schema definitions (LLM function calling)
 │   ├── tool_dispatch.py  # Registry-based tool routing and dispatch
@@ -111,7 +116,7 @@ CadAgent/
 │   ├── session_store.py  # Session disk persistence
 │   ├── doc_analyzer.py   # Document geometry analysis (FreeCAD layer)
 │   ├── geometry_analyzer.py # Pure-data geometry analysis (cones, spheres, helix, hole patterns, symmetry, wall thickness)
-│   ├── quality.py        # CAD quality gate (structured pass/fail analysis)
+│   ├── quality.py        # CAD quality gate (structured pass/fail analysis, with "do not claim" guardrails)
 │   ├── vision_client.py  # Vision model API client (screenshot and image analysis)
 │   ├── text_utils.py     # Text processing utilities
 │   ├── snapshot.py       # Document snapshot system (undo/rollback)
@@ -126,7 +131,7 @@ CadAgent/
 │   ├── chat_renderer.py  # Markdown → HTML rendering (with syntax highlighting)
 │   ├── theme.py          # Light/dark mode theme colors
 │   └── settings_dialog.py # Settings dialog (7 provider presets, connection test)
-├── tests/                # 560 unit tests (no FreeCAD dependency)
+├── tests/                # 576 unit tests (no FreeCAD dependency)
 ├── .env.example          # API config template
 ├── .gitignore
 ├── LICENSE
@@ -141,7 +146,7 @@ CadAgent/
 - **Thread Safety** — LLM API calls run in a background QThread; FreeCAD API operations (tool execution) return to the main thread via Signal/Slot
 - **Standard Library Only** — HTTP requests use `urllib` — no external Python package dependencies (CadQuery not installed)
 - **Compatibility** — Automatically detects whether the model supports Tool Calling, falls back to ReAct XML tag mode; error hints support both CQ-style and native FreeCAD API patterns
-- **560 Automated Tests** — Covering core modules (react_parser, token_budget, chat_renderer, config, session, code_fixes, agent_loop, tool_dispatch, quality, parametric, cq_workplane, etc.)
+- **576 Automated Tests** — Covering core modules (react_parser, token_budget, chat_renderer, config, session, code_fixes, agent_loop, tool_dispatch, quality, parametric, cq_workplane, etc.)
 
 ## License
 

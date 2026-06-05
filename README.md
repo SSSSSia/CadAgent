@@ -9,14 +9,18 @@
 - **CadQuery 风格代码生成** — 内置 CQ 风格链式 API（`cq.Workplane("XY").box().cut()`），LLM 生成代码更准确、更少出错。无需安装 CadQuery，内置运行时翻译层直接调用 FreeCAD Part API
 - **ReAct 智能体循环** — LLM 推理 → 生成 CQ 风格代码 → 执行 → 分析结果 → 自纠错，多轮迭代直到设计完成
 - **自然语言设计** — 用中文或英文描述零件，Agent 自动规划并生成 3D 模型
-- **5 个 Agent 工具** — 代码执行、撤销回滚、STEP 导出、视口截图分析、参考图片分析
+- **5 个 Agent 工具** — 代码执行、撤销回滚、STEP/IGES/STL/OBJ 导出（导出前自动质量检查）、视口截图分析、参考图片分析
 - **参数化设计** — 定义命名参数（如 `OD = 200`），修改参数自动重新生成模型
 - **多文档装配** — 在多个文档中分别创建零件，自动组合为装配体
 - **增强几何分析** — 检测圆柱、圆锥、球面、螺旋面、孔阵列、对称性、壁厚等特征
 - **CAD 质量门禁** — 每次代码执行后自动检查几何质量（固体完整性、拓扑有效性、尺寸合理性），质量不达标时阻止 Agent 结束
 - **CAD 辅助函数** — 内置 extract_solid、safe_fuse、safe_cut 和 CQ 风格 Workplane API，避免常见布尔运算错误
 - **视觉辅助验证** — capture_view 和 analyze_image 提供视觉辅助检查
-- **错误自纠正** — 代码执行失败时，Agent 查看错误堆栈并自动修正重试；含 CQ 特有错误提示（参数顺序、import cadquery 等）
+- **错误自纠正** — 代码执行失败时，Agent 查看错误堆栈并自动修正重试；含 CQ 特有错误提示（参数顺序、import cadquery 等）。重复错误时自动注入定向修复建议
+- **渐进式上下文注入** — 根据当前 Agent 状态（首次执行、质量失败、连续出错、接近迭代上限）自动注入对应的参考指导，节省 token 并聚焦 LLM 注意力
+- **分类化质量反馈** — 质量门控失败时，根据失败类型（NO_SOLID、MULTI_SOLID、COMPOUND_SHAPE 等）注入具体的修复指令，而非通用的"修复几何"
+- **STL/OBJ 导出** — 支持 STEP/IGES/STL/OBJ 四种导出格式，STL 适合 3D 打印。导出前自动运行质量检查
+- **智能澄清策略** — 自动假设合理默认值（间隙孔、壁厚、原点位置），仅在缺少关键尺寸时询问用户
 - **流式输出** — 实时显示 Agent 思考和代码生成过程
 - **撤销/回滚** — 每次代码执行前自动创建文档快照，支持无限撤销
 - **会话管理** — 多轮对话历史持久化，支持跨 FreeCAD 会话恢复
@@ -38,7 +42,7 @@ Agent 循环 (ReAct):
 可用工具 (5):
   execute_code       — 执行 CadQuery 风格代码，创建/修改几何体（含 CAD 质量门禁）
   undo_last          — 撤销上次代码执行，恢复文档快照
-  export_step        — 导出为 STEP/IGES 文件
+  export_step        — 导出为 STEP/IGES/STL/OBJ 文件（导出前自动质量检查）
   capture_view       — 截取 3D 视口并调用视觉模型分析
   analyze_image      — 分析用户上传的参考图片
 ```
@@ -93,8 +97,9 @@ CadAgent/
 ├── agent/
 │   ├── __init__.py
 │   ├── controller.py     # Agent 控制器（会话状态、运行结果）
-│   ├── loop.py           # 纯逻辑状态机（AgentLoop），返回 LoopAction 指令
-│   ├── prompts.py        # 系统提示词（CQ 风格，Tool Calling + ReAct）
+│   ├── loop.py           # 纯逻辑状态机（AgentLoop），返回 LoopAction 指令（含渐进式上下文注入）
+│   ├── prompts.py        # 系统提示词（CQ 风格，Tool Calling + ReAct，含规划引导和澄清策略）
+│   ├── references.py     # 渐进式参考片段常量（按状态自动注入）
 │   ├── react_parser.py   # ReAct XML 标签解析器
 │   ├── tool_defs.py      # 工具 JSON Schema 定义（LLM function calling）
 │   ├── tool_dispatch.py  # 注册式工具路由分发
@@ -111,7 +116,7 @@ CadAgent/
 │   ├── session_store.py  # 会话磁盘持久化
 │   ├── doc_analyzer.py   # 文档几何分析（FreeCAD 层）
 │   ├── geometry_analyzer.py # 纯数据几何分析（圆锥/球面/螺旋/孔阵列/对称性/壁厚）
-│   ├── quality.py        # CAD 质量门禁（结构化 pass/fail 分析）
+│   ├── quality.py        # CAD 质量门禁（结构化 pass/fail 分析，含"不要声明"护栏）
 │   ├── vision_client.py  # 视觉模型 API 客户端（截图和图片分析）
 │   ├── text_utils.py     # 文本处理工具
 │   ├── snapshot.py       # 文档快照系统（撤销/回滚）
@@ -126,7 +131,7 @@ CadAgent/
 │   ├── chat_renderer.py  # Markdown → HTML 渲染（含代码高亮）
 │   ├── theme.py          # 亮/暗模式主题配色
 │   └── settings_dialog.py # 设置对话框（7 个提供商预设、连接测试）
-├── tests/                # 560 个单元测试（不依赖 FreeCAD）
+├── tests/                # 576 个单元测试（不依赖 FreeCAD）
 ├── .env.example          # API 配置模板
 ├── .gitignore
 ├── LICENSE
@@ -141,7 +146,7 @@ CadAgent/
 - **线程安全**：LLM API 调用在后台 QThread 中执行，FreeCAD API 操作（工具执行）通过 Signal/Slot 回到主线程
 - **纯标准库**：HTTP 请求使用 `urllib`，无外部 Python 包依赖（不安装 CadQuery）
 - **兼容性**：自动检测模型是否支持 Tool Calling，不支持时回退到 ReAct XML 标签模式；代码错误提示同时支持 CQ 风格和 FreeCAD 原生 API
-- **560 个自动化测试**：覆盖核心模块（react_parser、token_budget、chat_renderer、config、session、code_fixes、agent_loop、tool_dispatch、quality、parametric、cq_workplane 等）
+- **576 个自动化测试**：覆盖核心模块（react_parser、token_budget、chat_renderer、config、session、code_fixes、agent_loop、tool_dispatch、quality、parametric、cq_workplane 等）
 
 ## 许可证
 

@@ -27,7 +27,7 @@ pytest tests/test_token_budget.py::test_trim_preserves_system_prompt
 
 测试使用 `importlib.util.spec_from_file_location` 加载导入了 FreeCAD 的模块，从而完全避免 FreeCAD 依赖。部分测试（如 `test_parametric`）在测试文件中复制被测函数以避免导入 FreeCAD 依赖模块。为新模块编写测试时应遵循相同模式。
 
-当前测试文件：`test_react_parser`、`test_token_budget`、`test_chat_renderer`、`test_config`、`test_session`、`test_code_fixes`、`test_geometry_analyzer`、`test_agent_loop`、`test_tool_dispatch`、`test_parametric`、`test_multi_doc_tools`、`test_snapshot`、`test_text_utils`、`test_vision_client`、`test_cad_helpers`、`test_quality`、`test_tool_quality_integration`、`test_import_naming`、`test_prompts`、`test_cq_workplane`（共 560 个测试）。
+当前测试文件：`test_react_parser`、`test_token_budget`、`test_chat_renderer`、`test_config`、`test_session`、`test_code_fixes`、`test_geometry_analyzer`、`test_agent_loop`、`test_tool_dispatch`、`test_parametric`、`test_multi_doc_tools`、`test_snapshot`、`test_text_utils`、`test_vision_client`、`test_cad_helpers`、`test_quality`、`test_tool_quality_integration`、`test_import_naming`、`test_prompts`、`test_cq_workplane`（共 576 个测试）。
 
 ## 架构
 
@@ -35,7 +35,7 @@ pytest tests/test_token_budget.py::test_trim_preserves_system_prompt
 
 Agent 循环的核心逻辑拆分为两层：
 
-1. **`agent/loop.py`（`AgentLoop`）** — 纯逻辑状态机，返回 `LoopAction` 指令。无 Qt、无 FreeCAD 依赖。拥有迭代计数、模式（auto/tool_calling/react）、停止标志、计时。不拥有线程或 UI。包含错误去重：连续相同错误自动附加 WARNING 提示 LLM 改变策略。
+1. **`agent/loop.py`（`AgentLoop`）** — 纯逻辑状态机，返回 `LoopAction` 指令。无 Qt、无 FreeCAD 依赖。拥有迭代计数、模式（auto/tool_calling/react）、停止标志、计时。不拥有线程或 UI。包含渐进式上下文注入（`_build_context()` 根据迭代次数、质量状态、错误历史自动注入参考片段）、分类化错误去重（重复错误时注入 `error_hint()` 的定向修复建议）、定向质量门控反馈（`_quality_gate_block()` 从 `QUALITY_FIX_MAP` 注入具体修复指令）。
 
 2. **`ui/panel.py`（`AgentPanel` + `_LlmCallThread`）** — 线程编排层。解读 `LoopAction` 并执行：启动后台 QThread 流式调用 LLM → 主线程执行工具（`exec()` 执行 CQ/FreeCAD 代码）→ 再次调用 LLM。
 
@@ -98,7 +98,7 @@ cq_show(body, "Cup")
 |--------|------|
 | `execute_code` | 执行 CadQuery 风格 Python 代码，含语法验证→执行→错误提示流水线。`cq` 模块预注入沙箱。支持可选 `document` 参数指定目标文档。执行后返回文档几何分析和拓扑警告。 |
 | `undo_last` | 撤销上次 `execute_code`（从快照栈恢复） |
-| `export_step` | 导出为 STEP/IGES 文件 |
+| `export_step` | 导出为 STEP/IGES/STL/OBJ 文件。导出前自动运行质量检查并附带警告。STL/OBJ 通过 FreeCAD Mesh 模块支持，适合 3D 打印。 |
 | `capture_view` | 截取 FreeCAD 3D 视口截图，发送给视觉模型分析。用于建模后视觉验证。需要配置视觉模型（可选功能）。 |
 | `analyze_image` | 分析用户上传的图片（参考图纸、草图、照片），提取尺寸和设计特征。需要配置视觉模型（可选功能）。 |
 
@@ -129,7 +129,8 @@ cq_show(body, "Cup")
 | 模块 | 职责 |
 |------|------|
 | `InitGui.py` | FreeCAD 工作台注册。方法体中**必须使用局部导入**，因为 FreeCAD 通过 `exec()` 加载此文件。 |
-| `agent/loop.py` | 纯逻辑状态机（`AgentLoop`），返回 `LoopAction` 指令。无 Qt/FreeCAD 依赖。 |
+| `agent/loop.py` | 纯逻辑状态机（`AgentLoop`），返回 `LoopAction` 指令。无 Qt/FreeCAD 依赖。含渐进式上下文注入、分类化错误去重、定向质量门控反馈。 |
+| `agent/references.py` | 渐进式参考片段常量（首次检查清单、质量修复指导、修复策略、迭代紧迫警告、质量修复映射表）。由 `_build_context()` 按状态自动注入。 |
 | `agent/controller.py` | 共享状态容器（session + result + mode），供 UI 驱动的 Agent 循环使用。本身不是循环。 |
 | `agent/cq.py` | **CadQuery 风格链式 API**（`Workplane` 类），运行时翻译层。每个方法内部调用 FreeCAD Part API。提供 `.box()/.cylinder(H,R)/.circle().extrude()/.cut()/.union()/.translate()` 等 ~20 个方法。`cq_show()` 将结果添加到 FreeCAD 文档。零外部依赖（不安装 CadQuery）。 |
 | `agent/cad_helpers.py` | 稳定的 CAD 辅助函数（`extract_solid`、`safe_fuse`、`safe_cut`、`make_hollow_cylinder`、`make_ring`、`make_box_handle`、`make_arc_handle`、`ensure_doc`、`cq_show`），注入 `execute_code` 命名空间供 LLM 生成的代码使用。 |
@@ -137,13 +138,13 @@ cq_show(body, "Cup")
 | `agent/tool_dispatch.py` | 纯路由：`register_tool()` 注册、`dispatch_tool()` 按名称查表调用。无 FreeCAD 依赖。 |
 | `agent/tool_defs.py` | OpenAI function calling API 的 JSON Schema 定义（5 个工具）。`execute_code` 描述为 CadQuery 风格。 |
 | `agent/code_fixes.py` | 代码验证与错误提示：`pre_validate_code()`（compile 检查）、`error_hint()`（含 CQ 特有错误模式：import cadquery、cylinder 参数顺序、pending extrude 为空、translate tuple 格式）。无 FreeCAD 导入。 |
-| `agent/prompts.py` | 系统提示词：`AGENT_SYSTEM_PROMPT` 和 `REACT_SYSTEM_PROMPT` 均为 **CadQuery 风格**，指导 LLM 使用 `cq.Workplane` 链式 API。含 `{context}` 占位符。代码示例：杯子、法兰圆柱。遗留提示词（NEW/MODIFY/DERIVE/VARIANT）也已更新为 CQ 风格。 |
+| `agent/prompts.py` | 系统提示词：`AGENT_SYSTEM_PROMPT` 和 `REACT_SYSTEM_PROMPT` 均为 **CadQuery 风格**，指导 LLM 使用 `cq.Workplane` 链式 API。含 `{context}` 占位符。代码示例：杯子、法兰圆柱。遗留提示词（NEW/MODIFY/DERIVE/VARIANT）也已更新为 CQ 风格。含可选 CAD Brief 规划引导、验证层级（确定性优先视觉最后）、澄清策略护栏。 |
 | `agent/react_parser.py` | 从 LLM 文本输出中解析 `<tool name="...">...</tool>` XML 标签，转为标准 tool_calls 格式。无 FreeCAD 依赖。 |
 | `core/llm_client.py` | 三个入口：`call_llm_with_tools()`（非流式）、`call_llm_streaming()`（SSE 生成器）、`generate_freecad_code()`（遗留单次）。 |
 | `core/vision_client.py` | 视觉模型 API 客户端。纯 urllib，无外部依赖。未配置时返回错误提示。 |
 | `core/session.py` | `ChatSession` — 有序消息列表。支持序列化/反序列化。`session_store.py` 持久化到 `sessions/`。 |
 | `core/doc_analyzer.py` | 从 FreeCAD 文档提取几何信息。依赖 `geometry_analyzer.py`。 |
-| `core/quality.py` | CAD 质量门控：两层设计（纯分析 + FreeCAD 集成）。 |
+| `core/quality.py` | CAD 质量门控：两层设计（纯分析 + FreeCAD 集成）。结构化验证报告含"不要声明"护栏（不声称结构安全性、制造就绪性等）。 |
 | `core/geometry_analyzer.py` | 纯数据结构几何分析，无 FreeCAD 导入。 |
 | `core/text_utils.py` | 文本工具：`strip_markdown()`。 |
 | `core/snapshot.py` | 基于 `.FCStd` 文件的撤销栈。 |
@@ -188,10 +189,17 @@ cq_show(body, "Cup")
 
 ### Quality Gate（质量门控）
 
-与之前一致，不受 CQ 切换影响：
 1. `execute_code` 结果跟踪：解析 `OK:`/`FAIL:`/`ERROR:` 前缀
 2. `_check_quality_gate()`：在 FINISH 前检查
 3. 质量检查由 `core/quality.py` 在执行后自动调用
+4. **定向修复反馈**：质量门控失败时，`_quality_gate_block()` 从 `QUALITY_FIX_MAP` 提取具体修复建议（支持精确代码匹配和自然语言短语匹配），注入到 LLM 上下文中引导修复
+5. **渐进式参考注入**：质量失败时，`_build_context()` 自动注入 `REF_QUALITY_FAILURE` 参考片段，包含每种失败类型的具体修复策略
+
+### 错误去重增强
+
+1. 错误签名去重（前 80 字符比对）
+2. 重复错误时调用 `_get_error_repair_hint()`，利用 `error_hint()` 的分类结果注入定向修复建议
+3. 连续 2+ 次错误时，`_build_context()` 注入 `REF_REPAIR_LOOP` 修复策略参考
 
 ### Auto-fix 重试
 
