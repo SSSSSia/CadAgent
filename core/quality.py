@@ -294,9 +294,19 @@ def analyze_document_quality(doc, assembly_mode: bool = False) -> QualityReport:
 # ---------------------------------------------------------------------------
 
 def format_quality_report(report: QualityReport) -> str:
-    """Format a QualityReport into a human-readable string for the LLM."""
+    """Format a QualityReport into a human-readable string for the LLM.
+
+    Inspired by text-to-cad's structured validation report template:
+    provides a consistent summary format with clear pass/fail status,
+    actionable suggestions, and guardrails against over-claiming.
+    """
     if report.severity == "ok":
-        return "OK: Code executed. CAD quality check PASSED."
+        return (
+            "OK: Code executed. CAD quality check PASSED.\n"
+            "NOTE: This confirms geometric validity only. "
+            "Do NOT claim structural safety, manufacturing readiness, "
+            "tolerance compliance, or material suitability."
+        )
 
     lines = []
     if report.severity == "fail":
@@ -313,7 +323,7 @@ def format_quality_report(report: QualityReport) -> str:
             for iss in fail_issues:
                 line = f"  - {iss.message}"
                 if iss.suggestion:
-                    line += f" Fix: {iss.suggestion}"
+                    line += f"\n    Fix: {iss.suggestion}"
                 lines.append(line)
 
         if report.severity == "fail":
@@ -325,6 +335,16 @@ def format_quality_report(report: QualityReport) -> str:
         if warn_issues:
             lines.append("Warnings:")
             for iss in warn_issues:
-                lines.append(f"  - {iss.message}")
+                line = f"  - {iss.message}"
+                if iss.suggestion:
+                    line += f"\n    Suggestion: {iss.suggestion}"
+                lines.append(line)
+
+    # Guardrail: prevent LLM from over-claiming (inspired by text-to-cad)
+    lines.append(
+        "NOTE: This confirms geometric validity only. "
+        "Do NOT claim structural safety, manufacturing readiness, "
+        "tolerance compliance, or material suitability."
+    )
 
     return "\n".join(lines)

@@ -147,14 +147,14 @@ def test_react_prompt_critical_rules():
 
 def test_agent_prompt_vision_rules():
     # Verify vision tool rules are present in agent prompt
-    assert "visually verify" in AGENT_SYSTEM_PROMPT
+    assert "capture_view" in AGENT_SYSTEM_PROMPT
     assert "vision API configured" in AGENT_SYSTEM_PROMPT
     assert "[image: path]" in AGENT_SYSTEM_PROMPT
 
 
 def test_react_prompt_vision_rules():
     # Verify vision tool rules are present in ReAct prompt
-    assert "visually verify" in REACT_SYSTEM_PROMPT
+    assert "capture_view" in REACT_SYSTEM_PROMPT
     assert "vision API configured" in REACT_SYSTEM_PROMPT
     assert "[image: path]" in REACT_SYSTEM_PROMPT
 

@@ -19,16 +19,28 @@ for numbered options and treat the number as a selection. Act on it directly.
 AVAILABLE TOOLS: execute_code, undo_last, export_step, capture_view, analyze_image.
 
 WORKFLOW:
-1. Read requirements and start building immediately using execute_code. Each \
-call should create or modify one stable geometric feature. Avoid fillets, chamfers, \
-sweeps, loft, and complex pipes unless explicitly requested.
-2. If code fails: READ the error, IDENTIFY root cause, CHANGE approach, retry.
-3. When user provides an image reference [image: path], use analyze_image to \
+1. OPTIONAL: Before writing code, briefly outline your plan — key dimensions, \
+coordinate convention (origin location, base plane), and main features. This \
+helps you avoid missing requirements. Then start building with execute_code.
+2. Each execute_code call should create or modify one stable geometric feature. \
+Avoid fillets, chamfers, sweeps, loft, and complex pipes unless explicitly requested.
+3. If code fails: READ the error, IDENTIFY root cause, CHANGE approach, retry.
+4. When user provides an image reference [image: path], use analyze_image to \
 understand the reference before modeling. Extract dimensions and key features.
-4. After execute_code returns OK, consider using capture_view to visually verify \
-the model. Visual checks supplement but do NOT replace deterministic quality checks.
-5. When done, use export_step to save the design if the user requests it.
-6. Respond with plain text summary.
+5. After execute_code returns OK, verify results using the returned geometry \
+analysis (bounding box, volume, solid count). Only use capture_view for visual \
+verification if geometry analysis is ambiguous. Programmatic checks are more \
+reliable than visual inspection.
+6. When done, use export_step to save the design if the user requests it. \
+Formats: step (CAD exchange), iges, stl/obj (3D printing).
+7. Respond with plain text summary.
+
+CLARIFICATION POLICY:
+- ASSUME reasonable defaults when not specified (e.g., standard clearance holes, \
+wall thickness ~2-5mm for small parts, origin at center for symmetric parts).
+- ASK only when: no dimensions at all are given, or safety-critical / compliance-\
+bound requirements are implied.
+- Do NOT ask for every dimension — infer from context and common engineering practice.
 
 CRITICAL RULES:
 - Build the simplest valid solid first. Use cq.Workplane chain API.
@@ -130,16 +142,28 @@ TOOL CALLING FORMAT — you MUST use this exact format:
 </tool>
 
 WORKFLOW:
-1. Read requirements and start building immediately using execute_code. Each \
-call should create or modify one stable geometric feature. Avoid fillets, chamfers, \
-sweeps, loft, and complex pipes unless explicitly requested.
-2. If code fails: READ the error, IDENTIFY root cause, CHANGE approach, retry.
-3. When user provides an image reference [image: path], use analyze_image to \
+1. OPTIONAL: Before writing code, briefly outline your plan — key dimensions, \
+coordinate convention (origin location, base plane), and main features. This \
+helps you avoid missing requirements. Then start building with execute_code.
+2. Each execute_code call should create or modify one stable geometric feature. \
+Avoid fillets, chamfers, sweeps, loft, and complex pipes unless explicitly requested.
+3. If code fails: READ the error, IDENTIFY root cause, CHANGE approach, retry.
+4. When user provides an image reference [image: path], use analyze_image to \
 understand the reference before modeling. Extract dimensions and key features.
-4. After execute_code returns OK, consider using capture_view to visually verify \
-the model. Visual checks supplement but do NOT replace deterministic quality checks.
-5. When done, use export_step to save the design if the user requests it.
-6. Respond with plain text summary WITHOUT any <tool> tags to signal completion.
+5. After execute_code returns OK, verify results using the returned geometry \
+analysis (bounding box, volume, solid count). Only use capture_view for visual \
+verification if geometry analysis is ambiguous. Programmatic checks are more \
+reliable than visual inspection.
+6. When done, use export_step to save the design if the user requests it. \
+Formats: step (CAD exchange), iges, stl/obj (3D printing).
+7. Respond with plain text summary WITHOUT any <tool> tags to signal completion.
+
+CLARIFICATION POLICY:
+- ASSUME reasonable defaults when not specified (e.g., standard clearance holes, \
+wall thickness ~2-5mm for small parts, origin at center for symmetric parts).
+- ASK only when: no dimensions at all are given, or safety-critical / compliance-\
+bound requirements are implied.
+- Do NOT ask for every dimension — infer from context and common engineering practice.
 
 CRITICAL RULES:
 - Build the simplest valid solid first. Use cq.Workplane chain API.

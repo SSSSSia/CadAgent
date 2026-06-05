@@ -22,6 +22,10 @@ from enum import Enum
 from agent.react_parser import parse_react_tool_calls
 from agent.tool_defs import TOOL_DEFINITIONS
 from agent.prompts import AGENT_SYSTEM_PROMPT, REACT_SYSTEM_PROMPT
+from agent.references import (
+    REF_FIRST_ITERATION, REF_QUALITY_FAILURE, REF_REPAIR_LOOP,
+    REF_ITERATION_URGENCY, REF_QUALITY_PASSED_WARN, QUALITY_FIX_MAP,
+)
 from core.token_budget import trim_messages, token_summary
 import core.config as _config
 from core.logger import log_info
@@ -116,8 +120,17 @@ class AgentLoop:
         return self.prepare_llm_call()
 
     def _build_context(self) -> str:
-        """Build full context string including parameters and document state."""
-        param_ctx = ""
+        """Build full context string including parameters, document state,
+        and phase-aware reference snippets injected based on agent state.
+
+        Inspired by text-to-cad's progressive documentation pattern:
+        instead of sending the full reference every turn, inject only
+        what's relevant for the current phase. This saves tokens (24K budget)
+        and focuses the LLM's attention.
+        """
+        parts: list[str] = []
+
+        # --- Always: parameters ---
         try:
             from agent.tools import get_param_store
             params = get_param_store()
@@ -127,10 +140,39 @@ class AgentLoop:
             lines = ["CURRENT DESIGN PARAMETERS:"]
             for name, value in sorted(params.items()):
                 lines.append(f"  {name} = {value}")
-            param_ctx = "\n" + "\n".join(lines)
+            parts.append("\n" + "\n".join(lines))
 
-        doc_ctx = f"\nCURRENT DOCUMENT CONTEXT:\n{self._context}" if self._context else ""
-        return param_ctx + doc_ctx
+        # --- Always: document context ---
+        if self._context:
+            parts.append(f"\nCURRENT DOCUMENT CONTEXT:\n{self._context}")
+
+        # --- Phase-aware: first iteration checklist ---
+        if self._iteration == 0:
+            parts.append(REF_FIRST_ITERATION)
+
+        # --- Phase-aware: quality failure guidance ---
+        if self._last_quality_passed is False:
+            parts.append(REF_QUALITY_FAILURE)
+
+        # --- Phase-aware: repeated errors ---
+        if len(self._recent_errors) >= 2:
+            parts.append(REF_REPAIR_LOOP)
+
+        # --- Phase-aware: quality passed with warnings ---
+        if self._last_quality_passed is True and self._last_quality_summary:
+            if "warn" in self._last_quality_summary.lower():
+                parts.append(REF_QUALITY_PASSED_WARN)
+
+        # --- Phase-aware: approaching iteration limit ---
+        if self._iteration >= _config.MAX_ITERATIONS - 2 and self._iteration > 0:
+            parts.append(
+                REF_ITERATION_URGENCY.format(
+                    max_iter=_config.MAX_ITERATIONS,
+                    current=self._iteration,
+                )
+            )
+
+        return "".join(parts)
 
     def prepare_llm_call(self) -> LoopAction:
         if self._stopped:
@@ -258,12 +300,27 @@ class AgentLoop:
             # Error dedup: warn if same error keeps recurring
             if ex.is_error:
                 err_sig = ex.result[:120]
-                if any(err_sig[:80] == prev[:80] for prev in self._recent_errors):
-                    result_text = (
-                        ex.result
-                        + "\n\nWARNING: REPEATED ERROR. "
-                        "You MUST change your approach. Do NOT resubmit similar code."
-                    )
+                is_repeated = any(
+                    err_sig[:80] == prev[:80] for prev in self._recent_errors
+                )
+                if is_repeated:
+                    # Inject targeted repair hint from error_hint() if available
+                    repair_hint = self._get_error_repair_hint(ex)
+                    if repair_hint:
+                        result_text = (
+                            ex.result
+                            + "\n\nWARNING: REPEATED ERROR.\n"
+                            + repair_hint
+                            + "\nYou MUST change your approach. "
+                            "Do NOT resubmit similar code."
+                        )
+                    else:
+                        result_text = (
+                            ex.result
+                            + "\n\nWARNING: REPEATED ERROR. "
+                            "You MUST change your approach. "
+                            "Do NOT resubmit similar code."
+                        )
                 self._recent_errors.append(err_sig)
                 if len(self._recent_errors) > 5:
                     self._recent_errors.pop(0)
@@ -319,15 +376,115 @@ class AgentLoop:
         return False, self._last_quality_summary
 
     def _quality_gate_block(self, reason: str) -> LoopAction:
-        """Block FINISH, inject quality feedback, return CALL_LLM to continue."""
-        msg = (
-            f"CAD QUALITY GATE: {reason}\n\n"
-            "You MUST use execute_code to fix the issue before finishing. "
-            "Do NOT respond with a summary — write code to create or fix the geometry."
-        )
+        """Block FINISH, inject quality feedback with targeted fix suggestion.
+
+        Inspired by text-to-cad's classified repair loop: instead of a generic
+        "fix geometry" message, extract the specific QualityIssue code from the
+        failure reason and inject a targeted repair instruction from
+        QUALITY_FIX_MAP.
+        """
+        fix_hint = self._get_quality_fix_suggestion()
+        if fix_hint:
+            msg = (
+                f"CAD QUALITY GATE: {reason}\n"
+                f"Fix: {fix_hint}\n\n"
+                "You MUST use execute_code to fix the issue before finishing. "
+                "Do NOT respond with a summary — write code to fix the geometry."
+            )
+        else:
+            msg = (
+                f"CAD QUALITY GATE: {reason}\n\n"
+                "You MUST use execute_code to fix the issue before finishing. "
+                "Do NOT respond with a summary — write code to create or fix the geometry."
+            )
         self._controller.session.add_user_message(msg)
         log_info(f"Quality gate blocked FINISH: {reason[:100]}")
         return self.prepare_llm_call()
+
+    def _get_quality_fix_suggestion(self) -> str:
+        """Extract targeted fix suggestion from the last quality summary.
+
+        Maps known QualityIssue codes (e.g., NO_SOLID, MULTI_SOLID) to
+        concrete repair instructions from QUALITY_FIX_MAP.
+
+        Matches both the exact code (NO_SOLID) and natural language variants
+        (no solid, separate solids, compound shape, invalid shape, etc.)
+        that appear in quality report messages.
+        """
+        summary = self._last_quality_summary
+        if not summary:
+            return ""
+
+        # Exact code match first (e.g., "NO_SOLID" in quality JSON)
+        for code, hint in QUALITY_FIX_MAP.items():
+            if code in summary:
+                return hint
+
+        # Natural language fallback — match key phrases from quality messages
+        summary_lower = summary.lower()
+        nl_map = {
+            "no solid": "NO_SOLID",
+            "separate solid": "MULTI_SOLID",
+            "multiple object": "MULTIPLE_OBJECTS",
+            "compound shape": "COMPOUND_SHAPE",
+            "invalid shape": "INVALID_SHAPE",
+            "negative volume": "NEGATIVE_VOLUME",
+            "dimension": "DIMENSION_SUSPICIOUS",
+            "no active document": "NO_DOCUMENT",
+        }
+        for phrase, code in nl_map.items():
+            if phrase in summary_lower and code in QUALITY_FIX_MAP:
+                return QUALITY_FIX_MAP[code]
+
+        return ""
+
+    def _get_error_repair_hint(self, ex: ToolExecution) -> str:
+        """Extract a targeted repair hint for a repeated tool execution error.
+
+        Inspired by text-to-cad's classified repair loop. Uses error_hint()
+        from code_fixes.py to classify the error and return a specific fix
+        instruction. This runs in-process (no FreeCAD import needed) since
+        error_hint() only does regex/string matching on the error text.
+
+        Falls back to generic guidance if error_hint() returns nothing useful.
+        """
+        try:
+            from agent.code_fixes import error_hint
+
+            # Build a lightweight exception object from the error text
+            # error_hint() matches on exception type name and message string
+            err_text = ex.result
+            # Try to extract exception type from common error prefixes
+            # e.g., "NameError: name 'x' is not defined"
+            exc_type = None
+            exc_msg = err_text
+            for known_type in ("NameError", "AttributeError", "TypeError",
+                               "ValueError", "RuntimeError", "KeyError",
+                               "IndexError", "ImportError"):
+                if err_text.startswith(known_type):
+                    exc_type = known_type
+                    # Extract message after "TypeName: "
+                    if ":" in err_text:
+                        exc_msg = err_text.split(":", 1)[1].strip()
+                    break
+
+            if exc_type:
+                # Create a minimal exception-like object for error_hint()
+                class _FakeExc(Exception):
+                    def __init__(self):
+                        self.__class__.__name__ = exc_type
+                        Exception.__init__(self, exc_msg)
+
+                hint_text, _ = error_hint(_FakeExc(), ex.description or "")
+                if hint_text:
+                    return f"Repair hint: {hint_text}"
+        except Exception:
+            pass  # Non-critical — fall back to generic guidance
+
+        # Generic fallback for repeated errors
+        return ("Repair hint: Change ONE thing at a time — overlap distance, "
+                "boolean order, or construction method. If stuck, use "
+                "undo_last and try a different approach.")
 
     def handle_error(self, error_msg: str) -> LoopAction:
         return LoopAction(

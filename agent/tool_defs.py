@@ -118,20 +118,25 @@ TOOL_DEFINITIONS = [
         "function": {
             "name": "export_step",
             "description": (
-                "Export current FreeCAD document to STEP or IGES file format. "
-                "Use to save the final design for manufacturing or exchange with other CAD software."
+                "Export current FreeCAD document to STEP, IGES, STL, or OBJ file format. "
+                "Use to save the final design for manufacturing or exchange with other CAD software. "
+                "STEP is recommended for CAD exchange; STL/OBJ for 3D printing. "
+                "A quality check runs before export — warnings are included in the result."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "filename": {
                         "type": "string",
-                        "description": "Output file path. Extension should match format (.step/.stp or .iges/.igs)."
+                        "description": (
+                            "Output file path. Extension should match format "
+                            "(.step/.stp, .iges/.igs, .stl, .obj)."
+                        )
                     },
                     "format": {
                         "type": "string",
                         "description": "Export format",
-                        "enum": ["step", "iges"],
+                        "enum": ["step", "iges", "stl", "obj"],
                     },
                     "document": {
                         "type": "string",

@@ -539,3 +539,216 @@ class TestExecuteCodeTracking:
         )
         loop.handle_tool_results([ex])
         assert loop._execute_code_called is False
+
+
+# ===========================================================================
+# Progressive context injection (text-to-cad inspired)
+# ===========================================================================
+
+class TestProgressiveContextInjection:
+    """Test that _build_context() injects phase-aware reference snippets."""
+
+    def test_first_iteration_includes_checklist(self):
+        """Iteration 0 should include the first-execution checklist."""
+        loop, _ = _make_loop(context="some doc")
+        loop._iteration = 0
+        ctx = loop._build_context()
+        assert "FIRST EXECUTION CHECKLIST" in ctx
+        assert "cylinder(H, R)" in ctx
+
+    def test_second_iteration_excludes_checklist(self):
+        """Iteration 1+ should NOT include the first-execution checklist."""
+        loop, _ = _make_loop(context="some doc")
+        loop._iteration = 1
+        ctx = loop._build_context()
+        assert "FIRST EXECUTION CHECKLIST" not in ctx
+
+    def test_quality_failure_includes_repair_guidance(self):
+        """When quality fails, context should include repair guidance."""
+        loop, _ = _make_loop(context="some doc")
+        loop._iteration = 2
+        loop._last_quality_passed = False
+        ctx = loop._build_context()
+        assert "QUALITY REPAIR GUIDANCE" in ctx
+        assert "MULTI_SOLID" in ctx
+
+    def test_quality_pass_no_repair_guidance(self):
+        """When quality passes, no repair guidance should be injected."""
+        loop, _ = _make_loop(context="some doc")
+        loop._iteration = 2
+        loop._last_quality_passed = True
+        ctx = loop._build_context()
+        assert "QUALITY REPAIR GUIDANCE" not in ctx
+
+    def test_repeated_errors_includes_repair_loop(self):
+        """After 2+ errors, context should include repair loop strategy."""
+        loop, _ = _make_loop(context="some doc")
+        loop._iteration = 3
+        loop._recent_errors = ["err1", "err2", "err3"]
+        ctx = loop._build_context()
+        assert "REPAIR STRATEGY" in ctx
+
+    def test_single_error_no_repair_loop(self):
+        """With 0-1 errors, no repair loop should be injected."""
+        loop, _ = _make_loop(context="some doc")
+        loop._iteration = 2
+        loop._recent_errors = ["err1"]
+        ctx = loop._build_context()
+        assert "REPAIR STRATEGY" not in ctx
+
+    def test_iteration_urgency_near_limit(self):
+        """Near max iterations, urgency message should appear."""
+        loop, _ = _make_loop(context="some doc")
+        loop._iteration = _config.MAX_ITERATIONS - 1
+        ctx = loop._build_context()
+        assert "WARNING" in ctx
+        assert "iteration limit" in ctx
+
+    def test_iteration_urgency_not_early(self):
+        """Early iterations should not show urgency."""
+        loop, _ = _make_loop(context="some doc")
+        loop._iteration = 1
+        ctx = loop._build_context()
+        assert "iteration limit" not in ctx
+
+    def test_doc_context_included(self):
+        """Document context should always be included when present."""
+        loop, _ = _make_loop(context="Box 10x10x10")
+        loop._iteration = 5
+        ctx = loop._build_context()
+        assert "Box 10x10x10" in ctx
+        assert "CURRENT DOCUMENT CONTEXT" in ctx
+
+    def test_empty_context_no_doc_section(self):
+        """Empty document context should not produce a section."""
+        loop, _ = _make_loop(context="")
+        loop._iteration = 0
+        ctx = loop._build_context()
+        assert "CURRENT DOCUMENT CONTEXT" not in ctx
+
+
+# ===========================================================================
+# Quality gate fix suggestion (text-to-cad classified repair)
+# ===========================================================================
+
+class TestQualityGateFixSuggestion:
+    """Test that _quality_gate_block() injects targeted fix suggestions."""
+
+    def test_no_solid_injects_fix(self):
+        """Quality gate should suggest fix for NO_SOLID failure."""
+        loop, ctrl = _make_loop(mode="tool_calling")
+        loop.prepare_llm_call()
+        ex = _tool_execution(
+            result="FAIL: Quality check FAILED: No solid components.",
+            is_error=True,
+        )
+        loop.handle_tool_results([ex])
+        assert loop._last_quality_passed is False
+
+        data = _llm_response(content="Done!", finish_reason="stop")
+        action = loop.handle_stream_done(data, True)
+        assert action.kind == LoopActionKind.CALL_LLM
+
+        # Check the injected message contains the fix
+        user_msgs = [m for m in ctrl.session.get_messages() if m["role"] == "user"]
+        feedback = [m for m in user_msgs if "QUALITY GATE" in m["content"]]
+        assert len(feedback) == 1
+        assert "Fix:" in feedback[0]["content"]
+
+    def test_generic_failure_no_known_code(self):
+        """Unknown failure codes should still block but with generic message."""
+        loop, ctrl = _make_loop(mode="tool_calling")
+        loop.prepare_llm_call()
+        ex = _tool_execution(
+            result="FAIL: Quality check FAILED: Unknown issue XYZ.",
+            is_error=True,
+        )
+        loop.handle_tool_results([ex])
+        assert loop._last_quality_passed is False
+
+        data = _llm_response(content="Done!", finish_reason="stop")
+        action = loop.handle_stream_done(data, True)
+        assert action.kind == LoopActionKind.CALL_LLM
+
+        user_msgs = [m for m in ctrl.session.get_messages() if m["role"] == "user"]
+        feedback = [m for m in user_msgs if "QUALITY GATE" in m["content"]]
+        assert len(feedback) == 1
+        # No "Fix:" prefix since code is unknown
+        assert "Fix:" not in feedback[0]["content"]
+        assert "execute_code" in feedback[0]["content"]
+
+    def test_get_quality_fix_suggestion_multi_solid(self):
+        """MULTI_SOLID should return overlap guidance."""
+        loop, ctrl = _make_loop(mode="tool_calling")
+        loop.prepare_llm_call()
+        ex = _tool_execution(
+            result="FAIL: Quality check FAILED: Document has 2 separate solids.",
+            is_error=True,
+        )
+        loop.handle_tool_results([ex])
+        hint = loop._get_quality_fix_suggestion()
+        assert "overlap" in hint.lower()
+
+    def test_get_quality_fix_suggestion_no_match(self):
+        """Unknown summary should return empty string."""
+        loop, _ = _make_loop()
+        loop._last_quality_summary = "Something completely unknown"
+        hint = loop._get_quality_fix_suggestion()
+        assert hint == ""
+
+
+# ===========================================================================
+# Error dedup with repair hints (text-to-cad classified repair)
+# ===========================================================================
+
+class TestErrorDedupWithRepairHint:
+    """Test that repeated errors inject classified repair hints."""
+
+    def test_repeated_error_includes_repair_hint(self):
+        """Second occurrence of same error should include repair hint."""
+        loop, ctrl = _make_loop(mode="tool_calling")
+        loop.prepare_llm_call()
+
+        # First error — no warning
+        ex1 = _tool_execution(
+            result="NameError: name 'cq' is not defined",
+            is_error=True,
+        )
+        loop.handle_tool_results([ex1])
+
+        # Second error — same error, should include warning + hint
+        ctrl.session.add_assistant_message({
+            "role": "assistant", "content": "", "tool_calls": [_tool_call()],
+        })
+        loop.prepare_llm_call()
+        ex2 = _tool_execution(
+            result="NameError: name 'cq' is not defined",
+            is_error=True,
+        )
+        loop.handle_tool_results([ex2])
+
+        # Check the last user/tool message includes WARNING
+        tool_results = [m for m in ctrl.session.get_messages() if m["role"] == "tool"]
+        assert len(tool_results) >= 1
+        last_result = tool_results[-1]["content"]
+        assert "WARNING: REPEATED ERROR" in last_result
+
+    def test_different_errors_no_warning(self):
+        """Different errors should not trigger dedup warning."""
+        loop, ctrl = _make_loop(mode="tool_calling")
+        loop.prepare_llm_call()
+
+        ex1 = _tool_execution(result="NameError: x not defined", is_error=True)
+        loop.handle_tool_results([ex1])
+
+        ctrl.session.add_assistant_message({
+            "role": "assistant", "content": "", "tool_calls": [_tool_call()],
+        })
+        loop.prepare_llm_call()
+        ex2 = _tool_execution(result="TypeError: bad arg", is_error=True)
+        loop.handle_tool_results([ex2])
+
+        tool_results = [m for m in ctrl.session.get_messages() if m["role"] == "tool"]
+        assert len(tool_results) >= 1
+        last_result = tool_results[-1]["content"]
+        assert "WARNING: REPEATED ERROR" not in last_result

@@ -558,7 +558,12 @@ def _tool_undo_last(args_json: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _tool_export_step(args_json: str) -> str:
-    """Export current document to STEP or IGES file."""
+    """Export current document to STEP, IGES, STL, or OBJ file.
+
+    Inspired by text-to-cad's STEP-first export policy: runs quality check
+    before export and warns if quality has not passed. Also extends format
+    support to STL/OBJ via FreeCAD's Mesh module.
+    """
     args = json.loads(args_json)
     filename = args["filename"]
     fmt = args.get("format", "step")
@@ -570,12 +575,68 @@ def _tool_export_step(args_json: str) -> str:
             return f"ERROR: Document '{doc_name}' not found. Available: {_doc_list_str()}"
         return "ERROR: No active document to export."
 
+    # --- Quality pre-check (inspired by text-to-cad's validated export) ---
+    quality_warning = ""
+    try:
+        from core.quality import analyze_document_quality, format_quality_report
+        q_report = analyze_document_quality(doc)
+        if not q_report.passed:
+            quality_warning = (
+                f"\nWARNING: CAD quality check FAILED — exporting anyway.\n"
+                f"{format_quality_report(q_report)}\n"
+                "Consider fixing quality issues before sharing this file."
+            )
+        elif q_report.severity == "warn":
+            quality_warning = (
+                f"\nNOTE: CAD quality check passed with warnings:\n"
+                f"{format_quality_report(q_report)}"
+            )
+    except Exception:
+        pass  # Non-blocking — export should still work
+
     ext = os.path.splitext(filename)[1].lower()
+    fmt_lower = fmt.lower()
+
+    # --- STL/OBJ export via Mesh module ---
+    if fmt_lower in ("stl", "obj"):
+        if not ext:
+            filename += f".{fmt_lower}"
+        parent = os.path.dirname(filename)
+        if parent and not os.path.isdir(parent):
+            return f"ERROR: Directory does not exist: {parent}"
+
+        try:
+            import Mesh
+            shapes = [o for o in doc.Objects
+                      if hasattr(o, "Shape") and o.Shape and not o.Shape.isNull()]
+            if not shapes:
+                return "ERROR: No shape objects to export."
+            # Export each shape as a mesh
+            mesh = Mesh.Mesh(shapes[0].Shape.tessellate(0.1))
+            for s in shapes[1:]:
+                mesh.addMesh(Mesh.Mesh(s.Shape.tessellate(0.1)))
+            if fmt_lower == "stl":
+                mesh.write(filename)
+            else:
+                mesh.write(filename)
+            size_str = f"{os.path.getsize(filename)} bytes" if os.path.isfile(filename) else "unknown size"
+            result = (
+                f"SUCCESS: Exported {len(shapes)} shapes to {filename}\n"
+                f"Format: {fmt_lower.upper()}\n"
+                f"File size: {size_str}"
+            )
+            if quality_warning:
+                result += quality_warning
+            return result
+        except Exception as e:
+            return f"ERROR: {fmt_lower.upper()} export failed: {type(e).__name__}: {e}"
+
+    # --- STEP/IGES export (original logic) ---
     if not ext:
-        filename += ".step" if fmt == "step" else ".iges"
-    elif fmt == "iges" and ext not in (".iges", ".igs"):
+        filename += ".step" if fmt_lower == "step" else ".iges"
+    elif fmt_lower == "iges" and ext not in (".iges", ".igs"):
         return "ERROR: Format is 'iges' but filename extension is not .iges/.igs"
-    elif fmt == "step" and ext not in (".step", ".stp"):
+    elif fmt_lower == "step" and ext not in (".step", ".stp"):
         return "ERROR: Format is 'step' but filename extension is not .step/.stp"
 
     parent = os.path.dirname(filename)
@@ -585,11 +646,14 @@ def _tool_export_step(args_json: str) -> str:
     try:
         import Import
         Import.export(doc.Objects, filename)
-        return (
+        result = (
             f"SUCCESS: Exported {len(doc.Objects)} objects to {filename}\n"
-            f"Format: {fmt.upper()}\n"
+            f"Format: {fmt_lower.upper()}\n"
             f"File size: {os.path.getsize(filename)} bytes"
         )
+        if quality_warning:
+            result += quality_warning
+        return result
     except Exception as e:
         try:
             shapes = [o for o in doc.Objects
@@ -597,11 +661,14 @@ def _tool_export_step(args_json: str) -> str:
             if not shapes:
                 return f"ERROR: No shape objects to export. Original error: {e}"
             Part.export(shapes, filename)
-            return (
+            result = (
                 f"SUCCESS: Exported {len(shapes)} shapes to {filename} (Part.export fallback)\n"
-                f"Format: {fmt.upper()}\n"
+                f"Format: {fmt_lower.upper()}\n"
                 f"File size: {os.path.getsize(filename)} bytes"
             )
+            if quality_warning:
+                result += quality_warning
+            return result
         except Exception as e2:
             return f"ERROR: Export failed: {type(e2).__name__}: {e2}"
 
