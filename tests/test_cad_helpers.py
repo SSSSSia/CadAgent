@@ -201,7 +201,8 @@ class TestSafeCut:
     def test_cut_calls_cut_method(self):
         a = MagicMock()
         b = MagicMock()
-        a.cut.return_value = _MockShape(shape_type="Solid")
+        mock_solid = _MockShape(shape_type="Solid", solids=[_MockShape(shape_type="Solid")])
+        a.cut.return_value = mock_solid
         safe_cut(a, b)
         a.cut.assert_called_once_with(b)
 

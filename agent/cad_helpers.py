@@ -51,13 +51,27 @@ def safe_fuse(a, b):
 
 
 def safe_cut(a, b):
-    """Cut b from a and extract a single solid result.
+    """Cut b from a and extract solid result(s).
 
-    Use this instead of raw a.cut(b) to guarantee a clean single solid.
-    Raises ValueError if cut produces null/compound/multi-solid result.
+    Use this instead of raw a.cut(b).  Cut operations naturally produce
+    multiple fragments, so this returns a Compound containing all resulting
+    solids when more than one is present.  This is different from safe_fuse
+    which requires exactly one solid (overlapping shapes should merge).
     """
     result = a.cut(b)
-    return extract_solid(result)
+    if result is None or (hasattr(result, "isNull") and result.isNull()):
+        raise ValueError("Cut operation produced null shape")
+    # Already a single Solid — return directly
+    if hasattr(result, "ShapeType") and result.ShapeType == "Solid":
+        return result
+    solids = result.Solids if hasattr(result, "Solids") else []
+    if len(solids) == 0:
+        raise ValueError("Cut removed all geometry — no solid remains")
+    if len(solids) == 1:
+        return solids[0]
+    # Multiple fragments — return as Compound (valid for further boolean ops)
+    compound = Part.makeCompound(solids)
+    return compound
 
 
 def make_hollow_cylinder(outer_r, inner_r, height, bottom=0):

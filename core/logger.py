@@ -43,21 +43,20 @@ def _setup_file_logger() -> logging.Logger:
 _file_logger = _setup_file_logger()
 
 
-def _log(msg: str, level: str = "warning") -> None:
+def _log(msg: str, level: str = "warning", *, quiet: bool = False) -> None:
     ts = datetime.datetime.now().strftime("%H:%M:%S")
     full = f"[{ts}] {msg}"
-    # Console
-    try:
-        import FreeCAD
-        if level == "error":
-            FreeCAD.Console.PrintError(f"[CadAgent] {full}\n")
-        elif level == "warning":
-            FreeCAD.Console.PrintWarning(f"[CadAgent] {full}\n")
-        else:
-            FreeCAD.Console.PrintMessage(f"[CadAgent] {full}\n")
-    except (ImportError, AttributeError):
-        prefix = {"error": "ERROR", "warning": "WARN", "info": "INFO"}.get(level, "LOG")
-        print(f"[CadAgent] {prefix}: {full}", file=sys.stderr)
+    # Console — info and error levels; warning skips to avoid FreeCAD Report popup spam
+    if not quiet and level in ("info", "error"):
+        try:
+            import FreeCAD
+            if level == "error":
+                FreeCAD.Console.PrintError(f"[CadAgent] {full}\n")
+            else:
+                FreeCAD.Console.PrintMessage(f"[CadAgent] {full}\n")
+        except (ImportError, AttributeError):
+            prefix = {"error": "ERROR", "info": "INFO"}.get(level, "LOG")
+            print(f"[CadAgent] {prefix}: {full}", file=sys.stderr)
     # File
     log_level = {"error": logging.ERROR, "warning": logging.WARNING, "info": logging.INFO}.get(level, logging.INFO)
     _file_logger.log(log_level, msg)
@@ -73,3 +72,14 @@ def log_warning(msg: str) -> None:
 
 def log_error(msg: str) -> None:
     _log(msg, "error")
+
+
+def log_quiet(msg: str) -> None:
+    """Log to file only — no FreeCAD Console output.
+
+    Use this for expected Agent behavior (tool failures, auto-fix retries)
+    to avoid triggering FreeCAD's Report view popup. The information is
+    already shown inline in the chat panel via _append_tool_msg().
+    """
+    log_level = logging.INFO
+    _file_logger.log(log_level, msg)

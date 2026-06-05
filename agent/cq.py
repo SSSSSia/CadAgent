@@ -127,6 +127,41 @@ class Workplane:
         self._pending.append(("polygon", n, radius, centered))
         return self
 
+    # -- Unimplemented CadQuery sketch methods (clear error instead of AttributeError) --
+
+    def moveTo(self, *args, **kwargs):
+        raise NotImplementedError(
+            "moveTo/lineTo/threePointArc sketch paths are not supported. "
+            "Use circle(), rect(), polygon() + extrude() for 2D-to-3D, or "
+            "combine primitive solids (box, cylinder, torus) with .union()/.cut()."
+        )
+
+    def lineTo(self, *args, **kwargs):
+        raise NotImplementedError(
+            "lineTo sketch paths are not supported. "
+            "Use circle(), rect(), polygon() + extrude() for 2D-to-3D, or "
+            "combine primitive solids (box, cylinder, torus) with .union()/.cut()."
+        )
+
+    def threePointArc(self, *args, **kwargs):
+        raise NotImplementedError(
+            "threePointArc sketch paths are not supported. "
+            "Use torus() + .cut() for curved handles, or "
+            "make_arc_handle(cup_radius, handle_r, arc_r, z_center)."
+        )
+
+    def close(self, *args, **kwargs):
+        raise NotImplementedError(
+            "close() sketch paths are not supported. "
+            "Use circle(), rect(), polygon() + extrude() for closed profiles."
+        )
+
+    def newObject(self, *args, **kwargs):
+        raise NotImplementedError(
+            "newObject() is not available. Use .union()/.cut() to combine "
+            "Workplane objects, or cq_show() to add results to the document."
+        )
+
     # -- Extrude (consumes pending 2D ops) ----------------------------------
 
     def extrude(self, height: float, both: bool = False) -> Workplane:

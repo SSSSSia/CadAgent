@@ -81,16 +81,16 @@ Document output:
 - cq_show(result, "Label") — add shape to FreeCAD document and display
 - result.solid() — get raw FreeCAD solid (for advanced operations)
 
-Legacy helpers still available: extract_solid, safe_fuse, safe_cut, \
-make_hollow_cylinder, make_ring, make_box_handle, make_arc_handle, ensure_doc.
+Legacy helpers:
+- make_box_handle(cup_radius, width, depth, height, z) — box handle with 2mm overlap into cup wall
+- make_arc_handle(cup_radius, handle_r, arc_r, z_center) — half-torus arc handle
+- make_hollow_cylinder(outer_r, inner_r, height, bottom=0) — hollow cylinder
+- extract_solid, safe_fuse, safe_cut, make_ring, ensure_doc
 
 Example — hollow cylinder with handle:
   body = (cq.Workplane("XY")
            .circle(40).circle(35).extrude(90))
-  handle_torus = cq.Workplane("XY").torus(25, 6)
-  handle = handle_torus.cut(cq.Workplane("XY").box(60, 26, 14))
-  handle = handle.rotate((0,0,0), (0,0,1), -90).rotate((0,0,0), (1,0,0), 90)
-  handle = handle.translate((40 - 2, 0, 50))
+  handle = make_box_handle(cup_radius=40, width=8, depth=25, height=60, z=15)
   body = body.union(handle)
   cq_show(body, "Cup")
 
@@ -204,16 +204,16 @@ Document output:
 - cq_show(result, "Label") — add shape to FreeCAD document and display
 - result.solid() — get raw FreeCAD solid (for advanced operations)
 
-Legacy helpers still available: extract_solid, safe_fuse, safe_cut, \
-make_hollow_cylinder, make_ring, make_box_handle, make_arc_handle, ensure_doc.
+Legacy helpers:
+- make_box_handle(cup_radius, width, depth, height, z) — box handle with 2mm overlap into cup wall
+- make_arc_handle(cup_radius, handle_r, arc_r, z_center) — half-torus arc handle
+- make_hollow_cylinder(outer_r, inner_r, height, bottom=0) — hollow cylinder
+- extract_solid, safe_fuse, safe_cut, make_ring, ensure_doc
 
 Example — hollow cylinder with handle:
   body = (cq.Workplane("XY")
            .circle(40).circle(35).extrude(90))
-  handle_torus = cq.Workplane("XY").torus(25, 6)
-  handle = handle_torus.cut(cq.Workplane("XY").box(60, 26, 14))
-  handle = handle.rotate((0,0,0), (0,0,1), -90).rotate((0,0,0), (1,0,0), 90)
-  handle = handle.translate((40 - 2, 0, 50))
+  handle = make_box_handle(cup_radius=40, width=8, depth=25, height=60, z=15)
   body = body.union(handle)
   cq_show(body, "Cup")
 

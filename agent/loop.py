@@ -91,6 +91,7 @@ class AgentLoop:
         self._execute_code_called: bool = False
         self._last_quality_passed: bool | None = None
         self._last_quality_summary: str = ""
+        self._quality_gate_blocks: int = 0  # escape hatch counter
 
     @property
     def iteration(self) -> int:
@@ -365,6 +366,9 @@ class AgentLoop:
 
         Returns (allowed, reason). allowed=True if gate passes or is not
         applicable (no execute_code has run yet AND no document context).
+
+        Escape hatch: after 3 consecutive quality gate blocks, allow FINISH
+        with success=False to prevent infinite retry loops.
         """
         if not self._execute_code_called and self._context:
             return False, (
@@ -382,7 +386,29 @@ class AgentLoop:
         "fix geometry" message, extract the specific QualityIssue code from the
         failure reason and inject a targeted repair instruction from
         QUALITY_FIX_MAP.
+
+        Escape hatch: after 3 consecutive blocks, allow FINISH with
+        success=False to prevent infinite retry loops where the agent
+        cannot fix the quality issue.
         """
+        self._quality_gate_blocks += 1
+
+        # Escape hatch — stop forcing retries after 3 failed quality gates
+        if self._quality_gate_blocks >= 3:
+            log_info(
+                f"Quality gate escape hatch: {self._quality_gate_blocks} blocks, "
+                f"allowing FINISH with failure"
+            )
+            return LoopAction(
+                kind=LoopActionKind.FINISH,
+                success=False,
+                summary=(
+                    f"Agent stopped after quality gate blocked {self._quality_gate_blocks} "
+                    f"attempts. Last issue: {reason}"
+                ),
+                iterations=self._iteration,
+            )
+
         fix_hint = self._get_quality_fix_suggestion()
         if fix_hint:
             msg = (

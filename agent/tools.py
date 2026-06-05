@@ -20,7 +20,7 @@ import Part
 import math
 
 from core.text_utils import strip_markdown
-from core.logger import log_info, log_warning, log_error
+from core.logger import log_info, log_warning, log_error, log_quiet
 from agent.code_fixes import pre_validate_code, error_hint
 from agent.cad_helpers import (
     extract_solid, safe_fuse, safe_cut,
@@ -411,13 +411,13 @@ def _attempt_auto_fix(
     # Restore pre-execution snapshot to get clean document state.
     restore_result = restore_latest_snapshot()
     if not restore_result.startswith("SUCCESS"):
-        log_warning(f"Auto-fix: snapshot restore failed: {restore_result}")
+        log_quiet(f"Auto-fix: snapshot restore failed: {restore_result}")
         return None
 
     # Get fresh document reference after restoration.
     restored_doc = FreeCAD.ActiveDocument
     if restored_doc is None:
-        log_warning("Auto-fix: no active document after snapshot restore")
+        log_quiet("Auto-fix: no active document after snapshot restore")
         return None
 
     # Clean stale FreeCAD references from persistent namespace.
@@ -464,7 +464,7 @@ def _attempt_auto_fix(
             exec(execution_code, namespace)
     except Exception as retry_error:
         retry_tb = traceback.format_exc()
-        log_warning(
+        log_quiet(
             f"Auto-fix retry failed: {type(retry_error).__name__}: "
             f"{retry_error}\n{retry_tb}"
         )
