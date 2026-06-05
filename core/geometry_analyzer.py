@@ -514,3 +514,34 @@ def describe_shape(info: ShapeInfo) -> str:
             lines.append(f"    - {desc}")
 
     return "\n".join(lines)
+
+
+def describe_shape_concise(info: ShapeInfo) -> str:
+    """Compact shape description for LLM context (~4 lines per object).
+
+    Focuses on what the agent needs to verify: dimensions, volume,
+    solid count, and topology status.  Omits detected features,
+    symmetry, and wall-thickness analysis.
+    """
+    bb = info.bound_box
+    x_len = bb.get("XMax", 0) - bb.get("XMin", 0)
+    y_len = bb.get("YMax", 0) - bb.get("YMin", 0)
+    z_len = bb.get("ZMax", 0) - bb.get("ZMin", 0)
+
+    lines = [
+        f"  Type: {info.shape_type}, {info.solid_count} solid(s), "
+        f"Vol: {info.volume:.1f} mm3",
+        f"  Size: {x_len:.1f} x {y_len:.1f} x {z_len:.1f} mm",
+    ]
+
+    if info.center_of_mass:
+        com = info.center_of_mass
+        lines.append(f"  CoM: ({com[0]:.1f}, {com[1]:.1f}, {com[2]:.1f})")
+
+    topo_issues = detect_topology_issues(info)
+    if topo_issues:
+        lines.append(f"  Topology: {'; '.join(topo_issues)}")
+    elif info.solid_count == 1:
+        lines.append("  Topology: single manifold solid (OK)")
+
+    return "\n".join(lines)

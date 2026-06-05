@@ -186,11 +186,21 @@ def make_arc_handle(cup_radius, handle_r, arc_r, z_center):
     return extract_solid(handle)
 
 
+# Track labels of objects created by cq_show so we can clean up stale
+# intermediates on the next call.  Keeps the document at exactly one
+# cq_show-managed object for the common single-part agent workflow.
+_CQ_SHOW_LABELS: set[str] = set()
+
+
 def cq_show(result, label="Part", doc=None):
     """Add a Workplane or FreeCAD shape to the document and recompute.
 
     This is the CQ-style bridge to FreeCAD's document model.  Call it
     after building geometry to make the result visible in the viewport.
+
+    Reuses an existing object with the same Label (updates Shape in-place)
+    and removes stale objects from previous cq_show calls to keep the
+    document clean for the single-part agent workflow.
 
     Args:
         result: A cq.Workplane or raw FreeCAD shape.
@@ -202,10 +212,42 @@ def cq_show(result, label="Part", doc=None):
     if doc is None:
         doc = FreeCAD.newDocument("CadAgentModel")
     shape = result.solid() if hasattr(result, "solid") else result
-    obj = doc.addObject("Part::Feature", label)
-    obj.Shape = shape
+
+    # Reuse existing object with the same Label, or create a new one.
+    existing = None
+    if hasattr(doc, "Objects"):
+        for obj in doc.Objects:
+            if getattr(obj, "Label", None) == label:
+                existing = obj
+                break
+
+    returned = existing
+    if existing is not None and hasattr(existing, "Shape"):
+        existing.Shape = shape
+    else:
+        obj = doc.addObject("Part::Feature", label)
+        obj.Shape = shape
+        returned = obj
+
+    # Remove stale objects from previous cq_show calls (different labels).
+    to_remove = []
+    if hasattr(doc, "Objects"):
+        for obj in doc.Objects:
+            if getattr(obj, "TypeId", "") != "Part::Feature":
+                continue
+            if obj.Label in _CQ_SHOW_LABELS and obj.Label != label:
+                to_remove.append(obj)
+    for obj in to_remove:
+        try:
+            doc.removeObject(obj.Name)
+            _CQ_SHOW_LABELS.discard(obj.Label)
+        except Exception:
+            pass
+
+    _CQ_SHOW_LABELS.discard(label)
+    _CQ_SHOW_LABELS.add(label)
     doc.recompute()
-    return obj
+    return returned
 
 
 def ensure_doc(name=None):

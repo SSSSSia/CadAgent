@@ -89,8 +89,15 @@ def _extract_shape_info(shape) -> ShapeInfo:
     )
 
 
-def analyze_document(doc=None) -> str:
-    """提取 FreeCAD 文档的几何信息，返回文本描述。"""
+def analyze_document(doc=None, concise: bool = False) -> str:
+    """提取 FreeCAD 文档的几何信息，返回文本描述。
+
+    Args:
+        doc: FreeCAD Document (defaults to ActiveDocument).
+        concise: If True, produce a compact summary (~4 lines per object)
+                 instead of the full detailed analysis.  Used in
+                 execute_code tool results to reduce LLM context bloat.
+    """
     if doc is None:
         doc = FreeCAD.ActiveDocument
     if doc is None:
@@ -106,7 +113,11 @@ def analyze_document(doc=None) -> str:
 
         lines.append(f"- '{obj.Label}' (type: {obj.TypeId})")
         info = _extract_shape_info(obj.Shape)
-        lines.append(describe_shape(info))
+        if concise:
+            from core.geometry_analyzer import describe_shape_concise
+            lines.append(describe_shape_concise(info))
+        else:
+            lines.append(describe_shape(info))
 
     return "\n".join(lines)
 

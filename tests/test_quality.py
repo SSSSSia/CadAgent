@@ -287,14 +287,17 @@ class TestAnalyzeQualityWarn:
         assert report.severity == "warn"
         assert any(i.code == "DIMENSION_SUSPICIOUS" for i in report.issues)
 
-    def test_multiple_objects_fails(self):
+    def test_multiple_objects_warns(self):
+        """MULTIPLE_OBJECTS is a warning, not a failure — stale intermediates."""
         report = analyze_quality_from_infos([
             ("Big", _box_info()),
             ("Small", _small_shape_info()),
         ])
-        assert report.passed is False
-        assert report.severity == "fail"
+        assert report.passed is True
+        assert report.severity == "warn"
         assert any(i.code == "MULTIPLE_OBJECTS" for i in report.issues)
+        multi_issues = [i for i in report.issues if i.code == "MULTIPLE_OBJECTS"]
+        assert all(i.severity == "warn" for i in multi_issues)
 
     def test_multiple_objects_warn_in_assembly_mode(self):
         report = analyze_quality_from_infos([

@@ -153,14 +153,20 @@ def analyze_quality_from_infos(
             summary="No shape objects in document.",
         )
 
-    # --- Fail/warn: multiple objects ---
+    # --- Warn: multiple objects ---
+    # Downgraded from fail to warn: multiple objects is a workflow issue
+    # (stale intermediates from previous cq_show calls), not a geometry
+    # issue.  cq_show() auto-cleans, but snapshot restore can bring
+    # them back.  Genuine geometry failures (NO_SOLID, MULTI_SOLID, etc.)
+    # remain at severity="fail".
     if len(shape_infos) > 1 and not assembly_mode:
         issues.append(QualityIssue(
-            code="MULTIPLE_OBJECTS", severity="fail",
+            code="MULTIPLE_OBJECTS", severity="warn",
             message=f"Document has {len(shape_infos)} shape objects; "
-                    f"expected 1 for a single-part design.",
-            suggestion="Use assembly_mode=True for multi-part designs, "
-                       "or fuse all shapes into one solid.",
+                    f"consider fusing into one solid or cleaning up intermediates.",
+            suggestion="cq_show() automatically cleans up previous objects. "
+                       "If multiple objects persist, fuse all shapes into "
+                       "one solid using .union().",
         ))
     elif len(shape_infos) > 1 and assembly_mode:
         issues.append(QualityIssue(

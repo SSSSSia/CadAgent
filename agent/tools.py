@@ -336,7 +336,7 @@ def _tool_execute_code(args_json: str) -> str:
             from core.doc_analyzer import analyze_document
             target = target_doc or _safe_active_doc()
             if target:
-                doc_state = analyze_document(target)
+                doc_state = analyze_document(target, concise=True)
                 if doc_state and "(No active document)" not in doc_state:
                     parts.append(f"Document state:\n{doc_state}")
         except Exception:
@@ -381,7 +381,7 @@ def _tool_execute_code(args_json: str) -> str:
             from core.doc_analyzer import analyze_document
             target = target_doc or _safe_active_doc()
             if target:
-                doc_state = analyze_document(target)
+                doc_state = analyze_document(target, concise=True)
                 if doc_state and "(No active document)" not in doc_state:
                     parts.append(f"Document state after error:\n{doc_state}")
         except Exception:
@@ -505,7 +505,7 @@ def _attempt_auto_fix(
     try:
         from core.doc_analyzer import analyze_document
         if restored_doc:
-            doc_state = analyze_document(restored_doc)
+            doc_state = analyze_document(restored_doc, concise=True)
             if doc_state and "(No active document)" not in doc_state:
                 parts.append(f"Document state:\n{doc_state}")
     except Exception:

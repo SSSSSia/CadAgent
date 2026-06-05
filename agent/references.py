@@ -106,7 +106,8 @@ QUALITY_FIX_MAP: dict[str, str] = {
         "doc = FreeCAD.newDocument('Model')"
     ),
     "MULTIPLE_OBJECTS": (
-        "Multiple shape objects in document. Fuse them into one solid "
-        "or set assembly_mode if intentional."
+        "Multiple shape objects in document — this is a warning, not a "
+        "failure. cq_show() automatically cleans up previous objects. "
+        "If objects persist, fuse all shapes into one solid using .union()."
     ),
 }
