@@ -32,7 +32,7 @@ class _PanelSessionMixin:
         if index <= 0:
             # Bug 2 fix: use _sync_all_state to clear all three layers
             # (previously only cleared persistent_vars, missing snapshots & params)
-            if self._llm_thread and self._llm_thread.isRunning():
+            if self._live_threads():
                 self._refresh_session_list()
                 return
             self._store.save_if_not_empty(self._session)
@@ -57,7 +57,7 @@ class _PanelSessionMixin:
         session_id = self.session_combo.itemData(index)
         if not session_id or session_id == self._current_session_id:
             return
-        if self._llm_thread and self._llm_thread.isRunning():
+        if self._live_threads():
             self._append_system_msg("Agent 运行中，无法切换会话。")
             self._refresh_session_list()
             return
@@ -164,7 +164,7 @@ class _PanelSessionMixin:
         if not session_id:
             return
 
-        if self._llm_thread and self._llm_thread.isRunning():
+        if self._live_threads():
             self._append_system_msg("Agent is running. Cannot delete session.")
             return
 

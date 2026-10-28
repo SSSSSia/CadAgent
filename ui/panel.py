@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import time
+import traceback
 
 import FreeCAD
 import FreeCADGui
@@ -133,7 +134,10 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         self._controller = None
         self._loop: AgentLoop | None = None
         self._mode = "auto"
-        self._llm_thread = None
+        # All live LLM threads. The list keeps the ONLY Python references so
+        # a still-running thread is never garbage-collected (Qt fatal:
+        # "Destroyed while thread is still running") — S1-D1/D2.
+        self._llm_threads: list = []
         self._streaming_text = ""
         self._stream_replace_start = 0
         self._stream_timer = None
@@ -205,32 +209,73 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         self.text_input.clear()
         self._set_running(True)
 
-        # Gather document context (main thread — safe)
-        context = ""
-        doc = FreeCAD.ActiveDocument
-        if doc:
+        # Everything past this point must never leave the panel stuck with
+        # all controls disabled (S1-D5): no signal would ever fire to
+        # restore them.
+        try:
+            # Gather document context (main thread — safe)
+            context = ""
+            doc = FreeCAD.ActiveDocument
+            if doc:
+                try:
+                    # If multiple documents are open, include all of them
+                    all_docs = FreeCAD.listDocuments()
+                    if len(all_docs) > 1:
+                        from core.doc_analyzer import analyze_all_documents
+                        context = analyze_all_documents()
+                    else:
+                        context = analyze_document(doc)
+                except Exception as e:
+                    log_warning(f"Document analysis failed: {e}")
+                    context = ""
+
+            # Initialize controller and loop
+            self._controller = AgentController(self._session)
+
+            self._loop = AgentLoop(self._controller, context, self._session.last_mode)
+            self._mode = self._session.last_mode
+
+            self._store.save_if_not_empty(self._session)
+
+            action = self._loop.start(text)
+            self._execute_action(action)
+        except Exception as e:
+            self._recover_after_internal_error(e)
+
+    def _recover_after_internal_error(self, exc: Exception):
+        """Restore the panel after an unexpected error inside the agent turn.
+
+        Deliberately does NOT touch the streaming bubble via stale cursor
+        state (that hazard is fixed separately in S3); it only neutralizes
+        the streaming state so later finalize/remove calls are inert.
+        """
+        log_error(
+            f"Internal error in agent turn: {type(exc).__name__}: {exc}\n"
+            f"{traceback.format_exc()}"
+        )
+        self._streaming_text = ""
+        if self._stream_timer and self._stream_timer.isActive():
+            self._stream_timer.stop()
+        if self._controller is not None and self._loop is not None:
             try:
-                # If multiple documents are open, include all of them
-                all_docs = FreeCAD.listDocuments()
-                if len(all_docs) > 1:
-                    from core.doc_analyzer import analyze_all_documents
-                    context = analyze_all_documents()
-                else:
-                    context = analyze_document(doc)
-            except Exception as e:
-                log_warning(f"Document analysis failed: {e}")
-                context = ""
-
-        # Initialize controller and loop
-        self._controller = AgentController(self._session)
-
-        self._loop = AgentLoop(self._controller, context, self._session.last_mode)
-        self._mode = self._session.last_mode
-
-        self._store.save_if_not_empty(self._session)
-
-        action = self._loop.start(text)
-        self._execute_action(action)
+                self._finish_from_action(LoopAction(
+                    kind=LoopActionKind.FINISH, success=False,
+                    summary=f"Internal error: {type(exc).__name__}: {exc}",
+                    iterations=self._loop.iteration,
+                ))
+                return
+            except Exception:
+                log_error("Recovery via _finish_from_action failed; "
+                          "falling back to direct UI restore")
+        try:
+            self._append_system_msg(f"Internal error: {exc}")
+        except Exception:
+            pass
+        self._set_running(False)
+        try:
+            self._status_reset()
+        except Exception:
+            pass
 
     def _update_token_label(self, used: int, budget: int, trimmed: bool = False):
         """Update the token budget status label with color coding."""
@@ -267,12 +312,45 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             self._start_streaming_bubble()
 
         self._update_token_label(action.token_used, action.token_budget, action.token_trimmed)
-        self._llm_thread = _LlmCallThread(action.messages, action.tools)
-        self._llm_thread.chunkReady.connect(self._on_stream_chunk)
-        self._llm_thread.reasoningReady.connect(self._on_reasoning_chunk)
-        self._llm_thread.streamDone.connect(self._on_stream_done)
-        self._llm_thread.error.connect(self._on_llm_error)
-        self._llm_thread.start()
+        thread = _LlmCallThread(action.messages, action.tools, parent=self)
+        thread.chunkReady.connect(self._on_stream_chunk)
+        thread.reasoningReady.connect(self._on_reasoning_chunk)
+        thread.streamDone.connect(self._on_stream_done)
+        thread.error.connect(self._on_llm_error)
+        thread.finished.connect(lambda t=thread: self._forget_thread(t))
+        self._llm_threads.append(thread)
+        thread.start()
+
+    # ---- LLM thread lifecycle (S1-D1/D2) ----
+
+    def _live_threads(self) -> list:
+        """Threads that are still running."""
+        return [t for t in self._llm_threads if t.isRunning()]
+
+    def _forget_thread(self, thread) -> None:
+        """Drop a finished thread's reference (connected to finished)."""
+        try:
+            self._llm_threads.remove(thread)
+        except ValueError:
+            pass
+
+    def _shutdown_threads(self, wait_ms: int) -> None:
+        """Interrupt all live threads and wait (bounded) for them to end.
+
+        A thread blocked inside urllib (up to LLM_TIMEOUT) can outlive the
+        wait; it stays referenced in _llm_threads so it is never destroyed
+        while running. True interruptible I/O is tracked as S3-D8.
+        """
+        live = self._live_threads()
+        for t in live:
+            t.requestInterruption()
+        for t in live:
+            if not t.wait(wait_ms):
+                log_warning(
+                    "LLM thread did not stop within "
+                    f"{wait_ms}ms; it will finish in the background"
+                )
+        self._llm_threads = [t for t in self._llm_threads if t.isRunning()]
 
     def _on_reasoning_chunk(self, text):
         """Accumulate reasoning content from models that support it."""
@@ -329,58 +407,61 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
 
     def _run_tool_calls(self, action: LoopAction):
         """Execute tools in the MAIN thread (safe for FreeCAD)."""
-        executions = []
-        for tc in action.tool_calls:
-            if self._loop.stopped:
-                break
-
-            fn = tc.get("function", {})
-            tool_name = fn.get("name", "")
-            tool_args = fn.get("arguments", "{}")
-            tool_id = tc.get("id", "")
-
-            self._status_set("executing_tool", tool_name)
-
-            desc = ""
-            if tool_name == "execute_code":
-                try:
-                    desc = json.loads(tool_args).get("description", "")
-                except json.JSONDecodeError as e:
-                    log_warning(f"Failed to parse tool args JSON: {e}")
-
-            if desc:
-                self._status_tool_desc = desc
-                self._status_tick()
-
-            # Execute tool in main thread (FreeCAD safe)
-            tool_result = dispatch_tool(tool_name, tool_args)
-            is_error = tool_result.startswith("ERROR") or tool_result.startswith("FAIL")
-            if is_error:
-                log_warning(f"Tool '{tool_name}' failed at iteration {self._loop.iteration}: {tool_result[:300]}")
-
-            # Update undo button state (snapshot was taken if execute_code)
-            self._update_undo_button_state()
-
-            self._append_tool_msg(
-                self._loop.iteration, tool_name, desc,
-                tool_result, is_error,
-            )
-
-            executions.append(ToolExecution(
-                tool_name=tool_name, tool_args=tool_args, tool_id=tool_id,
-                description=desc, result=tool_result, is_error=is_error,
-            ))
-
-        # Sync parameters and persistent vars from tools to session
         try:
-            from agent.tools import get_param_store, get_persistent_vars
-            self._controller.session.parameters = get_param_store()
-            self._controller.session.persistent_vars = get_persistent_vars()
-        except Exception:
-            pass
+            executions = []
+            for tc in action.tool_calls:
+                if self._loop.stopped:
+                    break
 
-        next_action = self._loop.handle_tool_results(executions)
-        self._execute_action(next_action)
+                fn = tc.get("function", {})
+                tool_name = fn.get("name", "")
+                tool_args = fn.get("arguments", "{}")
+                tool_id = tc.get("id", "")
+
+                self._status_set("executing_tool", tool_name)
+
+                desc = ""
+                if tool_name == "execute_code":
+                    try:
+                        desc = json.loads(tool_args).get("description", "")
+                    except json.JSONDecodeError as e:
+                        log_warning(f"Failed to parse tool args JSON: {e}")
+
+                if desc:
+                    self._status_tool_desc = desc
+                    self._status_tick()
+
+                # Execute tool in main thread (FreeCAD safe)
+                tool_result = dispatch_tool(tool_name, tool_args)
+                is_error = tool_result.startswith("ERROR") or tool_result.startswith("FAIL")
+                if is_error:
+                    log_warning(f"Tool '{tool_name}' failed at iteration {self._loop.iteration}: {tool_result[:300]}")
+
+                # Update undo button state (snapshot was taken if execute_code)
+                self._update_undo_button_state()
+
+                self._append_tool_msg(
+                    self._loop.iteration, tool_name, desc,
+                    tool_result, is_error,
+                )
+
+                executions.append(ToolExecution(
+                    tool_name=tool_name, tool_args=tool_args, tool_id=tool_id,
+                    description=desc, result=tool_result, is_error=is_error,
+                ))
+
+            # Sync parameters and persistent vars from tools to session
+            try:
+                from agent.tools import get_param_store, get_persistent_vars
+                self._controller.session.parameters = get_param_store()
+                self._controller.session.persistent_vars = get_persistent_vars()
+            except Exception:
+                pass
+
+            next_action = self._loop.handle_tool_results(executions)
+            self._execute_action(next_action)
+        except Exception as e:
+            self._recover_after_internal_error(e)
 
     def _finish_from_action(self, action: LoopAction):
         """Agent loop complete — show results."""
@@ -437,23 +518,27 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
     def _on_stop(self):
         if self._loop:
             self._loop.request_stop()
-        if self._llm_thread and self._llm_thread.isRunning():
-            self._llm_thread.requestInterruption()
+        for t in self._live_threads():
+            t.requestInterruption()
         self._status_set("stopping")
 
     def _on_new_session(self):
-        # Stop the running thread and disconnect signals so stale
+        # Stop the running threads and disconnect signals so stale
         # streamDone / chunkReady don't hit the cleared state below.
         if self._loop:
             self._loop.request_stop()
-        if self._llm_thread and self._llm_thread.isRunning():
-            self._llm_thread.chunkReady.disconnect(self._on_stream_chunk)
-            self._llm_thread.reasoningReady.disconnect(self._on_reasoning_chunk)
-            self._llm_thread.streamDone.disconnect(self._on_stream_done)
-            self._llm_thread.error.disconnect(self._on_llm_error)
-            self._llm_thread.requestInterruption()
-            self._llm_thread.quit()
-            self._llm_thread.wait(3000)
+        for t in self._live_threads():
+            for sig, slot in (
+                (t.chunkReady, self._on_stream_chunk),
+                (t.reasoningReady, self._on_reasoning_chunk),
+                (t.streamDone, self._on_stream_done),
+                (t.error, self._on_llm_error),
+            ):
+                try:
+                    sig.disconnect(slot)
+                except (TypeError, RuntimeError):
+                    pass
+        self._shutdown_threads(3000)
         self._store.save_if_not_empty(self._session)
         self._session = ChatSession()
         self._current_session_id = self._session.session_id
@@ -511,7 +596,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             self._append_system_msg("Nothing to undo — no snapshots available.")
             return
 
-        if self._llm_thread and self._llm_thread.isRunning():
+        if self._live_threads():
             self._append_system_msg("Cannot undo while agent is running.")
             return
 
@@ -540,6 +625,9 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         SettingsDialog(parent=self).exec()
 
     def closeEvent(self, event):
+        # Interrupt and (bounded) wait for LLM threads first — destroying a
+        # running QThread is a hard Qt abort (S1-D1).
+        self._shutdown_threads(5000)
         self._store.save_current_on_close(self._session)
         from core.snapshot import cleanup_all_snapshots
         cleanup_all_snapshots()
