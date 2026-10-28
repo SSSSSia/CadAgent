@@ -379,11 +379,24 @@ class SettingsDialog(QtWidgets.QDialog):
         self.setMinimumHeight(300)
         self.setModal(True)
         self._test_worker = None
+        # All workers ever started this dialog — keeps the only references
+        # so a running QThread is never garbage-collected (S1-D3).
+        self._test_workers: list = []
         self._test_btn = None
         self._test_btn_label = ""
         self._test_title = ""
         self._setup_ui()
         self._load_current_values()
+
+    def closeEvent(self, event):
+        # Best-effort wait for a running connection test; a worker blocked
+        # on urllib stays referenced in _test_workers and finishes in the
+        # background (its signals are queued, targets may be gone — slots
+        # must tolerate that; they only touch widgets of this dialog).
+        for w in self._test_workers:
+            if w.isRunning():
+                w.wait(1000)
+        super().closeEvent(event)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -590,15 +603,33 @@ class SettingsDialog(QtWidgets.QDialog):
     # ---- Test connection (async) ----
 
     def _start_test(self, btn, btn_label, title, endpoint, headers, payload, timeout):
+        # Single-flight: starting a second test used to overwrite the only
+        # reference to a still-running worker (destroy-while-running abort).
+        running = [w for w in self._test_workers if w.isRunning()]
+        if running:
+            QtWidgets.QMessageBox.information(
+                self, title,
+                "A connection test is still running. Please wait for it to finish.",
+            )
+            return
         btn.setEnabled(False)
         btn.setText("Testing...")
         self._test_btn = btn
         self._test_btn_label = btn_label
         self._test_title = title
-        self._test_worker = _TestWorker(endpoint, headers, payload, timeout)
-        self._test_worker.success.connect(self._on_test_success)
-        self._test_worker.error.connect(self._on_test_error)
-        self._test_worker.start()
+        worker = _TestWorker(endpoint, headers, payload, timeout)
+        self._test_worker = worker
+        self._test_workers.append(worker)
+        worker.finished.connect(lambda w=worker: self._forget_test_worker(w))
+        worker.success.connect(self._on_test_success)
+        worker.error.connect(self._on_test_error)
+        worker.start()
+
+    def _forget_test_worker(self, worker):
+        try:
+            self._test_workers.remove(worker)
+        except ValueError:
+            pass
 
     def _on_test_success(self, model_name):
         self._test_btn.setEnabled(True)
@@ -729,11 +760,14 @@ class SettingsDialog(QtWidgets.QDialog):
                 self.spin_vision_temperature.value()
             )
         else:
+            # Vision disabled: blank the endpoints, keep numeric values
+            # well-formed (S1-D4 — empty strings previously crashed the
+            # int()/float() parse on Apply; config now also tolerates them).
             values["VISION_API_BASE_URL"] = ""
             values["VISION_API_KEY"] = ""
             values["VISION_MODEL_NAME"] = ""
-            values["VISION_MAX_TOKENS"] = ""
-            values["VISION_TEMPERATURE"] = ""
+            values["VISION_MAX_TOKENS"] = "2048"
+            values["VISION_TEMPERATURE"] = "0.3"
 
         _save_to_env(values)
         _config.reload(values)
