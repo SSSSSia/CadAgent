@@ -1,27 +1,16 @@
-"""Tests for parametric design features — parameter extraction and session storage."""
+"""Tests for parametric design features — parameter extraction and session storage.
+
+S0-E2: TestExtractParameters and TestPersistentVarsFilter run against the
+REAL agent/tools.py functions (loaded once with mocked FreeCAD), replacing
+the former hand-copied replicas that could silently drift from production.
+"""
 from __future__ import annotations
 
-import sys
-import os
-import re
+from tests.helpers import load_tools_module
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+TOOLS, _FC_MOCK, _FCGUI_MOCK = load_tools_module()
 
-
-# Replicate the function under test directly to avoid FreeCAD import chain
-_PARAM_PATTERN = re.compile(r'^([A-Z][A-Z0-9_]*)\s*=\s*([-+]?[\d.]+)\s*$')
-
-
-def _extract_parameters(code: str) -> dict:
-    params = {}
-    for line in code.strip().split('\n'):
-        m = _PARAM_PATTERN.match(line.strip())
-        if m:
-            val = float(m.group(2)) if '.' in m.group(2) else int(m.group(2))
-            params[m.group(1)] = val
-        elif line.strip() and not line.strip().startswith('#'):
-            break
-    return params
+_extract_parameters = TOOLS._extract_parameters
 
 
 class TestExtractParameters:
@@ -141,24 +130,17 @@ class TestSessionParameters:
 
 # ---------------------------------------------------------------------------
 # Tests for loop-temporary filtering in get_persistent_vars
-# Replicate the pure logic here to avoid importing agent/tools.py (FreeCAD).
+# (real agent/tools.py functions, loaded with mocked FreeCAD)
 # ---------------------------------------------------------------------------
-
-_LOOP_TEMPORARY_NAMES = frozenset({
-    "i", "j", "k", "n", "idx", "count",
-    "x", "y", "z", "dx", "dy", "dz",
-    "r", "t", "angle", "s",
-})
-
-_PERSISTABLE_TYPES = (int, float, str, bool, type(None))
 
 
 def _filter_persistent_vars(namespace: dict) -> dict:
-    """Replica of get_persistent_vars filtering logic."""
-    return {
-        k: v for k, v in namespace.items()
-        if isinstance(v, _PERSISTABLE_TYPES) and k not in _LOOP_TEMPORARY_NAMES
-    }
+    """Run the real get_persistent_vars filter against the given namespace."""
+    TOOLS.set_persistent_vars(namespace)
+    try:
+        return TOOLS.get_persistent_vars()
+    finally:
+        TOOLS.clear_persistent_vars()
 
 
 class TestPersistentVarsFilter:
@@ -193,5 +175,5 @@ class TestPersistentVarsFilter:
         assert _filter_persistent_vars({}) == {}
 
     def test_all_temporaries_filtered(self):
-        ns = {k: 1 for k in _LOOP_TEMPORARY_NAMES}
+        ns = {k: 1 for k in TOOLS._LOOP_TEMPORARY_NAMES}
         assert _filter_persistent_vars(ns) == {}
