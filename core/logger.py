@@ -15,28 +15,43 @@ import tempfile
 
 
 def _get_log_dir() -> str:
-    """Use project directory Mod/CadAgent/log for log files."""
-    # Get the core module directory (core/logger.py)
-    base = os.path.dirname(os.path.abspath(__file__))
-    # Go up to CadAgent root
-    base = os.path.dirname(base)
-    d = os.path.join(base, "log")
-    os.makedirs(d, exist_ok=True)
-    return d
+    """Preferred log dir: <CadAgent install>/log. No side effects here —
+    directory creation and failure handling live in _setup_file_logger."""
+    # Get the core module directory (core/logger.py), go up to CadAgent root
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, "log")
+
+
+def _fallback_log_dir() -> str:
+    """Fallback log dir when the install dir is not writable."""
+    return os.path.join(tempfile.gettempdir(), "CadAgent")
 
 
 def _setup_file_logger() -> logging.Logger:
+    """Attach a file handler, trying the install dir then the temp dir.
+
+    Never raises: with an unwritable install location (e.g. Program Files)
+    the workbench must still load — degrade to console-only logging.
+    """
     logger = logging.getLogger("cadagent")
     logger.setLevel(logging.DEBUG)
     if logger.handlers:
         return logger
-    log_path = os.path.join(_get_log_dir(), "cadagent.log")
-    fh = logging.FileHandler(log_path, encoding="utf-8")
-    fh.setLevel(logging.DEBUG)
-    fh.setFormatter(logging.Formatter(
-        "%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-    ))
-    logger.addHandler(fh)
+    for log_dir in (_get_log_dir(), _fallback_log_dir()):
+        try:
+            os.makedirs(log_dir, exist_ok=True)
+            fh = logging.FileHandler(
+                os.path.join(log_dir, "cadagent.log"), encoding="utf-8"
+            )
+        except OSError:
+            continue
+        fh.setLevel(logging.DEBUG)
+        fh.setFormatter(logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+        ))
+        logger.addHandler(fh)
+        return logger
+    # No writable location found — console-only. Import must not crash.
     return logger
 
 
