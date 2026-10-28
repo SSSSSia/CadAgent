@@ -126,10 +126,12 @@ class SnapshotManager:
         snap_dir = self.get_snapshot_dir()
 
         # Embed session_id in filename when available for targeted cleanup.
+        # Only the first 6 chars keep openDocument's derived doc Name short
+        # (openDocument names the restored doc after the file basename).
         if self._session_id:
             snapshot_filename = (
                 f"{doc.Name}_{self._counter:04d}"
-                f"_{self._session_id}_{int(time.time())}.FCStd"
+                f"_{self._session_id[:6]}_{int(time.time())}.FCStd"
             )
         else:
             snapshot_filename = (
@@ -205,6 +207,13 @@ class SnapshotManager:
                 # instead of opening a Save As dialog.
                 restored_doc.FileName = ""
 
+            # openDocument renames the doc after the snapshot basename —
+            # restore the user-visible Label. (The internal Name cannot be
+            # changed; the short filename above keeps it reasonable.)
+            original_label = entry.get("original_label", "")
+            if original_label:
+                restored_doc.Label = original_label
+
             try:
                 gui_doc = FreeCADGui.activeDocument()
                 if gui_doc:
@@ -218,6 +227,8 @@ class SnapshotManager:
             return (
                 f"SUCCESS: Document restored from snapshot.\n"
                 f"Snapshot: {snapshot_path}\n"
+                f"Restored document: Name='{restored_doc.Name}', "
+                f"Label='{restored_doc.Label}'\n"
                 f"Remaining snapshots: {self.count()}"
             )
 

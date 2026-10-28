@@ -215,6 +215,11 @@ def part_b(workdir):
         "B4 untitled restore resets FileName to '' (no snapshot save hijack)",
         f"result={restore_result.splitlines()[0]!r} FileName={getattr(restored, 'FileName', None)!r}",
     )
+    _report(
+        restored is not None and restored.Label == pre_label,
+        "B5 restore restores the original Label",
+        f"before={pre_label!r} after={getattr(restored, 'Label', None)!r}",
+    )
 
     _close_all_documents()
 

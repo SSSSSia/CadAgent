@@ -439,3 +439,75 @@ class TestRestoreFileName:
         assert result.startswith("SUCCESS")
         assert restored.FileName == r"C:\work\user_part.FCStd"
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+# ---- restore_latest() Label restore + short session filename (S1-C3) ----
+
+class TestRestoreLabelAndFilename:
+
+    def test_restore_restores_original_label(self):
+        """openDocument renames Label to the snapshot basename — restore it."""
+        from unittest.mock import MagicMock
+
+        m = SnapshotManager()
+        tmpdir = tempfile.mkdtemp()
+        snap_path = os.path.join(tmpdir, "user_part_0001_ab12cd_1748000000.FCStd")
+        with open(snap_path, "w") as f:
+            f.write("snap")
+
+        restored = MagicMock()
+        restored.Name = "user_part_0001_ab12cd_1748000000"
+        restored.Label = restored.Name  # openDocument behavior
+        restored.FileName = snap_path
+
+        fc = MagicMock()
+        fc.ActiveDocument.Name = restored.Name
+        fc.openDocument = MagicMock(return_value=restored)
+        fcgui = MagicMock()
+        fcgui.activeDocument.return_value = None
+
+        m._stack.append({
+            "path": snap_path,
+            "doc_name": restored.Name,
+            "original_path": "",
+            "original_label": "My Bracket",
+            "session_id": None,
+            "time": 0.0,
+        })
+        saved = install_sys_modules({"FreeCAD": fc, "FreeCADGui": fcgui})
+        try:
+            result = m.restore_latest()
+        finally:
+            restore_sys_modules(saved)
+
+        assert result.startswith("SUCCESS")
+        assert restored.Label == "My Bracket"
+        # Result string tells the LLM the new document identity
+        assert "Name='user_part_0001_ab12cd_1748000000'" in result
+        assert "Label='My Bracket'" in result
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_take_filename_uses_short_session_hash(self):
+        """Session segment of the filename is capped at 6 hex chars."""
+        from unittest.mock import MagicMock
+        import re
+
+        m = SnapshotManager()
+        m.set_session_id("0c5b85877c95")  # 12 chars
+        doc = MagicMock()
+        doc.Name = "Model"
+        doc.Label = "Model"
+        doc.FileName = ""
+
+        tmpdir = tempfile.mkdtemp()
+        m.get_snapshot_dir = lambda: tmpdir
+        saved = install_sys_modules({"FreeCAD": MagicMock()})
+        try:
+            path = m.take(doc)
+        finally:
+            restore_sys_modules(saved)
+
+        fname = os.path.basename(path)
+        expected_prefix = "Model_0001_" + "0c5b85877c95"[:6] + "_"
+        assert fname.startswith(expected_prefix) and fname.endswith(".FCStd"), fname
+        shutil.rmtree(tmpdir, ignore_errors=True)
