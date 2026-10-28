@@ -610,6 +610,11 @@ def _tool_export_step(args_json: str) -> str:
     if fmt_lower in ("stl", "obj"):
         if not ext:
             filename += f".{fmt_lower}"
+        elif ext != f".{fmt_lower}":
+            return (
+                f"ERROR: Format is '{fmt_lower}' but filename extension "
+                f"is '{ext}'."
+            )
         parent = os.path.dirname(filename)
         if parent and not os.path.isdir(parent):
             return f"ERROR: Directory does not exist: {parent}"
@@ -624,10 +629,8 @@ def _tool_export_step(args_json: str) -> str:
             mesh = Mesh.Mesh(shapes[0].Shape.tessellate(0.1))
             for s in shapes[1:]:
                 mesh.addMesh(Mesh.Mesh(s.Shape.tessellate(0.1)))
-            if fmt_lower == "stl":
-                mesh.write(filename)
-            else:
-                mesh.write(filename)
+            # Mesh.write infers the format from the file extension
+            mesh.write(filename)
             size_str = f"{os.path.getsize(filename)} bytes" if os.path.isfile(filename) else "unknown size"
             result = (
                 f"SUCCESS: Exported {len(shapes)} shapes to {filename}\n"

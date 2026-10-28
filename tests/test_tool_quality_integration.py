@@ -159,3 +159,62 @@ class TestAutoFixResultPrefix:
             raise RuntimeError("quality check exploded")
         result = self._run_auto_fix(boom)
         assert result.startswith("FAIL: Auto-fix applied but CAD quality check crashed.")
+
+
+class TestExportStlObjExtension:
+    """S1-A8: STL/OBJ export validates extension vs format, single write."""
+
+    def _run_export(self, tools, mock_fc, fmt, filename):
+        import core.quality as quality_mod
+        from core.quality import QualityReport
+        orig_quality = quality_mod.analyze_document_quality
+        quality_mod.analyze_document_quality = lambda doc, assembly_mode=False: QualityReport(
+            passed=True, severity="ok", issues=[], summary="PASSED",
+        )
+        mock_shape = MagicMock()
+        mock_shape.isNull.return_value = False
+        mock_shape.tessellate.return_value = ([], [])
+        mock_obj = MagicMock()
+        mock_obj.Shape = mock_shape
+        mock_doc = MagicMock()
+        mock_doc.Objects = [mock_obj]
+        mock_fc.ActiveDocument = mock_doc
+        try:
+            return tools._tool_export_step(
+                json.dumps({"filename": filename, "format": fmt})
+            )
+        finally:
+            quality_mod.analyze_document_quality = orig_quality
+
+    def _with_mesh_mock(self, fn):
+        from tests.helpers import install_sys_modules, restore_sys_modules
+        tools, mock_fc, _ = _load_tools()
+        mesh_mod = MagicMock()
+        saved = install_sys_modules({"Mesh": mesh_mod})
+        try:
+            return fn(tools, mock_fc, mesh_mod), mesh_mod
+        finally:
+            restore_sys_modules(saved)
+
+    def test_no_extension_appends_format(self):
+        def run(tools, mock_fc, mesh_mod):
+            return self._run_export(tools, mock_fc, "stl", "out")
+        result, mesh_mod = self._with_mesh_mock(run)
+        assert result.startswith("SUCCESS")
+        written = mesh_mod.Mesh.return_value.write.call_args[0][0]
+        assert written.endswith("out.stl")
+
+    def test_matching_extension_ok(self):
+        def run(tools, mock_fc, mesh_mod):
+            return self._run_export(tools, mock_fc, "obj", "part.obj")
+        result, mesh_mod = self._with_mesh_mock(run)
+        assert result.startswith("SUCCESS")
+        assert mesh_mod.Mesh.return_value.write.call_count == 1
+
+    def test_mismatched_extension_errors(self):
+        def run(tools, mock_fc, mesh_mod):
+            return self._run_export(tools, mock_fc, "stl", "part.obj")
+        result, mesh_mod = self._with_mesh_mock(run)
+        assert result.startswith("ERROR")
+        assert "extension" in result
+        mesh_mod.Mesh.return_value.write.assert_not_called()
