@@ -1,9 +1,16 @@
 """Tests for core/config.py — .env loading, defaults, constants."""
 from __future__ import annotations
 
+from tests.helpers import reload_config as _reload_isolated
 
-# Reload config to test cleanly
+
 def _reload_config():
+    """Plain reload — callers control the environment via monkeypatch.
+
+    Used by TestLoadEnv/TestVisionConfig, whose assertions only touch keys
+    they set explicitly. TestConstants uses _reload_isolated instead so it
+    never depends on the developer's real .env (S0-E3).
+    """
     import importlib
     import core.config
     importlib.reload(core.config)
@@ -44,38 +51,37 @@ class TestLoadEnv:
 
 
 class TestConstants:
-    def test_max_iterations_default(self, monkeypatch):
-        monkeypatch.delenv("MAX_ITERATIONS", raising=False)
-        config = _reload_config()
+    """Defaults must hold regardless of the developer's real .env (S0-E3)."""
+
+    def test_max_iterations_default(self):
+        config = _reload_isolated()
         assert config.MAX_ITERATIONS == 20
         assert isinstance(config.MAX_ITERATIONS, int)
 
     def test_max_snapshots_default(self):
-        config = _reload_config()
+        config = _reload_isolated()
         assert config.MAX_SNAPSHOTS == 10
 
     def test_max_context_tokens_default(self):
-        config = _reload_config()
+        config = _reload_isolated()
         assert config.MAX_CONTEXT_TOKENS == 24000
 
     def test_llm_timeout_default(self):
-        config = _reload_config()
+        config = _reload_isolated()
         assert config.LLM_TIMEOUT == 180
 
     def test_validation_thresholds(self):
-        config = _reload_config()
+        config = _reload_isolated()
         assert config.VALIDATE_VOLUME_THRESHOLD == 0.01
         assert config.VALIDATE_DIMENSION_THRESHOLD == 0.001
 
-    def test_env_override(self, monkeypatch):
-        monkeypatch.setenv("MAX_ITERATIONS", "20")
-        config = _reload_config()
-        assert config.MAX_ITERATIONS == 20
-        monkeypatch.delenv("MAX_ITERATIONS")
+    def test_env_override(self):
+        config = _reload_isolated(env={"MAX_ITERATIONS": "30"})
+        assert config.MAX_ITERATIONS == 30
 
     def test_strip_markdown_backward_compat(self):
         """strip_markdown is re-exported from config for backward compat."""
-        config = _reload_config()
+        config = _reload_isolated()
         assert callable(config.strip_markdown)
         assert config.strip_markdown("```python\nx=1\n```") == "x=1"
 
