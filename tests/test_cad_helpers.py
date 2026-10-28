@@ -5,16 +5,13 @@ Tests the pure logic of each helper function.
 """
 from __future__ import annotations
 
-import importlib
-import importlib.util
 import os
 import sys
-import types
 from unittest.mock import MagicMock
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from tests.helpers import install_sys_modules, load_module, restore_sys_modules
 
 # ---------------------------------------------------------------------------
 # Mock FreeCAD and Part before importing cad_helpers
@@ -86,8 +83,6 @@ def _setup_mocks():
     mock_part.makeBox = make_box
     mock_part.makeTorus = make_torus
 
-    sys.modules["FreeCAD"] = mock_freecad
-    sys.modules["Part"] = mock_part
     return mock_freecad, mock_part
 
 
@@ -96,29 +91,12 @@ def _load_cad_helpers():
 
     Restores original sys.modules after loading so other tests aren't affected.
     """
-    # Save original modules (may not exist outside FreeCAD)
-    saved = {}
-    for key in ("FreeCAD", "Part"):
-        saved[key] = sys.modules.get(key)
-
-    _setup_mocks()
-
-    file_path = os.path.join(
-        os.path.dirname(__file__), "..", "agent", "cad_helpers.py"
-    )
-    file_path = os.path.normpath(file_path)
-
-    spec = importlib.util.spec_from_file_location("cad_helpers", file_path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-
-    # Restore original sys.modules so other tests aren't polluted
-    for key, orig in saved.items():
-        if orig is None:
-            sys.modules.pop(key, None)
-        else:
-            sys.modules[key] = orig
-
+    mock_freecad, mock_part = _setup_mocks()
+    saved = install_sys_modules({"FreeCAD": mock_freecad, "Part": mock_part})
+    try:
+        mod = load_module("cad_helpers", "agent", "cad_helpers.py")
+    finally:
+        restore_sys_modules(saved)
     return mod
 
 
@@ -398,14 +376,14 @@ class TestEnsureDoc:
     @pytest.fixture(autouse=True)
     def _patch_module_freecad(self):
         """Patch the FreeCAD reference inside the loaded cad_helpers module."""
-        mock_fc, _ = _setup_mocks()
+        mock_fc, mock_part = _setup_mocks()
+        saved = install_sys_modules({"FreeCAD": mock_fc, "Part": mock_part})
         # Point the loaded module's FreeCAD to our mock
         original_fc = _mod.FreeCAD
         _mod.FreeCAD = mock_fc
         yield
         _mod.FreeCAD = original_fc
-        sys.modules.pop("FreeCAD", None)
-        sys.modules.pop("Part", None)
+        restore_sys_modules(saved)
 
     def test_name_exists_returns_existing(self):
         doc = ensure_doc("exists")

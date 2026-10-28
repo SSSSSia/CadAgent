@@ -5,21 +5,13 @@ helper-first, quality-gate-aware paradigm established in Phase 1-2.
 """
 from __future__ import annotations
 
-import importlib.util
-import os
 import re
-import sys
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from tests.helpers import load_module
 
-_spec = importlib.util.spec_from_file_location(
-    "prompts",
-    os.path.join(os.path.dirname(__file__), "..", "agent", "prompts.py"),
-)
-_mod = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_mod)
+_mod = load_module("prompts", "agent", "prompts.py")
 
 AGENT_SYSTEM_PROMPT = _mod.AGENT_SYSTEM_PROMPT
 REACT_SYSTEM_PROMPT = _mod.REACT_SYSTEM_PROMPT

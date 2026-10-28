@@ -5,15 +5,12 @@ pattern of importlib.util.spec_from_file_location to avoid real FreeCAD deps.
 """
 from __future__ import annotations
 
-import importlib
-import importlib.util
 import math
-import os
-import sys
+import types
 from dataclasses import dataclass
 from typing import Any
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from tests.helpers import install_sys_modules, load_module, restore_sys_modules
 
 # ---------------------------------------------------------------------------
 # Minimal FreeCAD / Part mock so we can load cq.py without a real FreeCAD
@@ -92,7 +89,7 @@ class _MockVector:
 
 def _make_fc_mock():
     """Build a minimal FreeCAD mock module."""
-    fc = type(sys)("FreeCAD")
+    fc = types.ModuleType("FreeCAD")
 
     class _Doc:
         Name = "MockDoc"
@@ -153,7 +150,7 @@ def _make_fc_mock():
     fc.Vector = _MockVector
 
     # Part mock
-    part = type(sys)("Part")
+    part = types.ModuleType("Part")
 
     def _make_box(L, W, H, p=None):
         return _MockShape(shape_type="Solid", volume=L * W * H,
@@ -214,14 +211,11 @@ def _make_fc_mock():
 
 
 # Install mocks (save originals so we can restore for other test modules)
-_ORIG_MODULES = {
-    k: sys.modules.get(k) for k in
-    ("FreeCAD", "Part", "agent.cad_helpers", "agent.cq")
-}
-
 _fc_mock, _part_mock = _make_fc_mock()
-sys.modules["FreeCAD"] = _fc_mock
-sys.modules["Part"] = _part_mock
+_ORIG_MODULES = install_sys_modules({
+    "FreeCAD": _fc_mock,
+    "Part": _part_mock,
+})
 
 # Also mock cad_helpers functions used by cq.py
 def _extract_solid(shape):
@@ -260,7 +254,7 @@ def _make_hollow_cylinder(outer_r, inner_r, height, bottom=0):
     return _safe_cut(outer, inner)
 
 
-_mock_cad_helpers = type(sys)("agent.cad_helpers")
+_mock_cad_helpers = types.ModuleType("agent.cad_helpers")
 _mock_cad_helpers.extract_solid = _extract_solid
 _mock_cad_helpers.safe_fuse = _safe_fuse
 _mock_cad_helpers.safe_cut = _safe_cut
@@ -270,14 +264,11 @@ _mock_cad_helpers.make_box_handle = lambda *a, **kw: _MockShape(shape_type="Soli
 _mock_cad_helpers.make_arc_handle = lambda *a, **kw: _MockShape(shape_type="Solid", volume=100)
 _mock_cad_helpers.ensure_doc = lambda name=None: _fc_mock.ActiveDocument or _fc_mock.newDocument("Mock")
 _mock_cad_helpers.cq_show = lambda *a, **kw: None
-sys.modules["agent.cad_helpers"] = _mock_cad_helpers
+# Track cad_helpers alongside FreeCAD/Part so teardown restores all three
+_ORIG_MODULES.update(install_sys_modules({"agent.cad_helpers": _mock_cad_helpers}))
 
 # Now load cq.py
-_spec = importlib.util.spec_from_file_location(
-    "cq", os.path.join(os.path.dirname(__file__), "..", "agent", "cq.py"),
-)
-_cq_mod = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_cq_mod)
+_cq_mod = load_module("cq", "agent", "cq.py")
 
 Workplane = _cq_mod.Workplane
 _resolve_extrude = _cq_mod._resolve_extrude
@@ -610,8 +601,4 @@ def test_resolve_extrude_negative_height():
 # ---------------------------------------------------------------------------
 
 def teardown_module():
-    for key, orig in _ORIG_MODULES.items():
-        if orig is None:
-            sys.modules.pop(key, None)
-        else:
-            sys.modules[key] = orig
+    restore_sys_modules(_ORIG_MODULES)

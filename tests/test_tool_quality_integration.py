@@ -5,73 +5,21 @@ normal quality reports are correctly forwarded.
 """
 from __future__ import annotations
 
-import importlib
-import importlib.util
 import json
-import os
-import sys
-import types
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from tests.helpers import load_tools_module
 
 
 # ---------------------------------------------------------------------------
 # Mock FreeCAD and Part before loading tools.py
 # ---------------------------------------------------------------------------
 
-def _setup_mock_freecad():
-    """Create mock FreeCAD/FreeCADGui/Part modules."""
-    mock_freecad = MagicMock()
-    mock_freecad.ActiveDocument = MagicMock()
-    mock_freecad.ActiveDocument.Objects = []
-    mock_freecad.newDocument = MagicMock(return_value=mock_freecad.ActiveDocument)
-
-    mock_freecadgui = MagicMock()
-    mock_freecadgui.activeDocument = MagicMock(return_value=None)
-
-    mock_part = MagicMock()
-
-    saved = {}
-    for key in ("FreeCAD", "FreeCADGui", "Part"):
-        saved[key] = sys.modules.get(key)
-
-    sys.modules["FreeCAD"] = mock_freecad
-    sys.modules["FreeCADGui"] = mock_freecadgui
-    sys.modules["Part"] = mock_part
-
-    return saved, mock_freecad, mock_freecadgui
-
-
-def _restore_modules(saved):
-    """Restore original sys.modules entries."""
-    for key, val in saved.items():
-        if val is None:
-            sys.modules.pop(key, None)
-        else:
-            sys.modules[key] = val
-
-
 def _load_tools():
     """Load tools module with mocked FreeCAD/Part in sys.modules."""
-    saved, mock_fc, mock_fcg = _setup_mock_freecad()
-
-    # Also need PySide6 for capture_view
-    mock_pyside6 = MagicMock()
-    saved["PySide6"] = sys.modules.get("PySide6")
-    sys.modules["PySide6"] = mock_pyside6
-
-    file_path = os.path.join(
-        os.path.dirname(__file__), "..", "agent", "tools.py"
-    )
-    spec = importlib.util.spec_from_file_location("tools", file_path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-
-    _restore_modules(saved)
-    return mod, mock_fc, mock_fcg
+    return load_tools_module()
 
 
 # ---------------------------------------------------------------------------

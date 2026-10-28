@@ -1,20 +1,11 @@
 """Tests for agent/react_parser.py — parse_react_tool_cases."""
 from __future__ import annotations
 
-import importlib.util
 import json
-import os
-import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from tests.helpers import load_module
 
-# Load module directly from file to avoid __init__.py pulling in FreeCAD
-_spec = importlib.util.spec_from_file_location(
-    "react_parser",
-    os.path.join(os.path.dirname(__file__), "..", "agent", "react_parser.py"),
-)
-_mod = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_mod)
+_mod = load_module("react_parser", "agent", "react_parser.py")
 parse_react_tool_calls = _mod.parse_react_tool_calls
 
 

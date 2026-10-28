@@ -1,18 +1,9 @@
 """Tests for core/text_utils.py — strip_markdown."""
 from __future__ import annotations
 
-import importlib.util
-import os
-import sys
+from tests.helpers import load_module
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
-_spec = importlib.util.spec_from_file_location(
-    "text_utils",
-    os.path.join(os.path.dirname(__file__), "..", "core", "text_utils.py"),
-)
-_mod = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_mod)
+_mod = load_module("text_utils", "core", "text_utils.py")
 strip_markdown = _mod.strip_markdown
 
 

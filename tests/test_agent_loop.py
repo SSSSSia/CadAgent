@@ -1,11 +1,6 @@
 """Tests for agent/loop.py — AgentLoop state machine (pure logic, no Qt/FreeCAD)."""
 from __future__ import annotations
 
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
 from core.session import ChatSession
 from agent.controller import AgentController
 from agent.loop import AgentLoop, LoopAction, LoopActionKind, ToolExecution

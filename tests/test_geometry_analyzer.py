@@ -1,11 +1,6 @@
 """Tests for core/geometry_analyzer.py — pure geometry analysis without FreeCAD."""
 from __future__ import annotations
 
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
 from core.geometry_analyzer import (
     ShapeInfo, SolidInfo, FaceInfo,
     infer_shape_type, detect_planar_faces, describe_shape,

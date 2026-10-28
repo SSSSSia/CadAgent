@@ -1,18 +1,9 @@
 """Tests for agent/code_fixes.py — pre-validation and error hints."""
 from __future__ import annotations
 
-import importlib.util
-import os
-import sys
+from tests.helpers import load_module
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
-_spec = importlib.util.spec_from_file_location(
-    "code_fixes",
-    os.path.join(os.path.dirname(__file__), "..", "agent", "code_fixes.py"),
-)
-_mod = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_mod)
+_mod = load_module("code_fixes", "agent", "code_fixes.py")
 pre_validate_code = _mod.pre_validate_code
 error_hint = _mod.error_hint
 

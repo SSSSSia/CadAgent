@@ -5,15 +5,17 @@ Enforces that source files never use 'import FreeCADGui as Gui',
 """
 from __future__ import annotations
 
-import importlib.util
 import os
-import sys
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from tests.helpers import PROJECT_ROOT, load_module
 
-_ROOT = os.path.join(os.path.dirname(__file__), "..")
+# NOTE: this module intentionally reads project source as text. The naming
+# rules it enforces (no aliased FreeCAD imports, no bare Vector in prompt
+# examples) are source-level policy and cannot be verified by importing the
+# modules. Do not extend this grep pattern to behavior checks.
+_ROOT = PROJECT_ROOT
 _PY_DIRS = ["agent", "core", "ui"]
 
 
@@ -34,12 +36,7 @@ def _all_py_files():
 
 def _read_all_prompts():
     """Load the prompts module and return all prompt strings."""
-    spec = importlib.util.spec_from_file_location(
-        "prompts",
-        os.path.join(_ROOT, "agent", "prompts.py"),
-    )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    mod = load_module("prompts", "agent", "prompts.py")
     return {
         "AGENT_SYSTEM_PROMPT": mod.AGENT_SYSTEM_PROMPT,
         "REACT_SYSTEM_PROMPT": mod.REACT_SYSTEM_PROMPT,

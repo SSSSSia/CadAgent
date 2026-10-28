@@ -7,25 +7,15 @@ Tests cover:
 """
 from __future__ import annotations
 
-import importlib.util
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
 from agent.tool_defs import TOOL_DEFINITIONS
 from agent.prompts import (
     AGENT_SYSTEM_PROMPT,
     REACT_SYSTEM_PROMPT,
 )
+from tests.helpers import load_module
 
 # Load snapshot module without FreeCAD
-_spec = importlib.util.spec_from_file_location(
-    "snapshot",
-    os.path.join(os.path.dirname(__file__), "..", "core", "snapshot.py"),
-)
-_snap_mod = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_snap_mod)
+_snap_mod = load_module("snapshot", "core", "snapshot.py")
 SnapshotManager = _snap_mod.SnapshotManager
 
 

@@ -1,18 +1,9 @@
 """Tests for ui/chat_renderer.py — esc, _esc_html, markdown_to_html."""
 from __future__ import annotations
 
-import importlib.util
-import os
-import sys
+from tests.helpers import load_module
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
-_spec = importlib.util.spec_from_file_location(
-    "chat_renderer",
-    os.path.join(os.path.dirname(__file__), "..", "ui", "chat_renderer.py"),
-)
-_mod = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_mod)
+_mod = load_module("chat_renderer", "ui", "chat_renderer.py")
 esc = _mod.esc
 _esc_html = _mod._esc_html
 markdown_to_html = _mod.markdown_to_html

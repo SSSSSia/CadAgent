@@ -1,11 +1,6 @@
 """Tests for core/token_budget.py — estimate_tokens, trim_messages, summarize_old_messages."""
 from __future__ import annotations
 
-import sys
-import os
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
 from core.token_budget import estimate_tokens, trim_messages, summarize_old_messages, token_summary
 
 

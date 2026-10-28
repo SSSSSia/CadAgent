@@ -1,11 +1,6 @@
 """Tests for agent/tool_dispatch.py — dispatch routing without FreeCAD."""
 from __future__ import annotations
 
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
 from agent.tool_dispatch import dispatch_tool, register_tool, available_tools
 
 

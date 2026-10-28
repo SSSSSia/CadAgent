@@ -3,11 +3,7 @@ from __future__ import annotations
 
 import base64
 import json
-import os
-import sys
 import urllib.error
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
 def _reload_vision_client(monkeypatch=None):

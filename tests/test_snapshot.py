@@ -1,21 +1,14 @@
 """Tests for core/snapshot.py — SnapshotManager class and module-level API."""
 from __future__ import annotations
 
-import importlib.util
 import os
-import sys
 import tempfile
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from tests.helpers import load_module
 
 # Load snapshot module without FreeCAD dependency.
 # The module-level convenience functions delegate to a default SnapshotManager.
-_spec = importlib.util.spec_from_file_location(
-    "snapshot",
-    os.path.join(os.path.dirname(__file__), "..", "core", "snapshot.py"),
-)
-_mod = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_mod)
+_mod = load_module("snapshot", "core", "snapshot.py")
 
 SnapshotManager = _mod.SnapshotManager
 

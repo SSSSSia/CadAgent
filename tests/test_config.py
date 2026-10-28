@@ -1,11 +1,6 @@
 """Tests for core/config.py — .env loading, defaults, constants."""
 from __future__ import annotations
 
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
 
 # Reload config to test cleanly
 def _reload_config():
