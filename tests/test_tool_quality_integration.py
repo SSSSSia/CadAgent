@@ -90,3 +90,72 @@ class TestQualityCheckCrashReturnsFail:
         )
         assert result.startswith("FAIL:")
         assert "No solid components" in result
+
+
+class TestAutoFixResultPrefix:
+    """S1-A1: _attempt_auto_fix result headers must reflect quality outcome."""
+
+    def _run_auto_fix(self, quality_fn):
+        """Drive _attempt_auto_fix with snapshot/quality patched.
+
+        Patches: core.snapshot restore/take (no real FreeCAD), sys.modules
+        FreeCAD (for _clean_stale_namespace_vars's import), and the quality
+        analyzer. Returns the result string.
+        """
+        import core.snapshot as snapshot_mod
+        import core.quality as quality_mod
+        from tests.helpers import install_sys_modules, restore_sys_modules
+
+        tools, mock_fc, _ = _load_tools()
+        mock_doc = MagicMock()
+        mock_doc.Objects = []
+        mock_fc.ActiveDocument = mock_doc
+
+        tools.clear_persistent_vars()
+        orig_restore = snapshot_mod.restore_latest_snapshot
+        orig_take = snapshot_mod.take_snapshot
+        orig_quality = quality_mod.analyze_document_quality
+        snapshot_mod.restore_latest_snapshot = lambda: "SUCCESS: Document restored."
+        snapshot_mod.take_snapshot = lambda: None
+        quality_mod.analyze_document_quality = quality_fn
+        saved = install_sys_modules({"FreeCAD": mock_fc})
+        try:
+            return tools._attempt_auto_fix(
+                original_error=ValueError("original failure"),
+                original_code="bad = 1",
+                fixed_code="x = 1",
+                hint_text="translate() modifies in-place.",
+                auto_created_doc=False,
+            )
+        finally:
+            restore_sys_modules(saved)
+            snapshot_mod.restore_latest_snapshot = orig_restore
+            snapshot_mod.take_snapshot = orig_take
+            quality_mod.analyze_document_quality = orig_quality
+            tools.clear_persistent_vars()
+
+    def test_auto_fix_with_passing_quality_returns_ok_header(self):
+        from core.quality import QualityReport
+        report = QualityReport(
+            passed=True, severity="ok", issues=[],
+            summary="Quality check PASSED for 'Test'.",
+        )
+        result = self._run_auto_fix(lambda doc, assembly_mode=False: report)
+        assert result.startswith("OK: Auto-fix applied and code executed.")
+        assert "AUTO-FIX APPLIED:" in result
+        assert "PASSED" in result
+
+    def test_auto_fix_with_failing_quality_returns_fail_header(self):
+        from core.quality import QualityReport
+        report = QualityReport(
+            passed=False, severity="fail", issues=[],
+            summary="Quality check FAILED for 'Test'.",
+        )
+        result = self._run_auto_fix(lambda doc, assembly_mode=False: report)
+        assert result.startswith("FAIL: Auto-fix applied but CAD quality check failed.")
+
+    def test_auto_fix_quality_crash_returns_fail_header(self):
+        def boom(doc, assembly_mode=False):
+            raise RuntimeError("quality check exploded")
+        result = self._run_auto_fix(boom)
+        assert result.startswith("FAIL: Auto-fix applied but CAD quality check crashed.")

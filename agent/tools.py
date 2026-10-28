@@ -479,27 +479,36 @@ def _attempt_auto_fix(
     except Exception:
         pass
 
-    # Build result with AUTO-FIX marker.
-    parts = [
-        "AUTO-FIX APPLIED:",
-        f"- {hint_text}",
+    # Build result. The FIRST LINE carries the OK:/FAIL: prefix the agent
+    # loop parses for quality tracking (loop.py handle_tool_results), so it
+    # must reflect the quality outcome — a fixed "AUTO-FIX APPLIED:" header
+    # used to be misread as a quality failure (S1-A1).
+    detail_parts = [
+        f"AUTO-FIX APPLIED: {hint_text}",
         f"Original error: {type(original_error).__name__}: {original_error}",
     ]
 
     if auto_created_doc:
-        parts.append("Auto-created document 'CadAgentModel' (none was active).")
+        detail_parts.append("Auto-created document 'CadAgentModel' (none was active).")
 
-    # Quality gate.
+    # Quality gate decides the first line.
+    header = "OK: Auto-fix applied and code executed."
+    quality_parts = []
     try:
         from core.quality import analyze_document_quality, format_quality_report
         if restored_doc:
             q_report = analyze_document_quality(restored_doc)
-            parts.append(format_quality_report(q_report))
+            quality_parts.append(format_quality_report(q_report))
+            if not q_report.passed:
+                header = "FAIL: Auto-fix applied but CAD quality check failed."
     except Exception as e:
-        parts.append(
+        quality_parts.append(
             f"FAIL: Auto-fixed code executed but CAD quality check crashed. "
             f"Quality check error: {type(e).__name__}: {e}"
         )
+        header = "FAIL: Auto-fix applied but CAD quality check crashed."
+
+    parts = [header] + detail_parts + quality_parts
 
     # Document state feedback.
     try:

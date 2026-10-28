@@ -101,18 +101,12 @@ class TestPrefixQualityTracking:
         ])
         assert loop._last_quality_summary == "FAIL: Code executed but CAD quality check failed."
 
-    @pytest.mark.xfail(
-        strict=False,
-        reason="S1-A1 pending: auto-fix success prefix 'AUTO-FIX APPLIED:' "
-               "falls into the else branch and is tracked as a quality "
-               "failure, blocking FINISH. Remove this mark when S1-A1 lands.",
-    )
     def test_auto_fix_success_prefix_marks_passed(self):
         """A successful auto-fix must count as a PASS, not a failure.
 
-        agent/tools.py _attempt_auto_fix() returns results whose first line
-        is 'AUTO-FIX APPLIED:' followed by a quality report that may say
-        PASSED — the loop must not misjudge these as quality failures.
+        Legacy auto-fix results (pre-S1 tools.py) led with 'AUTO-FIX
+        APPLIED:'; the loop now judges them by the embedded quality report
+        lines. Current tools.py emits OK:/FAIL: headers directly.
         """
         loop, _ = _make_loop()
         loop.handle_tool_results([
@@ -123,6 +117,19 @@ class TestPrefixQualityTracking:
             )
         ])
         assert loop._last_quality_passed is True
+
+    def test_auto_fix_legacy_prefix_with_embedded_fail_marks_failed(self):
+        """Legacy auto-fix header whose embedded report failed → failure."""
+        loop, _ = _make_loop()
+        loop.handle_tool_results([
+            _tool_execution(
+                result="AUTO-FIX APPLIED:\n"
+                       "- Hint: translate() modifies in-place.\n"
+                       "FAIL: Code executed but CAD quality check failed.\n"
+                       "Quality issues:\n  - Expected 1 solid, got 2"
+            )
+        ])
+        assert loop._last_quality_passed is False
 
 
 # ---- Behavior: prefix state drives the finish gate ----

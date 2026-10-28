@@ -353,6 +353,13 @@ class AgentLoop:
                     self._last_quality_passed = True
                 elif ex.result.startswith("FAIL:") or ex.result.startswith("ERROR:"):
                     self._last_quality_passed = False
+                elif ex.result.startswith("AUTO-FIX APPLIED:"):
+                    # Legacy auto-fix header (pre-S1 tools.py): judge by the
+                    # embedded quality report lines instead of failing blind.
+                    self._last_quality_passed = not any(
+                        line.startswith(("FAIL:", "ERROR:"))
+                        for line in ex.result.split("\n")
+                    )
                 else:
                     self._last_quality_passed = False
                 self._last_quality_summary = first_line
