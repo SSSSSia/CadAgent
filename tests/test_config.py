@@ -1,6 +1,8 @@
 """Tests for core/config.py — .env loading, defaults, constants."""
 from __future__ import annotations
 
+import os
+
 from tests.helpers import reload_config as _reload_isolated
 
 
@@ -149,3 +151,72 @@ class TestVisionConfig:
         assert config.VISION_MAX_TOKENS == 4096
         assert config.VISION_TEMPERATURE == 0.7
         assert config.VISION_TIMEOUT == 120
+
+
+class TestTolerantParsing:
+    """S1-B1: blank/garbage numeric values must fall back to defaults,
+    never crash the workbench at import or on Settings Apply."""
+
+    def test_blank_and_garbage_values_fall_back_to_defaults(self):
+        config = _reload_isolated(env={
+            "MAX_TOKENS": "4O96",        # typo (letter O)
+            "TEMPERATURE": "",
+            "MAX_ITERATIONS": "  ",
+            "MAX_SNAPSHOTS": "ten",
+            "MAX_CONTEXT_TOKENS": "",
+            "LLM_TIMEOUT": "-",
+            "VISION_MAX_TOKENS": "",
+            "VISION_TEMPERATURE": "",
+            "VISION_TIMEOUT": "nan-ish",
+        })
+        assert config.MAX_TOKENS == 4096
+        assert config.TEMPERATURE == 0.1
+        assert config.MAX_ITERATIONS == 20
+        assert config.MAX_SNAPSHOTS == 10
+        assert config.MAX_CONTEXT_TOKENS == 24000
+        assert config.LLM_TIMEOUT == 180
+        assert config.VISION_MAX_TOKENS == 2048
+        assert config.VISION_TEMPERATURE == 0.3
+        assert config.VISION_TIMEOUT == 60
+
+    def test_valid_string_values_still_parse(self):
+        config = _reload_isolated(env={
+            "MAX_TOKENS": "8192",
+            "TEMPERATURE": "0.7",
+            "LLM_TIMEOUT": " 60 ",
+        })
+        assert config.MAX_TOKENS == 8192
+        assert config.TEMPERATURE == 0.7
+        assert config.LLM_TIMEOUT == 60
+
+
+class TestLoadEnvFile:
+    """S1-B3: BOM and quoted values in .env files."""
+
+    def test_bom_and_quotes(self, tmp_path, monkeypatch):
+        import core.config as cfg_mod
+        env_file = tmp_path / ".env"
+        # utf-8-sig BOM + quoted value + plain value
+        env_file.write_bytes(
+            b"\xef\xbb\xbfAPI_KEY=\"sk-quoted\"\nMODEL_NAME=plain-model\n"
+        )
+        for key in ("API_KEY", "MODEL_NAME"):
+            monkeypatch.delenv(key, raising=False)
+        try:
+            cfg_mod._load_env(str(env_file))
+            assert os.environ["API_KEY"] == "sk-quoted"
+            assert os.environ["MODEL_NAME"] == "plain-model"
+        finally:
+            for key in ("API_KEY", "MODEL_NAME"):
+                monkeypatch.delenv(key, raising=False)
+
+    def test_existing_env_not_overwritten(self, tmp_path, monkeypatch):
+        import core.config as cfg_mod
+        env_file = tmp_path / ".env"
+        env_file.write_text("API_KEY=from-file\n", encoding="utf-8")
+        monkeypatch.setenv("API_KEY", "from-env")
+        try:
+            cfg_mod._load_env(str(env_file))
+            assert os.environ["API_KEY"] == "from-env"
+        finally:
+            monkeypatch.delenv("API_KEY", raising=False)

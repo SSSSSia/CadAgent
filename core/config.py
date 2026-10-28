@@ -21,6 +21,25 @@ _CFG_DEFAULTS = {
 }
 
 
+def _parse_int(value, default: int) -> int:
+    """Tolerant int parse: empty/garbage values fall back to default.
+
+    The workbench must never fail to load because a .env value is blank
+    or mistyped (S1-B1).
+    """
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+
+
+def _parse_float(value, default: float) -> float:
+    try:
+        return float(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+
+
 class Config:
     """Encapsulated configuration state.
 
@@ -55,33 +74,47 @@ class Config:
         self.API_BASE_URL = self._cfg["API_BASE_URL"]
         self.API_KEY = self._cfg["API_KEY"]
         self.MODEL_NAME = self._cfg["MODEL_NAME"]
-        self.MAX_TOKENS = int(self._cfg["MAX_TOKENS"])
-        self.TEMPERATURE = float(self._cfg["TEMPERATURE"])
-        self.MAX_ITERATIONS = int(os.environ.get("MAX_ITERATIONS", "20"))
-        self.MAX_SNAPSHOTS = int(os.environ.get("MAX_SNAPSHOTS", "10"))
-        self.MAX_CONTEXT_TOKENS = int(os.environ.get("MAX_CONTEXT_TOKENS", "24000"))
-        self.LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", "180"))
+        self.MAX_TOKENS = _parse_int(self._cfg["MAX_TOKENS"], 4096)
+        self.TEMPERATURE = _parse_float(self._cfg["TEMPERATURE"], 0.1)
+        self.MAX_ITERATIONS = _parse_int(os.environ.get("MAX_ITERATIONS", ""), 20)
+        self.MAX_SNAPSHOTS = _parse_int(os.environ.get("MAX_SNAPSHOTS", ""), 10)
+        self.MAX_CONTEXT_TOKENS = _parse_int(os.environ.get("MAX_CONTEXT_TOKENS", ""), 24000)
+        self.LLM_TIMEOUT = _parse_int(os.environ.get("LLM_TIMEOUT", ""), 180)
         self.VISION_API_BASE_URL = self._cfg.get("VISION_API_BASE_URL", "")
         self.VISION_API_KEY = self._cfg.get("VISION_API_KEY", "")
         self.VISION_MODEL_NAME = self._cfg.get("VISION_MODEL_NAME", "")
-        self.VISION_MAX_TOKENS = int(os.environ.get("VISION_MAX_TOKENS", "2048"))
-        self.VISION_TEMPERATURE = float(os.environ.get("VISION_TEMPERATURE", "0.3"))
-        self.VISION_TIMEOUT = int(os.environ.get("VISION_TIMEOUT", "60"))
+        self.VISION_MAX_TOKENS = _parse_int(os.environ.get("VISION_MAX_TOKENS", ""), 2048)
+        self.VISION_TEMPERATURE = _parse_float(os.environ.get("VISION_TEMPERATURE", ""), 0.3)
+        self.VISION_TIMEOUT = _parse_int(os.environ.get("VISION_TIMEOUT", ""), 60)
         return dict(self._cfg)
 
 
-def _load_env() -> dict:
-    """从 .env 文件加载配置到环境变量（不覆盖已有值），然后返回配置字典。"""
-    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env")
+def _strip_matching_quotes(value: str) -> str:
+    """Strip one pair of matching surrounding quotes: "v" / 'v' -> v."""
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        return value[1:-1]
+    return value
+
+
+def _load_env(env_path: str | None = None) -> dict:
+    """从 .env 文件加载配置到环境变量（不覆盖已有值），然后返回配置字典。
+
+    env_path 为 None 时使用仓库根 .env（默认行为）；传入路径供测试使用。
+    以 utf-8-sig 读取以兼容 Windows 记事本写入的 BOM（S1-B3）。
+    """
+    if env_path is None:
+        env_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "..", ".env"
+        )
     if os.path.isfile(env_path):
-        with open(env_path, encoding="utf-8") as f:
+        with open(env_path, encoding="utf-8-sig") as f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
                 if "=" in line:
                     key, _, value = line.partition("=")
-                    key, value = key.strip(), value.strip()
+                    key, value = key.strip(), _strip_matching_quotes(value.strip())
                     if key and key not in os.environ:
                         os.environ[key] = value
     return {k: os.environ.get(k, v) for k, v in _CFG_DEFAULTS.items()}
