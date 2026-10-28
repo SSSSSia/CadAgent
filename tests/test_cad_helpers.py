@@ -5,13 +5,14 @@ Tests the pure logic of each helper function.
 """
 from __future__ import annotations
 
-import os
 import sys
 from unittest.mock import MagicMock
 
 import pytest
 
-from tests.helpers import install_sys_modules, load_module, restore_sys_modules
+from tests.helpers import (
+    install_sys_modules, load_module, load_tools_module, restore_sys_modules,
+)
 
 # ---------------------------------------------------------------------------
 # Mock FreeCAD and Part before importing cad_helpers
@@ -409,25 +410,21 @@ class TestEnsureDoc:
 
 
 class TestBuiltinNamesCoverage:
-    """Ensure agent/tools.py _BUILTIN_NAMES covers all injected helper names."""
+    """Ensure agent/tools.py _BUILTIN_NAMES covers all injected helper names.
+
+    S0-E4: checks the real frozenset from the loaded tools module instead
+    of grepping source text — a name mentioned only in a comment used to
+    pass, and a refactor could break the grep spuriously.
+    """
 
     def test_builtin_names_includes_helpers(self):
-        """Verify _BUILTIN_NAMES in tools.py includes all helper function names.
-
-        Can't import tools.py directly (requires FreeCAD), so read the source.
-        """
-        tools_path = os.path.join(
-            os.path.dirname(__file__), "..", "agent", "tools.py"
-        )
-        with open(tools_path, encoding="utf-8") as f:
-            source = f.read()
+        tools, _, _ = load_tools_module()
         expected = {
             "extract_solid", "safe_fuse", "safe_cut",
             "make_hollow_cylinder", "make_ring", "make_box_handle",
             "make_arc_handle", "ensure_doc",
         }
-        for name in expected:
-            assert f'"{name}"' in source, (
-                f"'{name}' not found in agent/tools.py — "
-                "LLM could overwrite this helper in subsequent execute_code calls"
-            )
+        assert expected <= set(tools._BUILTIN_NAMES), (
+            "helpers missing from _BUILTIN_NAMES — "
+            "LLM could overwrite them in subsequent execute_code calls"
+        )
