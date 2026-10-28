@@ -198,6 +198,12 @@ class SnapshotManager:
             original_path = entry.get("original_path", "")
             if original_path:
                 restored_doc.FileName = original_path
+            else:
+                # Untitled document: never leave FileName pointing at the
+                # snapshot file — a user Ctrl+S would silently save INTO the
+                # transient snapshot (which orphan cleanup later deletes)
+                # instead of opening a Save As dialog.
+                restored_doc.FileName = ""
 
             try:
                 gui_doc = FreeCADGui.activeDocument()

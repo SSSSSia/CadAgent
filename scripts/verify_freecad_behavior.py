@@ -205,6 +205,17 @@ def part_b(workdir):
         f"before={pre_touched} after={doc.isTouched()}",
     )
 
+    # --- B4: untitled-doc restore must not leave FileName on the snapshot ---
+    entry = mgr._stack[-1]
+    restore_result = mgr.restore_latest()
+    restored = FreeCAD.ActiveDocument
+    _report(
+        restore_result.startswith("SUCCESS") and restored is not None
+        and restored.FileName == "",
+        "B4 untitled restore resets FileName to '' (no snapshot save hijack)",
+        f"result={restore_result.splitlines()[0]!r} FileName={getattr(restored, 'FileName', None)!r}",
+    )
+
     _close_all_documents()
 
 

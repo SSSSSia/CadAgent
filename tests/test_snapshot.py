@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 
 from tests.helpers import install_sys_modules, load_module, restore_sys_modules
@@ -379,3 +380,62 @@ class TestTakeSaveSemantics:
         assert entry["original_label"] == "My Bracket"
         assert entry["doc_name"] == "user_part"
         os.rmdir(tmpdir)
+
+
+# ---- restore_latest() untitled-document save hijack (S1-C2) ----
+
+class TestRestoreFileName:
+    """restore_latest() must never leave FileName pointing at the snapshot."""
+
+    def _run_restore(self, entry_extra):
+        from unittest.mock import MagicMock
+
+        m = SnapshotManager()
+        tmpdir = tempfile.mkdtemp()
+        snap_path = os.path.join(tmpdir, "user_part_0001_ab12cd_1748000000.FCStd")
+        with open(snap_path, "w") as f:
+            f.write("snap")
+
+        # Emulate openDocument: names the doc after the snapshot basename
+        # and points FileName at the snapshot file.
+        restored = MagicMock()
+        restored.Name = os.path.splitext(os.path.basename(snap_path))[0]
+        restored.Label = restored.Name
+        restored.FileName = snap_path
+
+        fc = MagicMock()
+        fc.ActiveDocument.Name = restored.Name
+        fc.openDocument = MagicMock(return_value=restored)
+        fcgui = MagicMock()
+        fcgui.activeDocument.return_value = None
+
+        m._stack.append({
+            "path": snap_path,
+            "doc_name": restored.Name,
+            "original_path": "",
+            "original_label": "My Bracket",
+            "session_id": None,
+            "time": 0.0,
+            **entry_extra,
+        })
+        saved = install_sys_modules({"FreeCAD": fc, "FreeCADGui": fcgui})
+        try:
+            result = m.restore_latest()
+        finally:
+            restore_sys_modules(saved)
+        return result, restored, tmpdir
+
+    def test_untitled_doc_restore_resets_filename(self):
+        """Untitled doc: FileName must be reset to '' so Ctrl+S opens Save As."""
+        result, restored, tmpdir = self._run_restore({})
+        assert result.startswith("SUCCESS")
+        assert restored.FileName == ""
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_titled_doc_restore_restores_filename(self):
+        result, restored, tmpdir = self._run_restore(
+            {"original_path": r"C:\work\user_part.FCStd"}
+        )
+        assert result.startswith("SUCCESS")
+        assert restored.FileName == r"C:\work\user_part.FCStd"
+        shutil.rmtree(tmpdir, ignore_errors=True)
