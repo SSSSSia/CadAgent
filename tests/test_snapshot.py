@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import tempfile
 
-from tests.helpers import load_module
+from tests.helpers import install_sys_modules, load_module, restore_sys_modules
 
 # Load snapshot module without FreeCAD dependency.
 # The module-level convenience functions delegate to a default SnapshotManager.
@@ -305,3 +305,77 @@ def test_cleanup_orphans_default_1h():
 
     os.remove(recent_path)
     os.rmdir(tmpdir)
+
+
+# ---- take() snapshot save semantics (S1-C1) ----
+
+class TestTakeSaveSemantics:
+    """take() must not disturb the live document (saveCopy preferred)."""
+
+    def _make_doc(self):
+        """Fake FreeCAD document emulating real saveAs side effects.
+
+        saveAs rewrites FileName to the target and renames Label to the
+        file basename (verified against FreeCAD 1.1.1); saveCopy leaves
+        the document untouched.
+        """
+        from unittest.mock import MagicMock
+
+        doc = MagicMock()
+        doc.Name = "user_part"
+        doc.Label = "My Bracket"
+        doc.FileName = r"C:\work\user_part.FCStd"
+
+        def _fake_save_as(path):
+            doc.FileName = path
+            doc.Label = os.path.splitext(os.path.basename(path))[0]
+
+        doc.saveAs.side_effect = _fake_save_as
+        return doc
+
+    def _take(self, m, doc):
+        """Run take(doc) with a FreeCAD mock installed and a temp snap dir."""
+        from unittest.mock import MagicMock
+
+        tmpdir = tempfile.mkdtemp()
+        m.get_snapshot_dir = lambda: tmpdir
+        saved = install_sys_modules({"FreeCAD": MagicMock()})
+        try:
+            path = m.take(doc)
+        finally:
+            restore_sys_modules(saved)
+        return path, tmpdir
+
+    def test_take_prefers_savecopy_and_leaves_doc_untouched(self):
+        m = SnapshotManager()
+        doc = self._make_doc()
+        path, tmpdir = self._take(m, doc)
+
+        doc.saveCopy.assert_called_once_with(path)
+        doc.saveAs.assert_not_called()
+        assert doc.FileName == r"C:\work\user_part.FCStd"
+        assert doc.Label == "My Bracket"
+        os.rmdir(tmpdir)  # saveCopy fake wrote nothing
+
+    def test_take_fallback_restores_filename_and_label(self):
+        m = SnapshotManager()
+        doc = self._make_doc()
+        del doc.saveCopy  # legacy FreeCAD without saveCopy
+        path, tmpdir = self._take(m, doc)
+
+        doc.saveAs.assert_called_once_with(path)
+        # saveAs side effect fired, then take() restored both attributes
+        assert doc.FileName == r"C:\work\user_part.FCStd"
+        assert doc.Label == "My Bracket"
+        os.rmdir(tmpdir)
+
+    def test_take_entry_records_original_label(self):
+        m = SnapshotManager()
+        doc = self._make_doc()
+        path, tmpdir = self._take(m, doc)
+
+        entry = m._stack[-1]
+        assert entry["original_path"] == r"C:\work\user_part.FCStd"
+        assert entry["original_label"] == "My Bracket"
+        assert entry["doc_name"] == "user_part"
+        os.rmdir(tmpdir)

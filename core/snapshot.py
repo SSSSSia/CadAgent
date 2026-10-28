@@ -120,6 +120,7 @@ class SnapshotManager:
         self.cleanup_orphans()
 
         original_path = doc.FileName if hasattr(doc, "FileName") else ""
+        original_label = doc.Label if hasattr(doc, "Label") else ""
 
         self._counter += 1
         snap_dir = self.get_snapshot_dir()
@@ -136,18 +137,21 @@ class SnapshotManager:
             )
         snapshot_path = os.path.join(snap_dir, snapshot_filename)
 
-        doc.saveAs(snapshot_path)
-
-        # saveAs changes doc.FileName — restore it
-        if original_path:
-            doc.FileName = original_path
+        # saveCopy writes the snapshot without disturbing the live document
+        # (FileName/Label stay untouched). Legacy fallback: saveAs rewrites
+        # BOTH doc.FileName and doc.Label — restore them after saving.
+        if hasattr(doc, "saveCopy"):
+            doc.saveCopy(snapshot_path)
         else:
-            doc.FileName = ""
+            doc.saveAs(snapshot_path)
+            doc.FileName = original_path
+            doc.Label = original_label
 
         self._stack.append({
             "path": snapshot_path,
             "doc_name": doc.Name,
             "original_path": original_path,
+            "original_label": original_label,
             "session_id": self._session_id,
             "time": time.time(),
         })

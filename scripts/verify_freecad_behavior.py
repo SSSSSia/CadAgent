@@ -14,10 +14,9 @@ Part A asserts FreeCAD API facts that core/snapshot.py depends on
 semantics). Any Part A failure means assumptions changed — stop and
 re-check snapshot code before continuing S1/S4 work.
 
-Part B asserts production SnapshotManager invariants. These are
-EXPECTED TO FAIL until S1-C1 lands; failures print as KNOWN-FAIL and do
-not affect the exit code. TODO(S1-C1): flip Part B to hard assertions
-once take() preserves Label/FileName via saveCopy.
+Part B asserts production SnapshotManager invariants (hard assertions
+since S1-C1: take() preserves Label/FileName via saveCopy, restore
+resets untitled FileName instead of leaving it on the snapshot path).
 """
 from __future__ import annotations
 
@@ -53,24 +52,13 @@ def _import_freecad():
     )
 
 
-RESULTS = {"pass": 0, "fail": 0, "known_fail": 0}
+RESULTS = {"pass": 0, "fail": 0}
 
 
 def _report(ok, label, detail=""):
     tag = "PASS" if ok else "FAIL"
     RESULTS["pass" if ok else "fail"] += 1
     print(f"  [{tag}] {label}" + (f" — {detail}" if detail else ""))
-    return ok
-
-
-def _report_known_fail(ok, label, detail=""):
-    """Expected-to-fail invariant; counts as KNOWN-FAIL, not a script failure."""
-    if ok:
-        RESULTS["pass"] += 1
-        print(f"  [PASS] {label}" + (f" — {detail}" if detail else ""))
-    else:
-        RESULTS["known_fail"] += 1
-        print(f"  [KNOWN-FAIL (S1-C1 pending)] {label}" + (f" — {detail}" if detail else ""))
     return ok
 
 
@@ -174,7 +162,7 @@ def part_a(workdir):
 
 
 # ---------------------------------------------------------------------------
-# Part B — production SnapshotManager invariants (S1-C1 regression gate)
+# Part B — production SnapshotManager invariants (S1 regression gate)
 # ---------------------------------------------------------------------------
 
 def part_b(workdir):
@@ -185,7 +173,7 @@ def part_b(workdir):
 
     import FreeCAD
     import Part
-    print("\nPart B — production SnapshotManager.take() invariants")
+    print("\nPart B — production SnapshotManager invariants")
 
     # Snapshot dir lands inside the repo (current design); use a temp manager
     mgr = SnapshotManager(max_snapshots=10)
@@ -201,17 +189,17 @@ def part_b(workdir):
 
     mgr.take(doc)
 
-    _report_known_fail(
+    _report(
         doc.Label == pre_label,
         "B1 take() preserves doc.Label",
         f"before={pre_label!r} after={doc.Label!r}",
     )
-    _report_known_fail(
+    _report(
         doc.FileName == pre_fname,
         "B2 take() preserves doc.FileName",
         f"before={pre_fname!r} after={doc.FileName!r}",
     )
-    _report_known_fail(
+    _report(
         doc.isTouched() == pre_touched,
         "B3 take() preserves isTouched",
         f"before={pre_touched} after={doc.isTouched()}",
@@ -230,17 +218,11 @@ def main():
         _close_all_documents()
         shutil.rmtree(workdir, ignore_errors=True)
 
-    print(
-        f"\nSummary: {RESULTS['pass']} passed, {RESULTS['fail']} failed, "
-        f"{RESULTS['known_fail']} known-fail (S1-C1 pending)"
-    )
+    print(f"\nSummary: {RESULTS['pass']} passed, {RESULTS['fail']} failed")
     if RESULTS["fail"]:
-        print("RESULT: FAIL — FreeCAD behavior assumptions changed; re-check snapshot code.")
+        print("RESULT: FAIL — FreeCAD behavior assumptions or snapshot invariants changed.")
         sys.exit(1)
-    if RESULTS["known_fail"]:
-        print("RESULT: OK (with known issues scheduled for S1-C1)")
-    else:
-        print("RESULT: OK")
+    print("RESULT: OK")
     sys.exit(0)
 
 
