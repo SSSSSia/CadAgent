@@ -128,15 +128,8 @@ class _PanelSessionMixin:
             elif role == "tool":
                 is_error = content.startswith("ERROR") or content.startswith("FAIL")
                 tool_id = msg.get("tool_call_id", "")
-                label = "tool_result"
-                # Find tool name from the preceding assistant message
-                for prev in reversed(session.messages):
-                    if prev.get("role") == "assistant" and prev.get("tool_calls"):
-                        for tc in prev["tool_calls"]:
-                            if tc.get("id") == tool_id:
-                                label = tc["function"].get("name", "tool_result")
-                                break
-                        break
+                from core.session import ChatSession
+                label = ChatSession.find_tool_name(session.messages, tool_id)
                 self._append_tool_msg(iteration, label, "", content, is_error)
         if self.chat_display.document().isEmpty():
             self._append_system_msg("Session loaded. History restored.")

@@ -8,6 +8,7 @@ Three-layer memory:
 """
 from __future__ import annotations
 
+import threading
 import uuid
 from datetime import datetime
 
@@ -29,38 +30,62 @@ class ChatSession:
         self.persistent_vars: dict = {}
         self._system_prompt: str = ""
         self._version: int = self.SESSION_VERSION
+        # Message list is read by the LLM worker thread while the main
+        # thread may append — cheap explicit safety (S2-B17, done in S3)
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def find_tool_name(messages: list[dict], tool_call_id: str) -> str:
+        """Find the tool name for a tool result by its call id.
+
+        Scans backwards and only stops when the id actually matches — a
+        newer assistant message with unrelated tool_calls must not end the
+        search (S3-D12; panel_session previously broke on the first
+        tool_calls-bearing message regardless of match).
+        """
+        for prev in reversed(messages):
+            if prev.get("role") == "assistant" and prev.get("tool_calls"):
+                for tc in prev["tool_calls"]:
+                    if tc.get("id") == tool_call_id:
+                        return tc["function"].get("name", "tool_result")
+        return "tool_result"
 
     def set_system_prompt(self, prompt: str):
         """设置 system prompt（只在第一次或新建会话时调用）。"""
-        self._system_prompt = prompt
-        # 如果 messages 中已有 system 消息则替换，否则插入
-        if self.messages and self.messages[0].get("role") == "system":
-            self.messages[0] = {"role": "system", "content": prompt}
-        else:
-            self.messages.insert(0, {"role": "system", "content": prompt})
+        with self._lock:
+            self._system_prompt = prompt
+            # 如果 messages 中已有 system 消息则替换，否则插入
+            if self.messages and self.messages[0].get("role") == "system":
+                self.messages[0] = {"role": "system", "content": prompt}
+            else:
+                self.messages.insert(0, {"role": "system", "content": prompt})
 
     def add_user_message(self, text: str):
         """添加用户消息。"""
-        self.messages.append({"role": "user", "content": text})
+        with self._lock:
+            self.messages.append({"role": "user", "content": text})
 
     def add_assistant_message(self, msg: dict):
         """添加 assistant 消息（可能含 tool_calls）。"""
         # Ensure role is set
         entry = dict(msg)
         entry["role"] = "assistant"
-        self.messages.append(entry)
+        with self._lock:
+            self.messages.append(entry)
 
     def add_tool_result(self, tool_call_id: str, result: str):
         """添加工具执行结果。"""
-        self.messages.append({
-            "role": "tool",
-            "tool_call_id": tool_call_id,
-            "content": result,
-        })
+        with self._lock:
+            self.messages.append({
+                "role": "tool",
+                "tool_call_id": tool_call_id,
+                "content": result,
+            })
 
     def get_messages(self) -> list[dict]:
         """获取完整对话历史。"""
-        return list(self.messages)
+        with self._lock:
+            return list(self.messages)
 
     def get_last_assistant_text(self) -> str:
         """获取最后一条 assistant 纯文本消息（用于 UI 显示）。"""
@@ -87,15 +112,16 @@ class ChatSession:
 
     def clear(self):
         """清空会话（保留 system prompt）。"""
-        system = self._system_prompt
-        self.messages.clear()
-        self.summary = ""
-        self.document_state = ""
-        self.parameters = {}
-        self.parametric_code = ""
-        self.persistent_vars = {}
-        if system:
-            self.messages.append({"role": "system", "content": system})
+        with self._lock:
+            system = self._system_prompt
+            self.messages.clear()
+            self.summary = ""
+            self.document_state = ""
+            self.parameters = {}
+            self.parametric_code = ""
+            self.persistent_vars = {}
+            if system:
+                self.messages.append({"role": "system", "content": system})
 
     def to_dict(self) -> dict:
         """序列化为字典（用于持久化）。"""
@@ -116,6 +142,7 @@ class ChatSession:
     def from_dict(cls, data: dict) -> ChatSession:
         """从字典反序列化。"""
         session = cls.__new__(cls)
+        session._lock = threading.Lock()
         session._version = data.get("version", 0)  # 0 = legacy format
         session.session_id = data.get("session_id", uuid.uuid4().hex[:12])
         session.created_at = data.get("created_at", datetime.now().isoformat())

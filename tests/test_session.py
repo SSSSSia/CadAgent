@@ -224,3 +224,60 @@ class TestFromDictSystemPromptRole:
         assert s._system_prompt == "SYS"
         s.clear()
         assert s.messages == [{"role": "system", "content": "SYS"}]
+
+
+# ---- S3-D12: find_tool_name ----
+
+class TestFindToolName:
+
+    def _messages(self):
+        return [
+            {"role": "assistant", "content": "", "tool_calls": [
+                {"id": "tc_1", "function": {"name": "execute_code", "arguments": "{}"}},
+            ]},
+            {"role": "tool", "tool_call_id": "tc_1", "content": "OK"},
+            {"role": "assistant", "content": "", "tool_calls": [
+                {"id": "tc_2", "function": {"name": "undo_last", "arguments": "{}"}},
+                {"id": "tc_3", "function": {"name": "export_step", "arguments": "{}"}},
+            ]},
+            {"role": "tool", "tool_call_id": "tc_3", "content": "SUCCESS"},
+        ]
+
+    def test_finds_name_despite_newer_unrelated_calls(self):
+        """tc_1 is older than tc_2/tc_3 — the old scan mislabeled it."""
+        from core.session import ChatSession
+        assert ChatSession.find_tool_name(self._messages(), "tc_1") == "execute_code"
+        assert ChatSession.find_tool_name(self._messages(), "tc_3") == "export_step"
+
+    def test_unknown_id_falls_back(self):
+        from core.session import ChatSession
+        assert ChatSession.find_tool_name(self._messages(), "nope") == "tool_result"
+
+    def test_empty_history(self):
+        from core.session import ChatSession
+        assert ChatSession.find_tool_name([], "x") == "tool_result"
+
+
+# ---- S2-B17 (done in S3): lock-guarded concurrent appends ----
+
+class TestThreadSafety:
+    def test_concurrent_appends_all_lands(self):
+        import threading
+        from core.session import ChatSession
+        s = ChatSession()
+        errors = []
+
+        def worker(n):
+            try:
+                for i in range(100):
+                    s.add_user_message(f"w{n}-{i}")
+            except Exception as e:  # pragma: no cover
+                errors.append(e)
+
+        threads = [threading.Thread(target=worker, args=(k,)) for k in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert not errors
+        assert s.message_count() == 400
