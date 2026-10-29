@@ -243,8 +243,13 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         self.btn_new_session.setEnabled(not running)
         self.session_combo.setEnabled(not running)
         self.btn_delete_session.setEnabled(not running and self.session_combo.currentIndex() > 0)
-        if not running:
-            self.text_input.setFocus()
+        if running:
+            # Remember focus ownership so finishing a turn never steals
+            # focus from elsewhere in FreeCAD (S3-D15)
+            self._had_input_focus = self.text_input.hasFocus()
+        else:
+            if getattr(self, "_had_input_focus", False):
+                self.text_input.setFocus()
             self._update_undo_button_state()
 
     def _on_send(self):
@@ -437,6 +442,12 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             # Save position so reasoning can be inserted before the bubble
             bubble_start = self._stream_replace_start
 
+            # ReAct rounds stream raw <tool> XML as plain text — strip the
+            # blocks so the bubble shows only prose (S3-D15)
+            if self._streaming_text and "<tool" in self._streaming_text:
+                from agent.react_parser import strip_tool_tags
+                self._streaming_text = strip_tool_tags(self._streaming_text)
+
             # Finalize or remove streaming bubble first
             if self._streaming_text and self._streaming_text.strip():
                 self._finalize_streaming_bubble()
@@ -562,19 +573,24 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         turns = self._controller.session.user_turn_count()
         iters = action.iterations or self._loop.iteration if self._loop else 0
         if action.success:
-            self.status_label.setText(f"Done  {elapsed_str}  {iters} iters  Turn {turns}")
-            self.status_label.setStyleSheet(
-                f"color:{c.status_success}; font-size:11px; font-family:'Segoe UI', sans-serif;"
-            )
+            self._status_finish(True, f"Done  {elapsed_str}  {iters} iters  Turn {turns}")
         else:
-            self.status_label.setText(f"Failed  {elapsed_str}  {iters} iters  Turn {turns}")
-            self.status_label.setStyleSheet(
-                f"color:{c.status_error}; font-size:11px; font-family:'Segoe UI', sans-serif;"
-            )
+            self._status_finish(False, f"Failed  {elapsed_str}  {iters} iters  Turn {turns}")
 
         self._set_running(False)
         self._turn_active = False
         self._refresh_session_list()
+
+    def _on_chat_anchor(self, url):
+        """Open http/https chat links in the system browser (S3-D15).
+
+        Other schemes (file:, javascript:...) are ignored — links were
+        previously rendered blue but did nothing on click.
+        """
+        from PySide6.QtGui import QDesktopServices
+        url_str = url.toString() if hasattr(url, "toString") else str(url)
+        if url_str.startswith(("http://", "https://")):
+            QDesktopServices.openUrl(url)
 
     # ---- Event handlers ----
 
@@ -586,6 +602,19 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         self._status_set("stopping")
 
     def _on_new_session(self):
+        # Confirm before discarding the view of a session with real turns
+        # (it is saved and stays in the session list) — S3-D14
+        if self._session.user_turn_count() > 0:
+            from PySide6 import QtWidgets
+            reply = QtWidgets.QMessageBox.question(
+                self, "New Session",
+                "Start a new session? The current conversation is saved "
+                "and remains in the session list.",
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                QtWidgets.QMessageBox.No,
+            )
+            if reply != QtWidgets.QMessageBox.Yes:
+                return
         # Stop the running threads and disconnect signals so stale
         # streamDone / chunkReady don't hit the cleared state below.
         if self._loop:
@@ -643,7 +672,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         marker = f" [image: {dest_path}]"
         self.text_input.setPlainText(current_text + marker)
 
-        self.status_label.setText(f"Attached: {dest_name}")
+        self._append_system_msg(f"Attached image: {dest_name}")
 
     def _on_undo(self):
         """User clicked Undo — restore document from most recent snapshot."""

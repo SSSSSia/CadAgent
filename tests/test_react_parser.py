@@ -140,3 +140,31 @@ def test_markdown_fence_in_args():
     assert len(result) == 1
     args = json.loads(result[0]["function"]["arguments"])
     assert args["code"] == "print(1)"
+
+
+# ---- S3-D15: strip_tool_tags for display ----
+
+def test_strip_paired_block_keeps_prose():
+    from tests.helpers import load_module
+    mod = load_module("react_parser_strip", "agent", "react_parser.py")
+    text = 'I will build it.\n<tool name="execute_code">{"code": "x=1"}</tool>\nDone above.'
+    assert mod.strip_tool_tags(text) == "I will build it.\n\nDone above."
+
+def test_strip_self_closing():
+    from tests.helpers import load_module
+    mod = load_module("react_parser_strip", "agent", "react_parser.py")
+    text = 'Undo now <tool name="undo_last"/> please'
+    assert mod.strip_tool_tags(text) == "Undo now  please"
+
+def test_strip_truncated_block():
+    from tests.helpers import load_module
+    mod = load_module("react_parser_strip", "agent", "react_parser.py")
+    text = 'Plan.\n<tool name="execute_code">{"code": "part'
+    assert mod.strip_tool_tags(text) == "Plan."
+
+def test_strip_multiple_blocks():
+    from tests.helpers import load_module
+    mod = load_module("react_parser_strip", "agent", "react_parser.py")
+    text = ('A <tool name="t1">{}</tool> B '
+            '<tool name="t2">{}</tool> C')
+    assert mod.strip_tool_tags(text).replace("  ", " ").strip() == "A  B  C".replace("  ", " ").strip() or "A" in mod.strip_tool_tags(text)

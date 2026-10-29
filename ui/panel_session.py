@@ -16,7 +16,8 @@ class _PanelSessionMixin:
         self.session_combo.addItem("当前会话")
         for s in sessions:
             summary_text = s.get("summary", "") or "No summary"
-            display = f"{summary_text[:30]} | {s.get('created_at', '')[:10]}"
+            created = (s.get("created_at") or "")[:10]  # null-safe (S3-D15)
+            display = f"{summary_text[:30]} | {created}"
             self.session_combo.addItem(display, s["session_id"])
         idx = 0
         for i in range(1, self.session_combo.count()):
@@ -30,6 +31,25 @@ class _PanelSessionMixin:
     def _on_session_selected(self, index):
         self.btn_delete_session.setEnabled(index > 0)
         if index <= 0:
+            # Already on a fresh empty session — selecting "当前会话" used to
+            # wipe the view unconditionally (S3-D14)
+            if self._session.user_turn_count() == 0:
+                self._refresh_session_list()
+                return
+            if self._live_threads():
+                self._refresh_session_list()
+                return
+            from PySide6 import QtWidgets
+            reply = QtWidgets.QMessageBox.question(
+                self, "New Session",
+                "Start a new session? The current conversation is saved "
+                "and remains in the session list.",
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                QtWidgets.QMessageBox.No,
+            )
+            if reply != QtWidgets.QMessageBox.Yes:
+                self._refresh_session_list()
+                return
             # Bug 2 fix: use _sync_all_state to clear all three layers
             # (previously only cleared persistent_vars, missing snapshots & params)
             if self._live_threads():

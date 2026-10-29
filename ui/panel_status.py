@@ -135,3 +135,17 @@ class _PanelStatusMixin:
             "executing_tool": c.status_executing,
             "stopping": c.status_stopping,
         }.get(self._status_state, c.status_idle)
+
+    def _status_finish(self, success: bool, text: str):
+        """Terminal status (done/failed/interrupted) — stop timer, set label.
+
+        Single entry point for end-of-turn status so callers stop writing
+        status_label directly (S3-D15).
+        """
+        self._status_timer.stop()
+        c = self._get_colors()
+        color = c.status_success if success else c.status_error
+        self.status_label.setText(text)
+        self.status_label.setStyleSheet(
+            f"color:{color}; font-size:11px; font-family:'Segoe UI', sans-serif;"
+        )

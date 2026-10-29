@@ -28,6 +28,32 @@ _TOOL_UNCLOSED_RE = re.compile(
     re.DOTALL | re.IGNORECASE,
 )
 
+# Display helper: strip <tool> blocks (paired / self-closing / truncated)
+# from streamed text so ReAct rounds don't show raw XML (S3-D15)
+_TOOL_BLOCK_RE = re.compile(
+    r'<tool\s+name\s*=\s*["\']\w+["\']\s*>.*?</tool\s*>',
+    re.DOTALL | re.IGNORECASE,
+)
+_TOOL_SELF_CLOSE_STRIP_RE = re.compile(
+    r'<tool\s+name\s*=\s*["\']\w+["\']\s*/>', re.IGNORECASE
+)
+_TOOL_UNCLOSED_STRIP_RE = re.compile(
+    r'<tool\s+name\s*=\s*["\']\w+["\']\s*>.*?(?=\s*<tool\s|$)',
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def strip_tool_tags(text: str) -> str:
+    """Remove <tool> blocks from text for display purposes.
+
+    Handles paired tags, self-closing tags, and a truncated trailing block
+    (model stopped mid-call). Leaves surrounding prose intact.
+    """
+    text = _TOOL_BLOCK_RE.sub("", text)
+    text = _TOOL_SELF_CLOSE_STRIP_RE.sub("", text)
+    text = _TOOL_UNCLOSED_STRIP_RE.sub("", text)
+    return text.strip("\n")
+
 
 def _clean_args(args_raw: str) -> str:
     """Strip markdown fences and normalize whitespace."""

@@ -143,6 +143,11 @@ class _PanelStreamMixin:
 
     def _scroll_bottom(self):
         sb = self.chat_display.verticalScrollBar()
+        # Respect the user scrolling up while output streams (S3-D15):
+        # auto-scroll pauses when >50px from the bottom and resumes as
+        # soon as they scroll back down.
+        if sb.maximum() - sb.value() > 50:
+            return
         sb.setValue(sb.maximum())
 
     # ---- Streaming display helpers ----

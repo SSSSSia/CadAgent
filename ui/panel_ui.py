@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from PySide6 import QtCore, QtWidgets
 
+import core.config as _config
+
 
 class _PanelUIMixin:
     """_setup_ui() — creates all widgets, layouts, and styles."""
@@ -29,6 +31,8 @@ class _PanelUIMixin:
         # --- Chat history ---
         self.chat_display = QtWidgets.QTextBrowser()
         self.chat_display.setOpenExternalLinks(False)
+        # Links are handled explicitly (http/https only) — S3-D15
+        self.chat_display.anchorClicked.connect(self._on_chat_anchor)
         self.chat_display.document().setDefaultStyleSheet(
             "p, div, pre, h1, h2, h3, h4 { margin: 0; padding: 0; }"
         )
@@ -105,7 +109,7 @@ class _PanelUIMixin:
         status_row = QtWidgets.QHBoxLayout()
         status_row.setContentsMargins(0, 2, 0, 0)
         status_row.setSpacing(0)
-        self.token_label = QtWidgets.QLabel("Tokens: 0 / 24000")
+        self.token_label = QtWidgets.QLabel(f"Tokens: 0 / {_config.MAX_CONTEXT_TOKENS}")
         self.status_label = QtWidgets.QLabel("Ready")
         status_row.addWidget(self.token_label)
         status_row.addStretch()
