@@ -1,7 +1,7 @@
 """Tests for core/quality.py — structured CAD quality analysis."""
 from __future__ import annotations
 
-from core.geometry_analyzer import ShapeInfo, SolidInfo, FaceInfo
+from core.geometry_analyzer import ShapeInfo, SolidInfo, FaceInfo, TopologyIssue
 from core.quality import (
     QualityIssue,
     QualityReport,
@@ -168,32 +168,64 @@ class TestMapTopologyIssues:
         assert _map_topology_issues([]) == []
 
     def test_no_solid(self):
-        issues = _map_topology_issues(["No solid components."])
+        issues = _map_topology_issues([TopologyIssue("NO_SOLID", "No solid components.")])
         assert len(issues) == 1
         assert issues[0].code == "NO_SOLID"
         assert issues[0].severity == "fail"
 
     def test_multi_solid(self):
-        issues = _map_topology_issues(["3 separate solids."])
+        issues = _map_topology_issues([TopologyIssue("MULTI_SOLID", "3 separate solids.")])
         assert len(issues) == 1
         assert issues[0].code == "MULTI_SOLID"
 
     def test_compound(self):
-        issues = _map_topology_issues(["Compound shape."])
+        issues = _map_topology_issues([TopologyIssue("COMPOUND_SHAPE", "Compound shape.")])
         assert len(issues) == 1
         assert issues[0].code == "COMPOUND_SHAPE"
 
     def test_negative_volume(self):
-        issues = _map_topology_issues(["Negative volume (-500.0 mm3)."])
+        issues = _map_topology_issues(
+            [TopologyIssue("NEGATIVE_VOLUME", "Negative volume (-500.0 mm3).")]
+        )
         assert len(issues) == 1
         assert issues[0].code == "NEGATIVE_VOLUME"
 
     def test_multiple_issues(self):
-        strings = ["Compound shape.", "2 separate solids."]
-        issues = _map_topology_issues(strings)
+        tops = [
+            TopologyIssue("COMPOUND_SHAPE", "Compound shape."),
+            TopologyIssue("MULTI_SOLID", "2 separate solids."),
+        ]
+        issues = _map_topology_issues(tops)
         assert len(issues) == 2
         codes = {i.code for i in issues}
         assert codes == {"COMPOUND_SHAPE", "MULTI_SOLID"}
+
+    def test_zero_volume_maps_to_fail(self):
+        issues = _map_topology_issues(
+            [TopologyIssue("NO_VOLUME", "Degenerate solid with zero volume (0 mm3).")]
+        )
+        assert issues[0].code == "NO_VOLUME"
+        assert issues[0].severity == "fail"
+
+    def test_tiny_volume_maps_to_warn(self):
+        issues = _map_topology_issues(
+            [TopologyIssue("TINY_VOLUME", "Suspiciously small volume (0.001 mm3).")]
+        )
+        assert issues[0].code == "TINY_VOLUME"
+        assert issues[0].severity == "warn"
+
+    def test_unknown_code_maps_to_fail(self):
+        """A reworded/unknown topology code must fail conservatively (S2-B10).
+
+        Previously there was no else branch: an unmatched message silently
+        disappeared, turning a fail into a pass.
+        """
+        issues = _map_topology_issues(
+            [TopologyIssue("SOME_NEW_CODE", "Whatever new wording.")]
+        )
+        assert len(issues) == 1
+        assert issues[0].code == "SOME_NEW_CODE"
+        assert issues[0].severity == "fail"
 
 
 # ===========================================================================
@@ -434,3 +466,58 @@ class TestAllShapesFailCheck:
         assert report.passed is False
         codes = {i.code for i in report.issues}
         assert "NO_SOLID" in codes
+
+
+# ===========================================================================
+# Tests: duplicate-label identity skip + volume gates in full analysis (S2-B8/B9)
+# ===========================================================================
+
+class TestIdentitySkipAndVolumeGates:
+
+    def test_duplicate_labels_both_checked(self):
+        """Two objects sharing a label: the non-main one's FAIL-level issue
+        must still surface. The old label comparison skipped it, turning a
+        fail into a silent pass (S2-B9)."""
+        main = _box_info()  # volume 1000 -> main shape
+        broken = ShapeInfo(
+            bound_box={"XMin": 0, "XMax": 4, "YMin": 0, "YMax": 4, "ZMin": 0, "ZMax": 4},
+            volume=0.0, solid_count=1, shape_type="Solid",
+            solids=[SolidInfo(faces=[])],
+        )
+        report = analyze_quality_from_infos([("Part", main), ("Part", broken)])
+        assert report.passed is False
+        codes = {i.code for i in report.issues if i.severity == "fail"}
+        assert "NO_VOLUME" in codes
+
+    def test_non_main_zero_volume_fails_report(self):
+        main = _box_info()
+        degenerate = ShapeInfo(
+            bound_box={"XMin": 0, "XMax": 4, "YMin": 0, "YMax": 4, "ZMin": 0, "ZMax": 4},
+            volume=0.0, solid_count=1, shape_type="Solid",
+            solids=[SolidInfo(faces=[])],
+        )
+        report = analyze_quality_from_infos([("Main", main), ("Stub", degenerate)])
+        assert report.passed is False
+        codes = {i.code for i in report.issues if i.severity == "fail"}
+        assert "NO_VOLUME" in codes
+
+    def test_main_zero_volume_fails_report(self):
+        degenerate = ShapeInfo(
+            bound_box={"XMin": 0, "XMax": 10, "YMin": 0, "YMax": 10, "ZMin": 0, "ZMax": 10},
+            volume=0.0, solid_count=1, shape_type="Solid",
+            solids=[SolidInfo(faces=[])],
+        )
+        report = analyze_quality_from_infos([("Only", degenerate)])
+        assert report.passed is False
+        assert any(i.code == "NO_VOLUME" for i in report.issues)
+
+    def test_main_tiny_volume_passes_with_warning(self):
+        tiny = ShapeInfo(
+            bound_box={"XMin": 0, "XMax": 100, "YMin": 0, "YMax": 100, "ZMin": 0, "ZMax": 100},
+            volume=0.001, solid_count=1, shape_type="Solid",
+            solids=[SolidInfo(faces=[])],
+        )
+        report = analyze_quality_from_infos([("Hollow", tiny)])
+        assert report.passed is True
+        assert report.severity == "warn"
+        assert any(i.code == "TINY_VOLUME" for i in report.issues)

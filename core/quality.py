@@ -12,6 +12,7 @@ from core.geometry_analyzer import (
     ShapeInfo,
     detect_topology_issues,
 )
+from core.logger import log_warning
 
 
 # ---------------------------------------------------------------------------
@@ -39,43 +40,66 @@ class QualityReport:
 # ---------------------------------------------------------------------------
 
 def _map_topology_issues(
-    topo_strings: list[str],
+    topo_issues,
     solid_count: int = 0,
 ) -> list[QualityIssue]:
-    """Convert detect_topology_issues() strings into QualityIssue objects.
+    """Convert detect_topology_issues() output into QualityIssue objects.
 
-    Args:
-        topo_strings: output of detect_topology_issues().
-        solid_count: used to decide severity for Compound shapes.
+    Branches on the structured TopologyIssue.code — never on message text,
+    so rewording a message in geometry_analyzer cannot silently change
+    classification. Unknown codes map to a conservative FAIL with a log
+    warning (S2-B10).
     """
     issues: list[QualityIssue] = []
-    for s in topo_strings:
-        if "No solid components" in s:
+    for topo in topo_issues:
+        code = getattr(topo, "code", "")
+        message = getattr(topo, "message", str(topo))
+        if code == "NO_SOLID":
             issues.append(QualityIssue(
-                code="NO_SOLID", severity="fail", message=s,
+                code="NO_SOLID", severity="fail", message=message,
                 suggestion="Use Part.makeBox/makeCylinder instead of "
                            "makePolygon+extrude to create a solid.",
             ))
-        elif "separate solids" in s:
+        elif code == "MULTI_SOLID":
             issues.append(QualityIssue(
-                code="MULTI_SOLID", severity="fail", message=s,
+                code="MULTI_SOLID", severity="fail", message=message,
                 suggestion="Shapes must PHYSICALLY OVERLAP for fuse() to "
                            "merge into one solid. Extend one shape INTO the "
                            "other by at least 0.5mm.",
             ))
-        elif "Compound shape" in s:
+        elif code == "COMPOUND_SHAPE":
             # Compound with exactly 1 solid is extractable — warn, not fail
             sev = "warn" if solid_count == 1 else "fail"
             issues.append(QualityIssue(
-                code="COMPOUND_SHAPE", severity=sev, message=s,
+                code="COMPOUND_SHAPE", severity=sev, message=message,
                 suggestion="Extract solid: if shape.Solids: "
                            "shape = shape.Solids[0]",
             ))
-        elif "Negative volume" in s:
+        elif code == "NEGATIVE_VOLUME":
             issues.append(QualityIssue(
-                code="NEGATIVE_VOLUME", severity="fail", message=s,
+                code="NEGATIVE_VOLUME", severity="fail", message=message,
                 suggestion="Inside-out geometry. Check winding order or "
                            "reverse construction order.",
+            ))
+        elif code == "NO_VOLUME":
+            issues.append(QualityIssue(
+                code="NO_VOLUME", severity="fail", message=message,
+                suggestion="Degenerate solid — rebuild with positive-volume "
+                           "primitives that actually overlap.",
+            ))
+        elif code == "TINY_VOLUME":
+            issues.append(QualityIssue(
+                code="TINY_VOLUME", severity="warn", message=message,
+                suggestion="Volume is negligible relative to the bounding "
+                           "box — verify the construction.",
+            ))
+        else:
+            log_warning(
+                f"Unknown topology code {code!r} mapped to fail: {message}"
+            )
+            issues.append(QualityIssue(
+                code=code or "UNKNOWN_TOPOLOGY", severity="fail",
+                message=message,
             ))
     return issues
 
@@ -178,8 +202,10 @@ def analyze_quality_from_infos(
     main_label, main_info = _select_main_shape(shape_infos)
 
     # --- Check ALL non-main shapes for fail-level issues ---
+    # Skip by identity, not label: FreeCAD labels are not unique, and a
+    # duplicate label used to silently skip the duplicate's failures (S2-B9).
     for label, info in shape_infos:
-        if label == main_label:
+        if info is main_info:
             continue
         non_main_topo = detect_topology_issues(info)
         non_main_issues = _map_topology_issues(non_main_topo, info.solid_count)

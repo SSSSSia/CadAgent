@@ -145,22 +145,30 @@ def _thin_wall_shape():
 # ---- infer_shape_type ----
 
 def test_infer_box():
-    assert infer_shape_type(_box_shape()) == "Box"
+    assert infer_shape_type(_box_shape()) == "Likely box"
 
 
 def test_infer_cylinder():
-    assert infer_shape_type(_cylinder_shape()) == "Solid cylinder"
+    assert infer_shape_type(_cylinder_shape()) == "Likely cylinder"
 
 
 def test_infer_multi_solid():
-    assert infer_shape_type(_multi_solid_shape()) == "Multi-solid assembly"
+    assert infer_shape_type(_multi_solid_shape()) == "Likely multi-solid assembly"
 
 
 def test_infer_complex_boolean():
     info = ShapeInfo(solids=[SolidInfo(faces=[
-        FaceInfo(geom_type="Plane") for _ in range(25)
+        FaceInfo(geom_type="SomeOther") for _ in range(25)
     ])])
-    assert infer_shape_type(info) == "Complex boolean result"
+    assert infer_shape_type(info) == "Likely complex boolean result"
+
+
+def test_infer_tessellated_cylinder_not_complex():
+    """A cylinder with many faces is still a cylinder (S2-B16)."""
+    info = ShapeInfo(solids=[SolidInfo(faces=[
+        FaceInfo(geom_type="Cylinder") for _ in range(24)
+    ])])
+    assert infer_shape_type(info) == "Likely cylinder"
 
 
 def test_infer_other_curved_returns_none():
@@ -177,11 +185,11 @@ def test_infer_empty_returns_none():
 
 
 def test_infer_cone():
-    assert infer_shape_type(_cone_shape()) == "Cone/frustum"
+    assert infer_shape_type(_cone_shape()) == "Likely cone/frustum"
 
 
 def test_infer_sphere():
-    assert infer_shape_type(_sphere_shape()) == "Sphere"
+    assert infer_shape_type(_sphere_shape()) == "Likely sphere"
 
 
 def test_infer_helix():
@@ -189,7 +197,7 @@ def test_infer_helix():
         FaceInfo(geom_type="Helix"),
         FaceInfo(geom_type="Plane"),
     ])])
-    assert infer_shape_type(info) == "Threaded part"
+    assert infer_shape_type(info) == "Likely threaded part"
 
 
 # ---- detect_planar_faces ----
@@ -349,7 +357,7 @@ def test_describe_shape_box():
     assert "Volume: 1000.0" in text
     assert "Faces: 6" in text
     assert "Center of mass:" in text
-    assert "Inferred type: Box" in text
+    assert "Inferred type: Likely box" in text
     assert "Detected planar features:" in text
 
 
@@ -357,12 +365,12 @@ def test_describe_shape_cylinder():
     text = describe_shape(_cylinder_shape())
     assert "R=5.0mm" in text
     assert "Detected cylindrical features:" in text
-    assert "Inferred type: Solid cylinder" in text
+    assert "Inferred type: Likely cylinder" in text
 
 
 def test_describe_shape_multi_solid():
     text = describe_shape(_multi_solid_shape())
-    assert "Multi-solid assembly" in text
+    assert "Likely multi-solid assembly" in text
 
 
 def test_describe_shape_no_volume():
@@ -380,13 +388,13 @@ def test_describe_shape_no_volume():
 def test_describe_shape_cone():
     text = describe_shape(_cone_shape())
     assert "conical features" in text.lower()
-    assert "Cone/frustum" in text
+    assert "Likely cone/frustum" in text
 
 
 def test_describe_shape_sphere():
     text = describe_shape(_sphere_shape())
     assert "spherical features" in text.lower()
-    assert "Sphere" in text
+    assert "Likely sphere" in text
 
 
 def test_describe_shape_hole_pattern():
@@ -406,29 +414,50 @@ def test_describe_shape_thin_wall():
 
 # ---- detect_topology_issues ----
 
+def _healthy_solid_info(**overrides):
+    base = dict(
+        bound_box={"XMin": 0, "XMax": 10, "YMin": 0, "YMax": 10, "ZMin": 0, "ZMax": 10},
+        volume=1000.0, solid_count=1, shape_type="Solid",
+    )
+    base.update(overrides)
+    return ShapeInfo(**base)
+
+
 def test_topology_issues_ok():
-    info = ShapeInfo(solid_count=1, shape_type="Solid")
-    assert detect_topology_issues(info) == []
+    assert detect_topology_issues(_healthy_solid_info()) == []
 
 
 def test_topology_issues_no_solids():
     info = ShapeInfo(solid_count=0, shape_type="Shell")
     issues = detect_topology_issues(info)
-    assert len(issues) >= 1
-    assert "no solid components" in issues[0].lower() or "No solid" in issues[0]
+    assert [i.code for i in issues] == ["NO_SOLID"]
+    assert "No solid components" in issues[0].message
 
 
 def test_topology_issues_multi_solid():
-    info = ShapeInfo(solid_count=3, shape_type="Compound")
-    issues = detect_topology_issues(info)
-    assert len(issues) >= 1
-    assert "3 separate solids" in issues[0]
+    info = _healthy_solid_info(solid_count=3, shape_type="Compound", volume=3000.0)
+    codes = [i.code for i in detect_topology_issues(info)]
+    assert "MULTI_SOLID" in codes and "COMPOUND_SHAPE" in codes
 
 
 def test_topology_issues_compound():
-    info = ShapeInfo(solid_count=1, shape_type="Compound")
+    info = _healthy_solid_info(shape_type="Compound")
     issues = detect_topology_issues(info)
-    assert any("Compound" in i for i in issues)
+    assert [i.code for i in issues] == ["COMPOUND_SHAPE"]
+
+
+def test_topology_issues_zero_volume():
+    """Zero-volume solid is degenerate and must be flagged (S2-B8)."""
+    info = _healthy_solid_info(volume=0.0)
+    issues = detect_topology_issues(info)
+    assert [i.code for i in issues] == ["NO_VOLUME"]
+
+
+def test_topology_issues_tiny_volume():
+    """Volume negligible vs bounding box -> TINY_VOLUME warning (S2-B8)."""
+    info = _healthy_solid_info(volume=0.0005)  # 1000mm3 bbox, ratio 5e-7
+    codes = [i.code for i in detect_topology_issues(info)]
+    assert "TINY_VOLUME" in codes
 
 
 # ---- describe_shape with topology ----

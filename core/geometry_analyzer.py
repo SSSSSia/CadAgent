@@ -6,6 +6,34 @@ FreeCAD-specific extraction happens in core/doc_analyzer.py.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import NamedTuple
+
+# ---------------------------------------------------------------------------
+# Analysis thresholds (mm-based defaults, S2-B15 — importable/overridable in
+# one place instead of buried in function signatures)
+# ---------------------------------------------------------------------------
+MIN_PLANAR_AREA_MM2 = 100.0        # planar face must exceed this area to report
+HOLE_POSITION_TOLERANCE_MM = 1.0   # hole-pattern position matching tolerance
+SYMMETRY_TOLERANCE_MM = 1.0        # face-center mirror matching tolerance
+SYMMETRY_AREA_TOLERANCE_MM2 = 1.0  # mirrored face area difference tolerance
+WALL_MAX_THICKNESS_RATIO = 0.15    # wall thickness / largest bbox dimension
+WALL_MIN_AREA_MM2 = 50.0           # planar face must exceed this to count as wall
+ZERO_VOLUME_EPS = 1e-9             # |volume| below this counts as degenerate
+TINY_VOLUME_RATIO = 1e-6           # volume/bbox-volume below this is suspicious
+COMPLEX_FACE_COUNT = 20            # above this, call the shape "complex"
+
+
+class TopologyIssue(NamedTuple):
+    """A topology problem: stable machine code + human-readable message.
+
+    Consumers must branch on ``code`` (never on message text) so rewording a
+    message can never silently change classification (S2-B10).
+    """
+    code: str
+    message: str
+
+    def __str__(self) -> str:
+        return self.message
 
 
 @dataclass
@@ -38,12 +66,11 @@ class ShapeInfo:
 
 
 def infer_shape_type(info: ShapeInfo) -> str | None:
+    """Best-effort shape classification. Labels are heuristic — all are
+    prefixed with 'Likely' so the LLM does not treat them as facts."""
     solids = info.solids
     if len(solids) > 1:
-        return "Multi-solid assembly"
-    total_faces = sum(len(s.faces) for s in solids)
-    if total_faces > 20:
-        return "Complex boolean result"
+        return "Likely multi-solid assembly"
     if len(solids) == 1:
         has_cylinder = False
         has_cone = False
@@ -66,20 +93,25 @@ def infer_shape_type(info: ShapeInfo) -> str | None:
                 all_planar = False
             elif gt not in ("Plane",):
                 all_planar = False
+        # Simple primitives win over the face-count shortcut: a tessellated
+        # cylinder used to be mislabeled "Complex boolean result" (S2-B16).
         if all_planar:
-            return "Box"
+            return "Likely box"
         if has_helix:
-            return "Threaded part"
+            return "Likely threaded part"
         if has_cone and not has_cylinder and not has_sphere:
-            return "Cone/frustum"
+            return "Likely cone/frustum"
         if has_sphere and not has_cylinder and not has_cone:
-            return "Sphere"
+            return "Likely sphere"
         if has_cylinder and not has_cone and not has_sphere:
-            return "Solid cylinder"
+            return "Likely cylinder"
+    total_faces = sum(len(s.faces) for s in solids)
+    if total_faces > COMPLEX_FACE_COUNT:
+        return "Likely complex boolean result"
     return None
 
 
-def detect_planar_faces(info: ShapeInfo, min_area: float = 100.0) -> list[str]:
+def detect_planar_faces(info: ShapeInfo, min_area: float = MIN_PLANAR_AREA_MM2) -> list[str]:
     plane_groups: list[tuple[tuple, list[float]]] = []
     for solid in info.solids:
         for face in solid.faces:
@@ -215,7 +247,7 @@ def _check_linear_pattern(
 def detect_hole_patterns(
     info: ShapeInfo,
     radius_tolerance: float = 0.1,
-    position_tolerance: float = 1.0,
+    position_tolerance: float = HOLE_POSITION_TOLERANCE_MM,
 ) -> list[str]:
     cylinders: list[tuple[float, tuple, tuple]] = []
     for solid in info.solids:
@@ -262,8 +294,8 @@ def detect_hole_patterns(
 
 def detect_symmetry(
     info: ShapeInfo,
-    tolerance: float = 1.0,
-    area_tolerance: float = 1.0,
+    tolerance: float = SYMMETRY_TOLERANCE_MM,
+    area_tolerance: float = SYMMETRY_AREA_TOLERANCE_MM2,
 ) -> list[str]:
     com = info.center_of_mass
     if com is None:
@@ -330,8 +362,8 @@ def detect_symmetry(
 
 def detect_wall_thickness(
     info: ShapeInfo,
-    max_thickness_ratio: float = 0.15,
-    min_area: float = 50.0,
+    max_thickness_ratio: float = WALL_MAX_THICKNESS_RATIO,
+    min_area: float = WALL_MIN_AREA_MM2,
 ) -> list[str]:
     bb = info.bound_box
     max_dim = max(
@@ -373,40 +405,82 @@ def detect_wall_thickness(
     return result
 
 
-def detect_topology_issues(info: ShapeInfo) -> list[str]:
-    """Detect topology problems — brief notes without prescriptive fix instructions."""
-    issues = []
+def detect_topology_issues(info: ShapeInfo) -> list[TopologyIssue]:
+    """Detect topology problems as structured (code, message) pairs.
+
+    Consumers branch on code — never on message text. Volume sanity:
+    negative → NEGATIVE_VOLUME; zero with solids present → NO_VOLUME;
+    tiny relative to the bounding box → TINY_VOLUME (S2-B8).
+    """
+    issues: list[TopologyIssue] = []
     if info.solid_count == 0:
-        issues.append("No solid components.")
+        issues.append(TopologyIssue("NO_SOLID", "No solid components."))
     elif info.solid_count > 1:
-        issues.append(f"{info.solid_count} separate solids.")
+        issues.append(
+            TopologyIssue("MULTI_SOLID", f"{info.solid_count} separate solids.")
+        )
     if info.shape_type == "Compound":
-        issues.append("Compound shape.")
+        issues.append(TopologyIssue("COMPOUND_SHAPE", "Compound shape."))
     if info.volume < 0:
-        issues.append(f"Negative volume ({info.volume:.1f} mm3).")
+        issues.append(
+            TopologyIssue(
+                "NEGATIVE_VOLUME", f"Negative volume ({info.volume:.1f} mm3)."
+            )
+        )
+    elif info.solid_count >= 1 and abs(info.volume) <= ZERO_VOLUME_EPS:
+        issues.append(
+            TopologyIssue(
+                "NO_VOLUME",
+                f"Degenerate solid with zero volume ({info.volume:.3g} mm3).",
+            )
+        )
+    else:
+        bb = info.bound_box
+        bb_vol = (
+            (bb.get("XMax", 0) - bb.get("XMin", 0))
+            * (bb.get("YMax", 0) - bb.get("YMin", 0))
+            * (bb.get("ZMax", 0) - bb.get("ZMin", 0))
+        )
+        if (
+            info.solid_count >= 1
+            and bb_vol > 0
+            and 0 < info.volume < bb_vol * TINY_VOLUME_RATIO
+        ):
+            issues.append(
+                TopologyIssue(
+                    "TINY_VOLUME",
+                    f"Suspiciously small volume ({info.volume:.3g} mm3) "
+                    f"relative to bounding box ({bb_vol:.3g} mm3).",
+                )
+            )
     return issues
 
 
-def _topology_hints(issues: list[str]) -> list[str]:
-    """Generate actionable hints based on topology warnings."""
+def _topology_hints(issues: list[TopologyIssue]) -> list[str]:
+    """Generate actionable hints based on topology codes."""
     hints = []
-    text = " ".join(issues)
-    if "No solid components" in text:
+    codes = {i.code for i in issues}
+    if "NO_SOLID" in codes:
         hints.append(
             "  >> Cannot be used in boolean ops (fuse/cut). "
             "Use Part.makeBox/makeCylinder instead of makePolygon+extrude."
         )
-    if "Negative volume" in text:
+    if "NEGATIVE_VOLUME" in codes:
         hints.append(
             "  >> Inside-out geometry — check winding order or reverse construction."
         )
-    if "separate solids" in text:
+    if "NO_VOLUME" in codes:
+        hints.append(
+            "  >> Degenerate solid (zero volume) — rebuild with positive-volume "
+            "primitives that actually overlap."
+        )
+    if "MULTI_SOLID" in codes:
         hints.append(
             "  >> Shapes must PHYSICALLY OVERLAP for fuse() to merge into one solid. "
             "Extend one shape INTO the other by at least 0.5mm. "
             "Re-calling fuse() on non-overlapping shapes will NOT help."
         )
-    elif "Compound shape" in text and "No solid components" not in text:
+    elif "COMPOUND_SHAPE" in codes and "NO_SOLID" not in codes:
         hints.append(
             "  >> Extract solid: if shape.Solids: shape = shape.Solids[0]"
         )
@@ -447,7 +521,7 @@ def describe_shape(info: ShapeInfo) -> str:
     if topo_issues:
         lines.append("  Topology warnings:")
         for issue in topo_issues:
-            lines.append(f"    - {issue}")
+            lines.append(f"    - {issue.message}")
         for hint in _topology_hints(topo_issues):
             lines.append(hint)
     elif info.solid_count == 1:
@@ -540,7 +614,7 @@ def describe_shape_concise(info: ShapeInfo) -> str:
 
     topo_issues = detect_topology_issues(info)
     if topo_issues:
-        lines.append(f"  Topology: {'; '.join(topo_issues)}")
+        lines.append(f"  Topology: {'; '.join(i.message for i in topo_issues)}")
     elif info.solid_count == 1:
         lines.append("  Topology: single manifold solid (OK)")
 
