@@ -119,3 +119,34 @@ def test_mixed_content():
     assert "<b>bold</b>" in result
     assert "<code" in result
     assert "<ul" in result
+
+
+# ---- S3-D9: table cell escaping, sentinel hardening, link safety ----
+
+class TestRendererHardening:
+    def test_table_cell_html_is_escaped(self):
+        md = "| name | note |\n|---|---|\n| part | <img src=\"http://evil/x.png\"> |"
+        html = markdown_to_html(md)
+        assert "<img" not in html
+        assert "&lt;img" in html
+
+    def test_table_bold_still_works_after_escaping(self):
+        md = "| a | b |\n|---|---|\n| **x** | y |"
+        html = markdown_to_html(md)
+        assert "<b>x</b>" in html
+
+    def test_literal_sentinel_not_replaced(self):
+        # A literal old-style sentinel in message text must survive verbatim
+        md = "text with \x01PH0\x01 inside and a code block:\n```python\nx=1\n```"
+        html = markdown_to_html(md)
+        assert "\x01PH0\x01" in html  # untouched — sentinel is per-call random
+
+    def test_link_url_quotes_escaped(self):
+        md = '[click](http://x/"onmouseover="alert(1))'
+        html = markdown_to_html(md)
+        assert 'href="http://x/&quot;' in html
+        assert 'onmouseover=' not in html or '&quot;' in html
+
+    def test_normal_links_unchanged(self):
+        html = markdown_to_html("[docs](https://example.com/a?b=1)")
+        assert '<a href="https://example.com/a?b=1">docs</a>' in html

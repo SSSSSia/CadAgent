@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import uuid
 
 try:
     from pygments import highlight
@@ -35,6 +36,9 @@ def markdown_to_html(md_text: str, colors: dict | None = None) -> str:
     _tbl_header_bg = (colors or {}).get("table_header_bg", "#f0f4f8")
     _inline_code_bg = (colors or {}).get("inline_code_bg", "#f0f0f0")
     ph = []
+    # Per-call random placeholder sentinel: a literal \x01PH0\x01 in LLM
+    # output used to be swapped for a placeholder block (S3-D9)
+    _sent = f"\x01{uuid.uuid4().hex[:8]}"
 
     # 1. Extract code blocks → placeholders
     _pygments_fmt = None
@@ -60,7 +64,7 @@ def markdown_to_html(md_text: str, colors: dict | None = None) -> str:
             ph.append(
                 f'<pre style="background-color:{_code_bg}; padding:6px;'
                 f'font-size:12px; margin:4px 0;">{c}</pre>')
-        return f'\x01PH{len(ph)-1}\x01'
+        return f'{_sent}PH{len(ph)-1}\x01'
     text = re.sub(r'```(\w*)\n?(.*?)```', _code, md_text, flags=re.DOTALL)
 
     # 2. Extract tables → placeholders
@@ -73,7 +77,12 @@ def markdown_to_html(md_text: str, colors: dict | None = None) -> str:
             cells = [c.strip() for c in ln.split('|')[1:-1]]
             if all(set(c) <= {'-', ':', ' '} for c in cells):
                 continue
-            rows.append([re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', c) for c in cells])
+            # Escape BEFORE bold conversion: cells were extracted before the
+            # global escape, so raw HTML in a cell used to inject markup (S3-D9)
+            rows.append([
+                re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', _esc_html(c))
+                for c in cells
+            ])
         if not rows:
             return ''
         h = '<table border="1" cellpadding="4" cellspacing="0" style="margin:4px 0; font-size:13px;">'
@@ -85,7 +94,7 @@ def markdown_to_html(md_text: str, colors: dict | None = None) -> str:
                 h += f'<{tag} style="padding:4px 8px; text-align:left; {bg}">{c}</{tag}>'
             h += '</tr>'
         ph.append(h + '</table>')
-        return f'\x01PH{len(ph)-1}\x01'
+        return f'{_sent}PH{len(ph)-1}\x01'
     text = re.sub(r'(?:^\|.+\|[ \t]*$\n?)+', _tbl, text, flags=re.MULTILINE)
 
     # 3. Escape remaining HTML
@@ -140,8 +149,13 @@ def markdown_to_html(md_text: str, colors: dict | None = None) -> str:
     text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
     text = re.sub(r'`([^`]+)`', rf'<code style="background-color:{_inline_code_bg}; padding:1px 4px;">\1</code>', text)
 
-    # 5b. Markdown links [text](url)
-    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', text)
+    # 5b. Markdown links [text](url) — quotes escaped so the URL cannot
+    # break out of the href attribute (S3-D9)
+    def _link(m):
+        url = m.group(2).replace('"', "&quot;")
+        label = m.group(1).replace('"', "&quot;")
+        return f'<a href="{url}">{label}</a>'
+    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', _link, text)
 
     # 6. Newlines → <br>
     text = text.replace("\n", "<br>")
@@ -152,7 +166,7 @@ def markdown_to_html(md_text: str, colors: dict | None = None) -> str:
 
     # 7. Restore placeholders
     for i, blk in enumerate(ph):
-        text = text.replace(f'\x01PH{i}\x01', blk)
+        text = text.replace(f'{_sent}PH{i}\x01', blk)
 
     # 8. Strip trailing <br> (from trailing newlines in source)
     while text.endswith("<br>"):
