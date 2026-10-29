@@ -153,6 +153,8 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         self._mode = "auto"
         # True between _on_send and finish/recover — gates the steering path
         self._turn_active = False
+        # True while an IME composition (preedit) is active in the input box
+        self._ime_preedit = False
         # All live LLM threads. The list keeps the ONLY Python references so
         # a still-running thread is never garbage-collected (Qt fatal:
         # "Destroyed while thread is still running") — S1-D1/D2.
@@ -215,12 +217,20 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
     # ---- Event filter for multi-line input ----
 
     def eventFilter(self, obj, event):
-        if obj is self.text_input and event.type() == event.Type.KeyPress:
-            if event.key() in (QtCore.Qt.Key.Key_Return, QtCore.Qt.Key.Key_Enter):
-                if event.modifiers() & QtCore.Qt.KeyboardModifier.ShiftModifier:
-                    return False  # default newline behavior
-                self._on_send()
-                return True  # event consumed
+        if obj is self.text_input:
+            if event.type() == event.Type.InputMethod:
+                # Track IME composition (S3-D11): Enter while a preedit is
+                # active must commit the composition, not send the message.
+                self._ime_preedit = bool(event.preeditString())
+                return False
+            if event.type() == event.Type.KeyPress:
+                if event.key() in (QtCore.Qt.Key.Key_Return, QtCore.Qt.Key.Key_Enter):
+                    if event.modifiers() & QtCore.Qt.KeyboardModifier.ShiftModifier:
+                        return False  # default newline behavior
+                    if self._ime_preedit:
+                        return False  # composing — let the IME handle the key
+                    self._on_send()
+                    return True  # event consumed
         return super().eventFilter(obj, event)
 
     # ---- State machine: send -> call LLM (bg) -> execute tools (main) -> repeat ----

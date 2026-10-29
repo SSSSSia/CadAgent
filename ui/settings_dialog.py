@@ -720,7 +720,8 @@ class SettingsDialog(QtWidgets.QDialog):
         if not url:
             QtWidgets.QMessageBox.warning(self, "Validation", "API Base URL cannot be empty.")
             return
-        if not key:
+        if not key and not ("localhost" in url or "127.0.0.1" in url):
+            # Local endpoints (Ollama etc.) run without an API key (S3-D13)
             QtWidgets.QMessageBox.warning(self, "Validation", "API Key cannot be empty.")
             return
         if not model:
