@@ -175,12 +175,56 @@ class TestAnalyzeImageErrors:
         monkeypatch.setenv("VISION_MODEL_NAME", "gpt-4o")
         mod = _reload_vision_client()
 
+        # The retry wrapper sleeps between attempts — keep the test instant
+        import time as _time
+        monkeypatch.setattr(_time, "sleep", lambda s: None)
+
         monkeypatch.setattr("urllib.request.urlopen",
                             lambda req, timeout=None: (_ for _ in ()).throw(TimeoutError("timed out")))
 
         result = mod.analyze_image("AAAA", "describe")
         assert result.startswith("ERROR:")
         assert "TimeoutError" in result
+
+    def test_transient_500_then_success_retries(self, monkeypatch):
+        """S2-B7: a single transient 500 no longer fails the analysis."""
+        monkeypatch.setenv("VISION_API_BASE_URL", "https://api.example.com/v1")
+        monkeypatch.setenv("VISION_API_KEY", "sk-test")
+        monkeypatch.setenv("VISION_MODEL_NAME", "gpt-4o")
+        monkeypatch.delenv("VISION_MAX_TOKENS", raising=False)
+        monkeypatch.delenv("VISION_TEMPERATURE", raising=False)
+        monkeypatch.delenv("VISION_TIMEOUT", raising=False)
+        mod = _reload_vision_client()
+
+        import time as _time
+        monkeypatch.setattr(_time, "sleep", lambda s: None)
+
+        attempts = []
+
+        class _Resp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self):
+                return b'{"choices": [{"message": {"content": "looks fine"}}]}'
+
+        def fake_urlopen(req, timeout=None):
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise urllib.error.HTTPError(
+                    "https://api.example.com/v1/chat/completions",
+                    500, "Server Error", {}, None,
+                )
+            return _Resp()
+
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+        result = mod.analyze_image("AAAA", "describe")
+        assert result == "looks fine"
+        assert len(attempts) == 2
 
 
 class TestImageFileToBase64:

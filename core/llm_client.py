@@ -15,24 +15,59 @@ from agent.prompts import (
 
 _MAX_RETRIES = 2
 _RETRY_BACKOFF = 2.0
+_RETRY_MAX_SLEEP = 30.0
+
+
+def _parse_retry_after(headers) -> float:
+    """Parse a numeric Retry-After header (seconds). HTTP-date unsupported."""
+    if not headers:
+        return 0.0
+    try:
+        raw = headers.get("Retry-After")
+    except Exception:
+        return 0.0
+    if not raw:
+        return 0.0
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _urlopen_with_retry(request, timeout):
-    """urlopen with retry and exponential backoff for transient errors."""
+    """urlopen with retry, Retry-After support, and socket cleanup.
+
+    Retryable failures (429/5xx/network) back off exponentially; a numeric
+    server Retry-After takes precedence, capped at _RETRY_MAX_SLEEP. The
+    failed response is closed before each retry sleep so sockets don't pile
+    up (S2-B6). The final error is re-raised with its body still readable.
+    """
     last_error = None
     for attempt in range(_MAX_RETRIES + 1):
+        retry_after = 0.0
         try:
             return urllib.request.urlopen(request, timeout=timeout)
         except urllib.error.HTTPError as e:
             if e.code == 429 or e.code >= 500:
+                retry_after = _parse_retry_after(e.headers)
                 last_error = e
+                if attempt < _MAX_RETRIES:
+                    try:
+                        e.close()
+                    except Exception:
+                        pass
             else:
                 raise
         except (urllib.error.URLError, ConnectionError, TimeoutError, OSError) as e:
             last_error = e
         if attempt < _MAX_RETRIES:
-            time.sleep(_RETRY_BACKOFF * (2 ** attempt))
-    raise last_error
+            time.sleep(min(
+                max(retry_after, _RETRY_BACKOFF * (2 ** attempt)),
+                _RETRY_MAX_SLEEP,
+            ))
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("urlopen failed without capturing an error")
 
 
 def _make_request(payload: dict) -> urllib.request.Request:
@@ -131,9 +166,10 @@ def call_llm_streaming(messages: list[dict],
             line = raw_line.decode("utf-8", errors="replace").strip()
             if not line:
                 continue
-            if not line.startswith("data: "):
+            # SSE allows "data:" with or without a following space (S2-B5)
+            if not line.startswith("data:"):
                 continue
-            data_str = line[6:]
+            data_str = line[5:].lstrip(" ")
             if data_str == "[DONE]":
                 return
             try:

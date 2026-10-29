@@ -12,6 +12,7 @@ import urllib.error
 import urllib.request
 
 import core.config as _config
+from core.llm_client import _urlopen_with_retry
 from core.logger import log_info, log_error
 
 
@@ -67,7 +68,9 @@ def analyze_image(image_base64: str, prompt: str, mime_type: str = "image/png") 
              f"prompt_len={len(prompt)}, img_b64_len={len(image_base64)}")
 
     try:
-        with urllib.request.urlopen(req, timeout=_config.VISION_TIMEOUT) as resp:
+        # Same retry semantics as the text client (S2-B7) — a single
+        # transient 500/429 used to fail the whole analysis permanently.
+        with _urlopen_with_retry(req, timeout=_config.VISION_TIMEOUT) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         content = data["choices"][0]["message"]["content"]
         log_info(f"Vision API response: {len(content)} chars")
