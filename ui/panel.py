@@ -151,6 +151,8 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         self._controller = None
         self._loop: AgentLoop | None = None
         self._mode = "auto"
+        # True between _on_send and finish/recover — gates the steering path
+        self._turn_active = False
         # All live LLM threads. The list keeps the ONLY Python references so
         # a still-running thread is never garbage-collected (Qt fatal:
         # "Destroyed while thread is still running") — S1-D1/D2.
@@ -186,6 +188,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         """
         self._controller = None
         self._loop = None
+        self._turn_active = False
         self._streaming_text = ""
         self._stream_replace_start = 0
         self._reasoning_text = ""
@@ -224,7 +227,8 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
 
     def _set_running(self, running):
         self.btn_send.setEnabled(not running)
-        self.text_input.setEnabled(not running)
+        # Input stays enabled while running: typing + Enter queues a
+        # steering message instead of starting a second turn (S3-D7).
         self.btn_stop.setEnabled(running)
         self.btn_new_session.setEnabled(not running)
         self.session_combo.setEnabled(not running)
@@ -237,6 +241,15 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         text = self.text_input.toPlainText().strip()
         if not text:
             return
+
+        # Steering (S3-D7): input during a running turn is queued and
+        # injected at the next LLM call boundary — not a second turn.
+        if self._turn_active and self._loop is not None and not self._loop.stopped:
+            if self._loop.queue_steering(text):
+                self._append_user_msg(text)
+                self.text_input.clear()
+                self._append_system_msg("Queued — sent to the model at the next step.")
+                return
 
         # Per-turn reset FIRST — stale streaming cursor state from a previous
         # turn (ReAct mode especially) used to delete live content (S3-D6).
@@ -275,6 +288,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             self._store.save_if_not_empty(self._session)
 
             action = self._loop.start(text)
+            self._turn_active = True
             self._execute_action(action)
         except Exception as e:
             self._recover_after_internal_error(e)
@@ -290,6 +304,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             f"Internal error in agent turn: {type(exc).__name__}: {exc}\n"
             f"{traceback.format_exc()}"
         )
+        self._turn_active = False
         self._streaming_text = ""
         if self._stream_timer and self._stream_timer.isActive():
             self._stream_timer.stop()
@@ -548,6 +563,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             )
 
         self._set_running(False)
+        self._turn_active = False
         self._refresh_session_list()
 
     # ---- Event handlers ----

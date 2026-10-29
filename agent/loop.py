@@ -92,6 +92,10 @@ class AgentLoop:
         self._last_quality_passed: bool | None = None
         self._last_quality_summary: str = ""
         self._quality_gate_blocks: int = 0  # escape hatch counter
+        # Steering queue (Pi-style, decision point 7): user input received
+        # while a turn is running, injected as user messages at the next
+        # LLM call boundary.
+        self._steering: list[str] = []
 
     @property
     def iteration(self) -> int:
@@ -111,6 +115,22 @@ class AgentLoop:
 
     def request_stop(self) -> None:
         self._stopped = True
+
+    def queue_steering(self, text: str) -> bool:
+        """Queue user input for injection at the next LLM call boundary.
+
+        Returns False (input not accepted) when the loop has been stopped —
+        the caller should treat it as a normal follow-up message instead.
+        """
+        if not text or self._stopped:
+            return False
+        self._steering.append(text)
+        return True
+
+    def _drain_steering(self) -> None:
+        """Inject queued steering messages as user messages (in order)."""
+        while self._steering:
+            self._controller.session.add_user_message(self._steering.pop(0))
 
     def start(self, user_text: str) -> LoopAction:
         ctx = self._build_context()
@@ -192,6 +212,9 @@ class AgentLoop:
                 iterations=self._iteration,
             )
 
+        # Safe boundary: queued steering input joins the next request
+        self._drain_steering()
+
         self._iteration += 1
 
         tools = TOOL_DEFINITIONS if self._mode != "react" else None
@@ -238,6 +261,18 @@ class AgentLoop:
         )
 
         self._controller.session.add_assistant_message(assistant_msg)
+
+        # User pressed stop during this stream: keep the partial answer in
+        # history but finish as an interrupted turn — never present the
+        # truncated text as a successful final answer (S3-D7).
+        if self._stopped:
+            return LoopAction(
+                kind=LoopActionKind.FINISH,
+                success=False,
+                summary="Stopped by user.",
+                from_stream=False,
+                iterations=self._iteration,
+            )
 
         # --- Mode auto-detection (first iteration) ---
         if self._mode == "auto" and finish_reason == "stop" and self._iteration == 1:

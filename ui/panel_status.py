@@ -107,7 +107,13 @@ class _PanelStatusMixin:
             return f"Executing {fallback}...  {elapsed_str}{iter_str}"
 
         if state == "stopping":
-            return f"Stopping... {elapsed_str}"
+            # After 10s the thread is almost certainly blocked inside a
+            # network read — tell the user what the realistic wait is (S3-D8)
+            hint = (
+                f" (network read can block up to {_config.LLM_TIMEOUT}s)"
+                if elapsed > 10 else ""
+            )
+            return f"Stopping... {elapsed_str}{hint}"
 
         return "Ready"
 

@@ -799,3 +799,59 @@ def test_handle_stream_done_malformed_response_finishes_with_error():
     action2 = loop.handle_stream_done({}, has_streaming_text=False)
     assert action2.kind == LoopActionKind.FINISH
     assert action2.success is False
+
+
+# ---- S3-D7: steering queue + stopped stream semantics ----
+
+class TestSteeringQueue:
+    def test_steering_injected_at_next_call_boundary(self):
+        loop, ctrl = _make_loop()
+        loop.prepare_llm_call()
+        assert loop.queue_steering("use 12 holes, not 10") is True
+        loop.prepare_llm_call()
+        msgs = ctrl.session.get_messages()
+        injected = [m for m in msgs if m.get("role") == "user"
+                    and "12 holes" in m.get("content", "")]
+        assert len(injected) == 1
+
+    def test_multiple_steering_kept_in_order(self):
+        loop, ctrl = _make_loop()
+        loop.prepare_llm_call()
+        loop.queue_steering("first")
+        loop.queue_steering("second")
+        loop.prepare_llm_call()
+        injected = [m["content"] for m in ctrl.session.get_messages()
+                    if m.get("role") == "user" and m["content"] in ("first", "second")]
+        assert injected == ["first", "second"]
+
+    def test_steering_rejected_after_stop(self):
+        loop, _ = _make_loop()
+        loop.request_stop()
+        assert loop.queue_steering("too late") is False
+
+    def test_steering_not_injected_when_max_iterations_reached(self):
+        loop, ctrl = _make_loop()
+        loop._iteration = _config.MAX_ITERATIONS
+        loop.queue_steering("ignored")
+        action = loop.prepare_llm_call()
+        assert action.kind == LoopActionKind.FINISH
+        assert not any(m.get("content") == "ignored"
+                       for m in ctrl.session.get_messages())
+
+
+class TestStoppedStreamSemantics:
+    def test_stopped_stream_finishes_as_interrupted_not_success(self):
+        loop, ctrl = _make_loop()
+        loop.prepare_llm_call()
+        loop.request_stop()
+        action = loop.handle_stream_done(
+            {"choices": [{"message": {"content": "partial ans"},
+                          "finish_reason": "stop"}]},
+            has_streaming_text=True,
+        )
+        assert action.kind == LoopActionKind.FINISH
+        assert action.success is False
+        assert "Stopped" in action.summary
+        # The partial answer stays in history (it really was generated)
+        assert any(m.get("content") == "partial ans"
+                   for m in ctrl.session.get_messages())
