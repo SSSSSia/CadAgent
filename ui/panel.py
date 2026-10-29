@@ -176,6 +176,22 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         self._theme_colors = get_theme_colors()
         self._apply_dynamic_styles()
 
+    def _reset_turn_state(self):
+        """Reset per-turn loop and streaming state.
+
+        Single source of truth (S3-D18): this block was copy-pasted in four
+        places, and the missing per-turn reset on send caused the ReAct
+        display wipe (S3-D6) — a stale _stream_replace_start deleted live
+        chat content when the next turn finalized.
+        """
+        self._controller = None
+        self._loop = None
+        self._streaming_text = ""
+        self._stream_replace_start = 0
+        self._reasoning_text = ""
+        if self._stream_timer and self._stream_timer.isActive():
+            self._stream_timer.stop()
+
     # ---- Session lifecycle: unified state synchronization ----
 
     def _sync_all_state(self, new_session_id=None):
@@ -221,6 +237,10 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         text = self.text_input.toPlainText().strip()
         if not text:
             return
+
+        # Per-turn reset FIRST — stale streaming cursor state from a previous
+        # turn (ReAct mode especially) used to delete live content (S3-D6).
+        self._reset_turn_state()
 
         self._append_user_msg(text)
         self.text_input.clear()
@@ -560,13 +580,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         self._session = ChatSession()
         self._current_session_id = self._session.session_id
         self._sync_all_state(new_session_id=self._session.session_id)
-        self._controller = None
-        self._loop = None
-        self._streaming_text = ""
-        self._stream_replace_start = 0
-        self._reasoning_text = ""
-        if self._stream_timer and self._stream_timer.isActive():
-            self._stream_timer.stop()
+        self._reset_turn_state()
         self.chat_display.clear()
         self._append_system_msg("New session started. Describe a part to begin.")
         self._status_reset()

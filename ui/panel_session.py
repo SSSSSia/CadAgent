@@ -41,14 +41,7 @@ class _PanelSessionMixin:
             self._current_session_id = self._session.session_id
             self._sync_all_state(new_session_id=self._session.session_id)
             self._mode = "auto"
-            self._controller = None
-            self._loop = None
-            self._streaming_text = ""
-            self._stream_replace_start = 0
-            self._reasoning_text = ""
-            self._pending_tool_results = {}
-            if self._stream_timer and self._stream_timer.isActive():
-                self._stream_timer.stop()
+            self._reset_turn_state()
             self.chat_display.clear()
             self._append_system_msg("New session started. Describe a part to begin.")
             self._status_reset()
@@ -94,14 +87,7 @@ class _PanelSessionMixin:
             except Exception:
                 pass
 
-        self._controller = None
-        self._loop = None
-        self._streaming_text = ""
-        self._stream_replace_start = 0
-        self._reasoning_text = ""
-        self._pending_tool_results = {}
-        if self._stream_timer and self._stream_timer.isActive():
-            self._stream_timer.stop()
+        self._reset_turn_state()
         self._restore_chat_display(loaded)
         c = self._get_colors()
         turns = loaded.user_turn_count()
@@ -193,14 +179,7 @@ class _PanelSessionMixin:
             self._session = ChatSession()
             self._current_session_id = self._session.session_id
             self._sync_all_state(new_session_id=self._session.session_id)
-            self._controller = None
-            self._loop = None
-            self._streaming_text = ""
-            self._stream_replace_start = 0
-            self._reasoning_text = ""
-            self._pending_tool_results = {}
-            if self._stream_timer and self._stream_timer.isActive():
-                self._stream_timer.stop()
+            self._reset_turn_state()
             self.chat_display.clear()
             self._append_system_msg("Session deleted. New session started.")
 
