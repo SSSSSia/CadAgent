@@ -112,8 +112,10 @@ def test_summarize_tool_calls():
 def test_summarize_truncates_long_content():
     msgs = [{"role": "user", "content": "x" * 200}]
     result = summarize_old_messages(msgs)
-    # snippet should be truncated to 50 chars
-    assert len(result) < 200
+    # The GOAL snippet is capped at 120 chars — the fixed section
+    # scaffolding is small regardless of input size
+    assert "x" * 130 not in result
+    assert len(result) < 600
 
 
 # ---- Phase 2: tool pair removal ----
@@ -277,3 +279,77 @@ def test_token_summary_budget_matches_config():
     from core.config import MAX_CONTEXT_TOKENS
     _, budget = token_summary([{"role": "system", "content": "sys"}])
     assert budget == MAX_CONTEXT_TOKENS
+
+
+# ---- S2-B4: forced trim for short lists + structured checkpoint + calibration ----
+
+class TestForcedTrim:
+    def test_short_list_with_huge_message_still_fits(self):
+        """[system, huge user] bypassed every phase before — must force-fit."""
+        msgs = [
+            {"role": "system", "content": "SYS"},
+            {"role": "user", "content": "x" * 20000},
+        ]
+        result = trim_messages(msgs, max_tokens=600)
+        used, _ = token_summary(result)
+        assert used <= 600
+        assert result[0] == {"role": "system", "content": "SYS"}  # untouched
+        assert "...[truncated to fit context budget]" in result[1]["content"]
+        assert result[1]["content"].startswith("xxx")  # head preserved
+        assert result[1]["content"].endswith("xxx")    # tail preserved
+
+    def test_normal_short_input_untouched(self):
+        msgs = [
+            {"role": "system", "content": "SYS"},
+            {"role": "user", "content": "make a box"},
+        ]
+        result = trim_messages(msgs, max_tokens=500)
+        assert result == msgs
+
+
+class TestStructuredCheckpoint:
+    def test_five_sections_present(self):
+        msgs = [
+            {"role": "user", "content": "Create a flange OD 200mm height 400mm"},
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "1"}]},
+            {"role": "tool", "content": "OK: Code executed. CAD quality check PASSED."},
+            {"role": "assistant", "content": "Flange body created, bolts pending"},
+            {"role": "user", "content": "CAD QUALITY GATE: fix the bolt circle"},
+        ]
+        result = summarize_old_messages(msgs)
+        assert "GOAL (last user request)" in result
+        assert "Create a flange" in result
+        assert "CONSTRAINTS" in result and "200mm" in result
+        assert "PROGRESS" in result and "2 tool calls" in result
+        assert "PASSED" in result
+        assert "DECISIONS" in result and "Flange body created" in result
+        assert "NEXT STEPS" in result and "CAD QUALITY GATE" in result
+
+
+class TestProviderUsageCalibration:
+    def setup_method(self):
+        from core.token_budget import reset_provider_usage
+        reset_provider_usage()
+
+    def teardown_method(self):
+        from core.token_budget import reset_provider_usage
+        reset_provider_usage()
+
+    def test_recorded_usage_scales_estimate(self):
+        from core.token_budget import record_provider_usage
+        msgs = [{"role": "user", "content": "hello world " * 20}]
+        _, before = token_summary(msgs)
+        used_before, _ = token_summary(msgs)
+        record_provider_usage(used_before * 2, msgs)
+        used_after, _ = token_summary(msgs)
+        assert used_after >= used_before * 2 - 5  # ~2x calibration applied
+
+    def test_stale_record_ignored(self):
+        from core.token_budget import record_provider_usage
+        msgs = [{"role": "user", "content": "hello"}]
+        used_before, _ = token_summary(msgs)
+        record_provider_usage(99999, msgs)
+        # Message count drifts far beyond the fresh window
+        far = [{"role": "user", "content": "m"} for _ in range(20)]
+        used_far, _ = token_summary(far)
+        assert 99999 * 0.9 > used_far or used_far < 20000  # no wild scaling

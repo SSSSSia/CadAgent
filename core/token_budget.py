@@ -50,6 +50,41 @@ def _estimate_message_tokens(msg: dict) -> int:
     return total
 
 
+# ---------------------------------------------------------------------------
+# Provider-usage calibration (Pi-style hybrid estimation, S2-B4)
+# ---------------------------------------------------------------------------
+# When the provider reports real usage for a request, remember the ratio
+# real/estimated; fresh totals reuse it until the message count drifts.
+_usage_state: dict | None = None
+
+
+def record_provider_usage(total_tokens: int, messages: list[dict]) -> None:
+    """Record provider-reported usage for the last request (hybrid estimate)."""
+    global _usage_state
+    if not total_tokens or total_tokens <= 0:
+        return
+    est = sum(_estimate_message_tokens(m) for m in messages)
+    if est > 0:
+        _usage_state = {
+            "ratio": total_tokens / est,
+            "msg_count": len(messages),
+        }
+
+
+def reset_provider_usage() -> None:
+    """Forget any calibration (tests / new sessions)."""
+    global _usage_state
+    _usage_state = None
+
+
+def _calibrated_total(messages: list[dict]) -> int:
+    """Total token estimate, scaled by the last provider-reported ratio."""
+    est = sum(_estimate_message_tokens(m) for m in messages)
+    if _usage_state and abs(_usage_state["msg_count"] - len(messages)) <= 4:
+        return max(1, int(est * _usage_state["ratio"]))
+    return est
+
+
 def trim_messages(messages: list[dict], max_tokens: int = None) -> list[dict]:
     """Trim message list to fit within token budget.
 
@@ -59,7 +94,10 @@ def trim_messages(messages: list[dict], max_tokens: int = None) -> list[dict]:
     3. Phase 1 — truncate middle tool/assistant content
     4. Phase 2 — delete assistant(tool_calls) + consecutive tool results as
        atomic units (never leaves orphaned tool_calls or tool results)
-    5. Phase 3 — replace remaining middle history with a summary
+    5. Phase 3 — replace remaining middle history with a structured checkpoint
+    6. Phase 4 — still over budget (e.g. a single huge message): truncate the
+       longest message body head+tail until it fits (S2-B4 — short lists used
+       to bypass every phase and blow the API context limit)
 
     Returns a new list; does not modify the original.
     """
@@ -68,7 +106,7 @@ def trim_messages(messages: list[dict], max_tokens: int = None) -> list[dict]:
     if not messages:
         return []
 
-    total = sum(_estimate_message_tokens(m) for m in messages)
+    total = _calibrated_total(messages)
     if total <= max_tokens:
         return list(messages)
 
@@ -119,7 +157,7 @@ def trim_messages(messages: list[dict], max_tokens: int = None) -> list[dict]:
     if total <= max_tokens:
         return result
 
-    # Phase 3: replace middle history with a summary
+    # Phase 3: replace middle history with a structured checkpoint
     tail = _tail_size()
     mid_end = len(result) - tail
     if mid_end > 1:
@@ -129,41 +167,89 @@ def trim_messages(messages: list[dict], max_tokens: int = None) -> list[dict]:
                 _estimate_message_tokens(m) for m in middle):
             result = [result[0], summary_msg] + result[mid_end:]
 
+    # Phase 4 (S2-B4): short lists bypass phases 1-3 entirely — force-fit by
+    # truncating the longest message body (head+tail) until within budget.
+    total = _calibrated_total(result)
+    while total > max_tokens:
+        idx, best = None, -1
+        for i, m in enumerate(result):
+            if i == 0 and m.get("role") == "system":
+                continue  # never truncate the system prompt
+            content = m.get("content")
+            if isinstance(content, str) and len(content) > best:
+                idx, best = i, len(content)
+        if idx is None or best <= 200:
+            break  # nothing meaningful left to truncate
+        m = result[idx]
+        half = max(50, best // 4)
+        new_content = (
+            m["content"][:half]
+            + "\n...[truncated to fit context budget]\n"
+            + m["content"][-half:]
+        )
+        result[idx] = {**m, "content": new_content}
+        total = _calibrated_total(result)
+
     return result
 
 
 def token_summary(messages: list[dict]) -> tuple[int, int]:
     """Return (used_tokens, max_tokens) for display purposes."""
-    used = sum(_estimate_message_tokens(m) for m in messages)
-    return used, _config.MAX_CONTEXT_TOKENS
+    return _calibrated_total(messages), _config.MAX_CONTEXT_TOKENS
 
 
 def summarize_old_messages(messages: list[dict]) -> str:
-    """Compress a batch of old messages into a one-line summary.
+    """Compress a batch of old messages into a structured checkpoint.
 
-    Used to replace many history messages with a single summary entry,
-    preserving key context without the full token cost.
+    Pi-style five-section format (goal / constraints / progress / decisions /
+    next steps) — the compressed history keeps the model oriented instead of
+    remembering only "some tool calls happened" (S2-B4, decision point ⑦).
     """
     if not messages:
         return "No prior design history."
 
+    import re
+
     tool_count = 0
-    user_actions = []
+    user_requests: list[str] = []
+    constraints: list[str] = []
+    decisions: list[str] = []
+    last_quality_line = ""
+    last_pending = ""
+
     for msg in messages:
         role = msg.get("role", "")
-        content = msg.get("content", "")
+        content = msg.get("content", "") or ""
         if role == "user" and content:
-            snippet = content.strip()[:50]
-            user_actions.append(snippet)
+            snippet = content.strip().replace("\n", " ")
+            if snippet.startswith("CAD QUALITY GATE"):
+                last_pending = snippet[:160]
+                continue
+            user_requests.append(snippet[:120])
+            # dimension-ish tokens count as constraints
+            for m in re.findall(r"\d+(?:\.\d+)?\s*(?:mm|cm|°|deg\b)", snippet):
+                if m not in constraints and len(constraints) < 8:
+                    constraints.append(m)
         elif role == "tool":
             tool_count += 1
-        elif role == "assistant" and msg.get("tool_calls"):
-            tool_count += len(msg["tool_calls"])
+            first = content.split("\n", 1)[0]
+            if first.startswith(("OK:", "FAIL:", "ERROR:")):
+                last_quality_line = first[:120]
+        elif role == "assistant":
+            if msg.get("tool_calls"):
+                tool_count += len(msg["tool_calls"])
+            elif content:
+                line = content.strip().split("\n", 1)[0]
+                if line and len(decisions) < 3:
+                    decisions.append(line[:120])
 
-    parts = []
-    if user_actions:
-        parts.append(f"user request: {user_actions[-1]}")
-    if tool_count:
-        parts.append(f"executed {tool_count} tool calls")
-
-    return ("Design history: " + ", ".join(parts)) if parts else "Design history: no prior actions"
+    sections = [
+        "DESIGN HISTORY CHECKPOINT (older messages compressed)",
+        f"GOAL (last user request): {user_requests[-1] if user_requests else '—'}",
+        f"CONSTRAINTS: {', '.join(constraints) if constraints else '—'}",
+        f"PROGRESS: executed {tool_count} tool calls"
+        + (f"; last quality check: {last_quality_line}" if last_quality_line else ""),
+        f"DECISIONS: {' | '.join(decisions) if decisions else '—'}",
+        f"NEXT STEPS: {last_pending if last_pending else 'continue the current task'}",
+    ]
+    return "\n".join(sections)

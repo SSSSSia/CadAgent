@@ -52,6 +52,7 @@ class _LlmCallThread(QtCore.QThread):
             content = ""
             tc_map = {}  # index -> {id, function: {name, arguments}}
             finish_reason = None
+            usage = None
 
             for chunk in call_llm_streaming(self.messages, tools=self.tools):
                 if self.isInterruptionRequested():
@@ -59,6 +60,9 @@ class _LlmCallThread(QtCore.QThread):
 
                 choices = chunk.get("choices", [])
                 if not choices:
+                    # usage-only chunks carry empty choices (include_usage)
+                    if chunk.get("usage"):
+                        usage = chunk["usage"]
                     continue
                 choice = choices[0]
                 delta = choice.get("delta", {})
@@ -114,6 +118,19 @@ class _LlmCallThread(QtCore.QThread):
                 msg["tool_calls"] = tool_calls
             if finish_reason is None:
                 finish_reason = "tool_calls" if tool_calls else "stop"
+
+            # Hybrid token estimation: remember the provider-reported usage
+            # so the next trim/calibration uses real numbers (S2-B4).
+            if usage:
+                total = (usage.get("prompt_tokens") or 0) + (
+                    usage.get("completion_tokens") or 0
+                )
+                if total > 0:
+                    try:
+                        from core.token_budget import record_provider_usage
+                        record_provider_usage(total, self.messages)
+                    except Exception:
+                        pass
 
             self.streamDone.emit({
                 "choices": [{"message": msg, "finish_reason": finish_reason}]
