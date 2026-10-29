@@ -747,3 +747,55 @@ class TestErrorDedupWithRepairHint:
         assert len(tool_results) >= 1
         last_result = tool_results[-1]["content"]
         assert "WARNING: REPEATED ERROR" not in last_result
+
+
+# ---- S2-A11: escape hatch counts CONSECUTIVE blocks ----
+
+class TestEscapeHatchConsecutive:
+    def _fail_then_attempt_finish(self, loop, ctrl):
+        loop.handle_tool_results([ToolExecution(
+            tool_name="execute_code", tool_args="{}", tool_id="t1",
+            description="", result="FAIL: quality failed.", is_error=False,
+        )])
+        ctrl.session.add_assistant_message({"role": "assistant", "content": "done"})
+        return loop.handle_stream_done(
+            {"choices": [{"message": {"content": "done"}, "finish_reason": "stop"}]},
+            has_streaming_text=False,
+        )
+
+    def _ok_execute(self, loop):
+        loop.handle_tool_results([ToolExecution(
+            tool_name="execute_code", tool_args="{}", tool_id="t2",
+            description="", result="OK: PASSED.", is_error=False,
+        )])
+
+    def test_reset_on_ok_prevents_premature_escape(self):
+        """block, OK (reset), block, block, block — no escape until the 3rd
+        CONSECUTIVE block."""
+        loop, ctrl = _make_loop(context="doc")
+        loop.prepare_llm_call()
+
+        a1 = self._fail_then_attempt_finish(loop, ctrl)   # block #1
+        assert a1.kind == LoopActionKind.CALL_LLM
+        self._ok_execute(loop)                             # reset to 0
+        self._fail_then_attempt_finish(loop, ctrl)         # block #1 again
+        self._fail_then_attempt_finish(loop, ctrl)         # block #2
+        a4 = self._fail_then_attempt_finish(loop, ctrl)    # block #3 -> escape
+        assert a4.kind == LoopActionKind.FINISH
+        assert a4.success is False
+        assert "quality gate" in a4.summary.lower()
+
+
+# ---- S2-A10: malformed stream response ----
+
+def test_handle_stream_done_malformed_response_finishes_with_error():
+    loop, ctrl = _make_loop()
+    loop.prepare_llm_call()
+    action = loop.handle_stream_done({"choices": []}, has_streaming_text=False)
+    assert action.kind == LoopActionKind.FINISH
+    assert action.success is False
+    assert "malformed or empty" in action.summary
+
+    action2 = loop.handle_stream_done({}, has_streaming_text=False)
+    assert action2.kind == LoopActionKind.FINISH
+    assert action2.success is False

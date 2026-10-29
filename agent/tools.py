@@ -261,6 +261,14 @@ _ASSEMBLY_NOTE = (
 def _tool_execute_code(args_json: str) -> str:
     """Execute FreeCAD Python code and return stdout + error."""
     args = json.loads(args_json)
+    if "code" not in args:
+        # Malformed tool-call arguments (e.g. the ReAct parser's last-resort
+        # wrapper) — tell the model exactly how to resend (S2-A12)
+        return (
+            "ERROR: execute_code arguments must include a 'code' key with the "
+            "Python source. Resend the tool call with valid JSON arguments "
+            "like {\"code\": \"...\", \"description\": \"...\"}."
+        )
     code = args["code"].strip()
     description = args.get("description", "")
     doc_name = args.get("document", "")

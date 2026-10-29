@@ -288,3 +288,13 @@ class TestAssemblyModeDowngrade:
         result = self._run_with_analyze(analyze)
         assert result.startswith("FAIL:")
         assert "Assembly mode" not in result
+
+
+class TestExecuteCodeMissingCodeKey:
+    """S2-A12: missing 'code' key gets actionable guidance, not a raw KeyError."""
+
+    def test_missing_code_key_returns_guided_error(self):
+        tools, _, _ = _load_tools()
+        result = tools._tool_execute_code(json.dumps({"description": "no code"}))
+        assert result.startswith("ERROR")
+        assert "'code' key" in result

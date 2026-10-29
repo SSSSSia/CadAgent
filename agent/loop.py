@@ -218,7 +218,16 @@ class AgentLoop:
         )
 
     def handle_stream_done(self, data: dict, has_streaming_text: bool) -> LoopAction:
-        choice = data["choices"][0]
+        choices = data.get("choices") or []
+        if not choices:
+            # Malformed/empty API response — never index blindly (S2-A10)
+            return LoopAction(
+                kind=LoopActionKind.FINISH,
+                success=False,
+                summary="API returned a malformed or empty response.",
+                iterations=self._iteration,
+            )
+        choice = choices[0]
         assistant_msg = choice.get("message", {})
         finish_reason = choice.get("finish_reason", "")
         content = assistant_msg.get("content", "")
@@ -351,6 +360,10 @@ class AgentLoop:
                 first_line = ex.result.split("\n", 1)[0]
                 if ex.result.startswith("OK:"):
                     self._last_quality_passed = True
+                    # A passing quality check resets the escape-hatch counter:
+                    # the hatch fires on 3 CONSECUTIVE blocks, not 3 total
+                    # across the whole turn (S2-A11).
+                    self._quality_gate_blocks = 0
                 elif ex.result.startswith("FAIL:") or ex.result.startswith("ERROR:"):
                     self._last_quality_passed = False
                 elif ex.result.startswith("AUTO-FIX APPLIED:"):
