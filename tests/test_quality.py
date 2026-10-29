@@ -521,3 +521,67 @@ class TestIdentitySkipAndVolumeGates:
         assert report.passed is True
         assert report.severity == "warn"
         assert any(i.code == "TINY_VOLUME" for i in report.issues)
+
+
+# ===========================================================================
+# S2 exit criteria: the gate's verdict across the canonical document states
+# ===========================================================================
+
+import pytest
+
+
+def _healthy(volume=1000.0, bb=10.0):
+    return ShapeInfo(
+        bound_box={"XMin": 0, "XMax": bb, "YMin": 0, "YMax": bb, "ZMin": 0, "ZMax": bb},
+        volume=volume, faces=6, edges=12, vertices=8,
+        shape_type="Solid", solid_count=1,
+        solids=[SolidInfo(faces=[FaceInfo(geom_type="Plane", area=100.0)])],
+    )
+
+
+def _multi_solid(volume=2000.0):
+    return ShapeInfo(
+        bound_box={"XMin": 0, "XMax": 20, "YMin": 0, "YMax": 20, "ZMin": 0, "ZMax": 20},
+        volume=volume, faces=12, edges=24, vertices=16,
+        shape_type="Compound", solid_count=2,
+        solids=[SolidInfo(faces=[]), SolidInfo(faces=[])],
+    )
+
+
+_GATE_STATES = [
+    # (name, infos, kwargs, passed, severity, must_include_codes)
+    ("empty_document", [], {}, False, "fail", {"NO_SHAPE_OBJECTS"}),
+    ("single_healthy_solid", [("Part", _healthy())], {}, True, "ok", set()),
+    ("single_huge_dims_warns",
+     [("Part", _healthy(volume=1e7, bb=20000))], {}, True, "warn", {"DIMENSION_SUSPICIOUS"}),
+    ("multi_object_all_healthy",
+     [("A", _healthy()), ("B", _healthy(volume=500))], {}, True, "warn", {"MULTIPLE_OBJECTS"}),
+    ("single_multi_solid_fails",
+     [("Part", _multi_solid())], {}, False, "fail", {"MULTI_SOLID"}),
+    ("non_main_broken_fails",
+     [("Main", _healthy()), ("Stub", _healthy(volume=0.0, bb=4))], {}, False, "fail", {"NO_VOLUME"}),
+    ("compound_extractable_warns",
+     [("Part", ShapeInfo(
+         bound_box={"XMin": 0, "XMax": 10, "YMin": 0, "YMax": 10, "ZMin": 0, "ZMax": 10},
+         volume=1000.0, shape_type="Compound", solid_count=1,
+         solids=[SolidInfo(faces=[])],
+     ))], {}, True, "warn", {"COMPOUND_SHAPE"}),
+    ("single_zero_volume_fails",
+     [("Part", _healthy(volume=0.0))], {}, False, "fail", {"NO_VOLUME"}),
+    ("assembly_mode_multi_solid_passes",
+     [("Part", _multi_solid())], {"assembly_mode": True}, True, "warn", set()),
+]
+
+
+@pytest.mark.parametrize(
+    "name,infos,kwargs,passed,severity,codes",
+    _GATE_STATES,
+    ids=[s[0] for s in _GATE_STATES],
+)
+def test_quality_gate_document_states(name, infos, kwargs, passed, severity, codes):
+    report = analyze_quality_from_infos(infos, **kwargs)
+    assert report.passed is passed, f"{name}: {report.summary}"
+    assert report.severity == severity, f"{name}: {report.summary}"
+    if codes:
+        actual = {i.code for i in report.issues}
+        assert codes <= actual, f"{name}: expected {codes} in {actual}"
