@@ -218,3 +218,73 @@ class TestExportStlObjExtension:
         assert result.startswith("ERROR")
         assert "extension" in result
         mesh_mod.Mesh.return_value.write.assert_not_called()
+
+
+class TestAssemblyModeDowngrade:
+    """S2-B11: multi-solid-only failures auto-downgrade to assembly mode."""
+
+    _FAIL_MULTI = None  # built per-test via helper
+
+    def _run_with_analyze(self, analyze_fn):
+        import core.quality as quality_mod
+        from tests.helpers import install_sys_modules, restore_sys_modules
+
+        tools, mock_fc, _ = _load_tools()
+        mock_shape = MagicMock()
+        mock_shape.isNull.return_value = False
+        mock_obj = MagicMock()
+        mock_obj.Shape = mock_shape
+        mock_doc = MagicMock()
+        mock_doc.Objects = [mock_obj, mock_obj]
+        mock_fc.ActiveDocument = mock_doc
+
+        orig = quality_mod.analyze_document_quality
+        quality_mod.analyze_document_quality = analyze_fn
+        saved = install_sys_modules({"FreeCAD": mock_fc})
+        try:
+            return tools._tool_execute_code(json.dumps({"code": "x = 1"}))
+        finally:
+            restore_sys_modules(saved)
+            quality_mod.analyze_document_quality = orig
+
+    def test_multi_solid_only_failure_downgrades_to_ok(self):
+        from core.quality import QualityReport, QualityIssue
+        calls = []
+
+        def analyze(doc, assembly_mode=False):
+            calls.append(assembly_mode)
+            if assembly_mode:
+                return QualityReport(
+                    passed=True, severity="warn", issues=[],
+                    summary="Quality check passed with warnings (assembly mode).",
+                )
+            return QualityReport(
+                passed=False, severity="fail",
+                issues=[QualityIssue(
+                    code="MULTI_SOLID", severity="fail",
+                    message="2 separate solids.",
+                )],
+                summary="Quality check FAILED: 2 separate solids.",
+            )
+
+        result = self._run_with_analyze(analyze)
+        assert calls == [False, True]  # downgrade re-ran in assembly mode
+        assert result.startswith("OK:")
+        assert "Assembly mode" in result
+
+    def test_other_failures_do_not_downgrade(self):
+        from core.quality import QualityReport, QualityIssue
+
+        def analyze(doc, assembly_mode=False):
+            return QualityReport(
+                passed=False, severity="fail",
+                issues=[QualityIssue(
+                    code="NO_SOLID", severity="fail",
+                    message="No solid components.",
+                )],
+                summary="Quality check FAILED: No solid components.",
+            )
+
+        result = self._run_with_analyze(analyze)
+        assert result.startswith("FAIL:")
+        assert "Assembly mode" not in result

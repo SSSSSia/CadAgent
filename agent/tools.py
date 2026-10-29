@@ -228,6 +228,32 @@ SAFE_BUILTINS = {
 }
 
 
+def _quality_report_for_doc(target):
+    """Run the CAD quality gate with automatic assembly downgrade (S2-B11).
+
+    If the only fail-level issues are MULTI_SOLID / COMPOUND_SHAPE and the
+    same document passes in assembly mode, return the assembly report so a
+    legitimate multi-part design is not hard-failed every iteration.
+    Returns (report, used_assembly_mode).
+    """
+    from core.quality import analyze_document_quality
+    q_report = analyze_document_quality(target)
+    if not q_report.passed:
+        fail_codes = {i.code for i in q_report.issues if i.severity == "fail"}
+        if fail_codes and fail_codes <= {"MULTI_SOLID", "COMPOUND_SHAPE"}:
+            asm_report = analyze_document_quality(target, assembly_mode=True)
+            if asm_report.passed:
+                return asm_report, True
+    return q_report, False
+
+
+_ASSEMBLY_NOTE = (
+    "NOTE: Assembly mode — multiple separate solids are allowed. "
+    "Confirm this matches the design intent; if a single solid was "
+    "intended, the shapes must physically overlap before union."
+)
+
+
 # ---------------------------------------------------------------------------
 # Tool: execute_code
 # ---------------------------------------------------------------------------
@@ -320,11 +346,13 @@ def _tool_execute_code(args_json: str) -> str:
 
         # Quality gate — structured CAD quality check
         try:
-            from core.quality import analyze_document_quality, format_quality_report
+            from core.quality import format_quality_report
             target = target_doc or _safe_active_doc()
             if target:
-                q_report = analyze_document_quality(target)
+                q_report, used_assembly = _quality_report_for_doc(target)
                 parts = [format_quality_report(q_report)]
+                if used_assembly:
+                    parts.append(_ASSEMBLY_NOTE)
         except Exception as e:
             parts = [
                 "FAIL: Code executed but CAD quality check crashed.",
@@ -495,10 +523,12 @@ def _attempt_auto_fix(
     header = "OK: Auto-fix applied and code executed."
     quality_parts = []
     try:
-        from core.quality import analyze_document_quality, format_quality_report
+        from core.quality import format_quality_report
         if restored_doc:
-            q_report = analyze_document_quality(restored_doc)
+            q_report, used_assembly = _quality_report_for_doc(restored_doc)
             quality_parts.append(format_quality_report(q_report))
+            if used_assembly:
+                quality_parts.append(_ASSEMBLY_NOTE)
             if not q_report.passed:
                 header = "FAIL: Auto-fix applied but CAD quality check failed."
     except Exception as e:
