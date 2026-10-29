@@ -54,6 +54,25 @@ class _PanelStreamMixin:
             f'{icon} {esc(label)}'
             f'</div>'
         )
+
+        # Result preview (S3-D10): tool output used to be completely
+        # invisible — errors included. Show the first lines inline; errors
+        # get a wider preview and error coloring.
+        result_text = (full_result or "").strip()
+        if result_text:
+            result_lines = result_text.split("\n")
+            shown = result_lines[:8] if is_error else result_lines[:3]
+            hidden = len(result_lines) - len(shown)
+            body = esc("\n".join(shown))
+            if hidden > 0:
+                body += f'<br><i>... ({hidden} more lines — see log/cadagent.log)</i>'
+            bg = c.reasoning_bg
+            color = c.tool_text if not is_error else c.tool_icon_error
+            self._insert_html(
+                f'<div style="margin:0 0 2px 20px; padding:4px 8px; '
+                f'font-size:11px; color:{color}; background-color:{bg}; '
+                f'border-radius:3px; white-space:pre-wrap;">{body}</div>'
+            )
         self._scroll_bottom()
 
     def _append_system_msg(self, text):
