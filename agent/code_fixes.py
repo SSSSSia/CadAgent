@@ -42,6 +42,33 @@ def error_hint(error: Exception, code: str) -> tuple[str, str | None]:
 
     _MAKE_FNS = ("makeBox", "makeCylinder", "makeCone", "makeSphere", "makeTorus")
 
+    # import cadquery raises ImportError/ModuleNotFoundError, not NameError —
+    # handle it first so the most common mistake gets a real hint (S2-A9)
+    if e_type in ("ImportError", "ModuleNotFoundError"):
+        if "cadquery" in e_str.lower():
+            fixed_code = re.sub(
+                r"^[ \t]*import cadquery(\s+as\s+\w+)?[ \t]*$",
+                "",
+                code,
+                flags=re.MULTILINE,
+            )
+            alias = re.search(r"import cadquery\s+as\s+(\w+)", code)
+            if alias:
+                # Rebind the model's alias to the injected cq module
+                fixed_code = f"{alias.group(1)} = cq\n" + fixed_code
+            if fixed_code == code:
+                fixed_code = None
+            hints.append(
+                "Hint: Do NOT 'import cadquery' — CadQuery is not installed. "
+                "The 'cq' module is pre-injected: use cq.Workplane('XY') directly."
+            )
+        else:
+            hints.append(
+                "Hint: Unknown import. Available modules: FreeCAD, FreeCADGui, "
+                "Part, math (plus the pre-injected cq)."
+            )
+        return "\n".join(hints), fixed_code
+
     if e_type == "NameError":
         # CQ mode: bare Part constructor (should use cq API instead)
         if "cadquery" in e_str.lower() or "import cadquery" in code:

@@ -323,3 +323,47 @@ def test_auto_retry_not_eligible_unknown_error():
     err = ValueError("something unexpected")
     _, fixed = error_hint(err, "x = 1")
     assert fixed is None
+
+
+# ---- S2-A9: ImportError branch (import cadquery) ----
+
+class TestImportErrorHints:
+
+    def _import_error(self, msg="No module named 'cadquery'"):
+        try:
+            raise ImportError(msg)
+        except ImportError as e:
+            return e
+
+    def test_import_cadquery_removes_line(self):
+        code = "import cadquery\nbody = cq.Workplane('XY').box(10, 10, 10)"
+        hint, fixed = error_hint(self._import_error(), code)
+        assert "Do NOT 'import cadquery'" in hint
+        assert fixed is not None
+        assert "import cadquery" not in fixed
+        assert "cq.Workplane" in fixed
+
+    def test_import_cadquery_as_alias_rebinds(self):
+        code = "import cadquery as cqd\nbody = cqd.Workplane('XY').box(1, 1, 1)"
+        hint, fixed = error_hint(self._import_error(), code)
+        assert fixed is not None
+        assert "import cadquery" not in fixed
+        assert "cqd = cq" in fixed
+        assert "cqd.Workplane" in fixed
+
+    def test_module_not_found_same_branch(self):
+        try:
+            import importlib
+            raise ModuleNotFoundError("No module named 'cadquery'")
+        except ModuleNotFoundError as e:
+            err = e
+        code = "import cadquery\nx = 1"
+        hint, fixed = error_hint(err, code)
+        assert "cq" in hint
+        assert fixed == "\nx = 1" or fixed == "x = 1"
+
+    def test_other_import_returns_hint_only(self):
+        code = "import nonexistent_module\nx = 1"
+        hint, fixed = error_hint(self._import_error("No module named 'nonexistent_module'"), code)
+        assert "Unknown import" in hint
+        assert fixed is None
