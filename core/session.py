@@ -126,5 +126,11 @@ class ChatSession:
         session.parameters = data.get("parameters", {})
         session.parametric_code = data.get("parametric_code", "")
         session.persistent_vars = data.get("persistent_vars", {})
-        session._system_prompt = session.messages[0].get("content", "") if session.messages else ""
+        # Only trust the first message as the system prompt if it actually
+        # IS one — a legacy session starting with a user message used to be
+        # re-injected as system by clear() (S2-B12)
+        if session.messages and session.messages[0].get("role") == "system":
+            session._system_prompt = session.messages[0].get("content", "")
+        else:
+            session._system_prompt = ""
         return session

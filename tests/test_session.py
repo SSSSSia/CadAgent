@@ -190,3 +190,37 @@ class TestVersion:
         s.add_user_message("hi")
         s.clear()
         assert s.session_id == original_id
+
+
+# ---- S2-B12: from_dict must not adopt a non-system first message ----
+
+class TestFromDictSystemPromptRole:
+
+    def test_user_first_message_not_adopted_as_system(self):
+        from core.session import ChatSession
+        d = {
+            "session_id": "abc123def456",
+            "messages": [
+                {"role": "user", "content": "make me a bracket"},
+                {"role": "assistant", "content": "done"},
+            ],
+        }
+        s = ChatSession.from_dict(d)
+        assert s._system_prompt == ""
+        # clear() must not re-inject the user text as a system message
+        s.clear()
+        assert s.messages == []
+
+    def test_system_first_message_still_adopted(self):
+        from core.session import ChatSession
+        d = {
+            "session_id": "abc123def456",
+            "messages": [
+                {"role": "system", "content": "SYS"},
+                {"role": "user", "content": "hi"},
+            ],
+        }
+        s = ChatSession.from_dict(d)
+        assert s._system_prompt == "SYS"
+        s.clear()
+        assert s.messages == [{"role": "system", "content": "SYS"}]
