@@ -6,9 +6,12 @@ pattern of importlib.util.spec_from_file_location to avoid real FreeCAD deps.
 from __future__ import annotations
 
 import math
+import textwrap
 import types
 from dataclasses import dataclass
 from typing import Any
+
+import pytest
 
 from tests.helpers import install_sys_modules, load_module, restore_sys_modules
 
@@ -296,11 +299,29 @@ def test_workplane_constructor_defaults():
     assert wp._pending == []
 
 
-def test_workplane_constructor_custom_plane():
-    wp = Workplane(plane="XZ")
-    assert wp._plane == "XZ"
-    wp2 = Workplane(plane="yz")
-    assert wp2._plane == "YZ"
+def test_workplane_constructor_rejects_non_xy_planes():
+    """S5-A2: non-XY planes must fail honestly, not silently build on XY."""
+    for plane in ("XZ", "YZ", "xz", "front"):
+        try:
+            Workplane(plane=plane)
+            assert False, f"Should have raised NotImplementedError for {plane!r}"
+        except NotImplementedError as e:
+            assert "XY" in str(e)
+            assert "rotate" in str(e)  # guidance for reorientation
+
+
+def test_workplane_constructor_rejects_non_string_plane():
+    try:
+        Workplane(plane=123)
+        assert False, "Should have raised NotImplementedError"
+    except NotImplementedError:
+        pass
+
+
+def test_workplane_constructor_accepts_xy_with_origin():
+    wp = Workplane("xy", origin=(1, 2, 3))
+    assert wp._plane == "XY"
+    assert wp._origin == (1, 2, 3)
 
 
 # ---- Primitives ----
@@ -499,6 +520,103 @@ def test_extrude_multi_op_both_symmetric():
     assert zmax == 5
 
 
+# ---- Workplane origin (S5-A3): base geometry is created at the origin ----
+
+def test_origin_applied_to_box():
+    b = Workplane("XY", origin=(5, 0, 10)).box(10, 10, 10).solid().bounds
+    assert (b[0], b[1], b[2]) == (0, -5, 5)
+    assert (b[3], b[4], b[5]) == (10, 5, 15)
+
+
+def test_origin_applied_to_extrude():
+    zmin, zmax = _zrange(Workplane("XY", origin=(0, 0, 10)).circle(5).extrude(8))
+    assert (zmin, zmax) == (10, 18)
+
+
+def test_origin_not_reapplied_to_boolean():
+    a = Workplane("XY", origin=(0, 0, 10)).box(10, 10, 10)
+    b = Workplane("XY", origin=(0, 0, 50)).box(5, 5, 5)
+    zmin, zmax = _zrange(a.union(b))
+    # box is z-centered by default: 10±5 and 50±2.5; union of absolute
+    # coords — no double shift
+    assert (zmin, zmax) == (5, 52.5)
+
+
+def test_workplane_offset_applies_to_extrude():
+    zmin, zmax = _zrange(Workplane("XY").workplane(offset=10).circle(5).extrude(8))
+    assert (zmin, zmax) == (10, 18)
+
+
+def test_workplane_offset_after_sketch():
+    zmin, zmax = _zrange(Workplane("XY").circle(5).workplane(offset=10).extrude(8))
+    assert (zmin, zmax) == (10, 18)
+
+
+def test_workplane_offset_negative_applies_to_extrude():
+    zmin, zmax = _zrange(Workplane("XY").workplane(offset=-5).circle(5).extrude(8))
+    assert (zmin, zmax) == (-5, 3)
+
+
+# ---- centered= axis matrix (S5 exit criteria) ----
+
+def test_box_centered_matrix():
+    b = Workplane("XY").box(10, 20, 30, centered=(True, True, True)).solid().bounds
+    assert (b[0], b[1], b[2]) == (-5, -10, -15)
+    assert (b[3], b[4], b[5]) == (5, 10, 15)
+    b = Workplane("XY").box(10, 20, 30, centered=(False, True, False)).solid().bounds
+    assert (b[0], b[1], b[2]) == (0, -10, 0)
+    assert (b[3], b[4], b[5]) == (10, 10, 30)
+    b = Workplane("XY").box(10, 20, 30, centered=(False, False, False)).solid().bounds
+    assert (b[0], b[1], b[2]) == (0, 0, 0)
+    assert (b[3], b[4], b[5]) == (10, 20, 30)
+
+
+def test_cylinder_centered_matrix():
+    b = Workplane("XY").cylinder(20, 5).solid().bounds
+    assert (b[2], b[5]) == (0, 20)  # default (True, True, False): base at z=0
+    b = Workplane("XY").cylinder(20, 5, centered=(True, True, True)).solid().bounds
+    assert (b[2], b[5]) == (-10, 10)
+
+
+def test_cone_centered_matrix():
+    b = Workplane("XY").cone(10, 5, 20).solid().bounds
+    assert (b[2], b[5]) == (0, 20)
+    b = Workplane("XY").cone(10, 5, 20, centered=(True, True, True)).solid().bounds
+    assert (b[2], b[5]) == (-10, 10)
+
+
+# ---- Prompt examples must execute under the mock sandbox (S5 exit criteria) ----
+
+class TestPromptExamplesExecutable:
+    """Both agent prompts' mug/flange examples must run as-is against the
+    mocked cq sandbox — locks prompt text to implementation semantics."""
+
+    @pytest.mark.parametrize("prompt_name", ["AGENT_SYSTEM_PROMPT", "REACT_SYSTEM_PROMPT"])
+    @pytest.mark.parametrize("title", [
+        "Example — hollow cylinder with handle:",
+        "Example — flanged cylinder with bolt holes:",
+    ])
+    def test_example_executes(self, prompt_name, title):
+        prompts_mod = load_module("prompts_s5_examples", "agent", "prompts.py")
+        prompt = getattr(prompts_mod, prompt_name)
+        start = prompt.index(title)
+        lines = prompt[start:].split("\n")[1:]
+        code_lines = []
+        for line in lines:
+            if not line.strip():
+                break
+            code_lines.append(line)
+        code = textwrap.dedent("\n".join(code_lines))
+        assert "cq.Workplane" in code
+        ns = {
+            "cq": _cq_mod,
+            "math": math,
+            "make_box_handle": _mock_cad_helpers.make_box_handle,
+            "cq_show": _mock_cad_helpers.cq_show,
+        }
+        exec(code, ns)
+
+
 # ---- Boolean operations ----
 
 def test_cut_returns_new_wp():
@@ -599,10 +717,10 @@ def test_workplane_offset():
     assert wp2._origin == (0, 0, 10)
 
 
-def test_workplane_offset_xz():
-    wp = Workplane("XZ")
-    wp2 = wp.workplane(offset=5)
-    assert wp2._origin == (0, 5, 0)
+def test_workplane_offset_negative():
+    wp = Workplane("XY")
+    wp2 = wp.workplane(offset=-5)
+    assert wp2._origin == (0, 0, -5)
 
 
 def test_workplane_offset_zero():
@@ -645,7 +763,7 @@ def test_repr():
 
 
 def test_repr_empty():
-    wp = Workplane("XZ")
+    wp = Workplane("XY")
     r = repr(wp)
     assert "shapes=0" in r
 

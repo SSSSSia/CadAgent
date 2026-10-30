@@ -225,6 +225,26 @@ def test_sweep_not_exist_hint():
     assert fixed is None
 
 
+# ---- S5-A2: NotImplementedError (XY-only workplane) hints ----
+
+def test_not_implemented_plane_hint():
+    err = NotImplementedError(
+        "Workplane plane 'XZ' is not supported — only 'XY' is."
+    )
+    hint, fixed = error_hint(err, "body = cq.Workplane('XZ').circle(10).extrude(5)")
+    assert "XY" in hint
+    assert "rotate" in hint
+    assert "workplane(offset" in hint
+    assert fixed is None
+
+
+def test_not_implemented_generic_hint():
+    err = NotImplementedError("lineTo sketch paths are not supported.")
+    hint, fixed = error_hint(err, "wp.lineTo(0, 10)")
+    assert "not supported" in hint
+    assert fixed is None
+
+
 # ===========================================================================
 # Phase 5: Auto-retry eligibility boundary tests
 # ===========================================================================

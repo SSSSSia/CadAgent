@@ -55,7 +55,8 @@ Extend one shape INTO the other.
 Both vision tools require vision API configured in Settings.
 
 cq API Quick Reference:
-- cq.Workplane("XY") — create workplane (also "XZ", "YZ")
+- cq.Workplane("XY") — create workplane (only the "XY" plane is supported)
+- cq.Workplane("XY", origin=(x,y,z)) / .workplane(offset=N) — shift the sketch plane along +Z (sketches extrude from there)
 - .box(L, W, H) — box centered at origin
 - .cylinder(H, R) — cylinder (NOTE: HEIGHT first, RADIUS second)
 - .cone(r1, r2, H) — cone (r1=base, r2=top)
@@ -179,7 +180,8 @@ Extend one shape INTO the other.
 Both vision tools require vision API configured in Settings.
 
 cq API Quick Reference:
-- cq.Workplane("XY") — create workplane (also "XZ", "YZ")
+- cq.Workplane("XY") — create workplane (only the "XY" plane is supported)
+- cq.Workplane("XY", origin=(x,y,z)) / .workplane(offset=N) — shift the sketch plane along +Z (sketches extrude from there)
 - .box(L, W, H) — box centered at origin
 - .cylinder(H, R) — cylinder (NOTE: HEIGHT first, RADIUS second)
 - .cone(r1, r2, H) — cone (r1=base, r2=top)

@@ -62,8 +62,16 @@ class Workplane:
     Internal state:
         _shapes  — list[FreeCAD TopoShape] (the actual geometry)
         _pending — list of 2-D sketch operations waiting for extrude()
-        _plane   — reference plane name ("XY", "XZ", "YZ")
+        _plane   — reference plane name (only "XY" is supported)
+        _origin  — workplane origin; base geometry is created relative to it
     """
+
+    _XY_ONLY_MSG = (
+        "Workplane plane '{plane}' is not supported — only 'XY' is. "
+        "Build the shape on cq.Workplane('XY'), then orient it with "
+        ".rotate((0,0,0), (1,0,0), 90) and position it with "
+        ".translate((x, y, z))."
+    )
 
     def __init__(
         self,
@@ -72,8 +80,10 @@ class Workplane:
         shapes: list | None = None,
         pending: list | None = None,
     ):
-        self._plane = plane.upper()
-        self._origin = origin
+        if not isinstance(plane, str) or plane.upper() != "XY":
+            raise NotImplementedError(self._XY_ONLY_MSG.format(plane=plane))
+        self._plane = "XY"
+        self._origin = tuple(origin) if origin else (0, 0, 0)
         self._shapes: list = shapes if shapes is not None else []
         self._pending: list = pending if pending is not None else []
 
@@ -87,6 +97,18 @@ class Workplane:
             shapes=shapes if shapes is not None else list(self._shapes),
             pending=list(self._pending),  # carry forward pending 2D ops
         )
+
+    def _place(self, shape):
+        """Place a freshly built base shape at the workplane origin.
+
+        Only called where NEW base geometry is created (primitives and
+        extrude). Boolean/transform results already carry absolute
+        coordinates and must not be shifted again.
+        """
+        ox, oy, oz = self._origin
+        if ox or oy or oz:
+            shape.translate(_fc_vec(ox, oy, oz))
+        return shape
 
     # -- Solid access -------------------------------------------------------
 
@@ -186,7 +208,7 @@ class Workplane:
         self._pending = []  # consumed
 
         shape = _resolve_extrude(pending, height, both)
-        return self._copy(shapes=[shape])
+        return self._copy(shapes=[self._place(shape)])
 
     # -- Primitive solids (direct 3D, no pending) ----------------------------
 
@@ -204,7 +226,7 @@ class Workplane:
         offset = _center_offset([L, W, H], centered)
         if offset.x != 0 or offset.y != 0 or offset.z != 0:
             shape.translate(offset)
-        return self._copy(shapes=[shape])
+        return self._copy(shapes=[self._place(shape)])
 
     def cylinder(
         self,
@@ -227,7 +249,7 @@ class Workplane:
         offset = _center_offset([2 * radius, 2 * radius, height], centered)
         if offset.x != 0 or offset.y != 0 or offset.z != 0:
             shape.translate(offset)
-        return self._copy(shapes=[shape])
+        return self._copy(shapes=[self._place(shape)])
 
     def cone(
         self,
@@ -245,14 +267,14 @@ class Workplane:
         offset = _center_offset([2 * max(r1, r2), 2 * max(r1, r2), height], centered)
         if offset.x != 0 or offset.y != 0 or offset.z != 0:
             shape.translate(offset)
-        return self._copy(shapes=[shape])
+        return self._copy(shapes=[self._place(shape)])
 
     def sphere(self, radius: float) -> Workplane:
         """Create a sphere centered at the workplane origin."""
         if radius <= 0:
             raise ValueError(f"sphere radius must be positive: {radius}")
         shape = Part.makeSphere(radius)
-        return self._copy(shapes=[shape])
+        return self._copy(shapes=[self._place(shape)])
 
     def torus(self, major_r: float, minor_r: float) -> Workplane:
         """Create a torus (ring shape). major_r=ring radius, minor_r=tube radius."""
@@ -261,7 +283,7 @@ class Workplane:
                 f"torus radii must be positive: major_r={major_r}, minor_r={minor_r}"
             )
         shape = Part.makeTorus(major_r, minor_r)
-        return self._copy(shapes=[shape])
+        return self._copy(shapes=[self._place(shape)])
 
     # -- Boolean operations (chainable, return new Workplane) ----------------
 
@@ -350,23 +372,20 @@ class Workplane:
     # -- Workplane offset ---------------------------------------------------
 
     def workplane(self, offset: float = 0) -> Workplane:
-        """Create a new workplane offset from the current one.
+        """Create a new workplane offset along the plane normal (+Z).
 
-        Carries forward the existing shapes so chain can continue.
+        The offset shifts the sketch origin: subsequent sketch + extrude
+        calls build geometry starting at the raised plane. Negative offsets
+        go along -Z. Existing shapes and pending sketches are carried
+        forward unchanged.
         """
         if offset == 0:
             return self._copy()
-        # Adjust Z origin based on plane orientation
+        # Offset along the plane normal (+Z for the only supported XY plane)
         ox, oy, oz = self._origin
-        if self._plane == "XY":
-            oz += offset
-        elif self._plane == "XZ":
-            oy += offset
-        elif self._plane == "YZ":
-            ox += offset
         return Workplane(
             plane=self._plane,
-            origin=(ox, oy, oz),
+            origin=(ox, oy, oz + offset),
             shapes=list(self._shapes),
             pending=list(self._pending),
         )

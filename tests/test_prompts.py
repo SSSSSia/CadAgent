@@ -91,6 +91,7 @@ class TestPromptForbiddenContent:
         ("Pre-imported: FreeCAD, Part, math, Gui", "old alias-based pre-import list"),
         ("import FreeCADGui as Gui", "import alias for FreeCADGui"),
         ("rim.translate(Vector(", "bare Vector in example code"),
+        ('also "XZ", "YZ"', "workplane plane claims — only XY is supported"),
     ]
 
     @pytest.mark.parametrize("name,prompt", list(ALL_PROMPTS.items()))
@@ -193,3 +194,21 @@ class TestAgentPromptsFailRule:
         assert has_fail and has_fix, (
             f"{name} missing FAIL/ERROR → fix rule"
         )
+
+
+class TestCQSemanticsDocumented:
+    """S5: agent prompts must match the implemented CQ semantics."""
+
+    @pytest.mark.parametrize("name,prompt", list(AGENT_PROMPTS.items()))
+    def test_extrude_not_centered_documented(self, name, prompt):
+        assert "NOT centered" in prompt, (
+            f"{name} must document that extrude rises from the workplane"
+        )
+
+    @pytest.mark.parametrize("name,prompt", list(AGENT_PROMPTS.items()))
+    def test_both_true_documented(self, name, prompt):
+        assert "both=True" in prompt
+
+    @pytest.mark.parametrize("name,prompt", list(AGENT_PROMPTS.items()))
+    def test_workplane_origin_documented(self, name, prompt):
+        assert "workplane(offset=N)" in prompt

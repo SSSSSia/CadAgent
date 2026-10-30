@@ -144,6 +144,22 @@ def error_hint(error: Exception, code: str) -> tuple[str, str | None]:
                 "Make sure you assign the result of each operation to a variable."
             )
 
+    elif e_type == "NotImplementedError":
+        # cq.Workplane('XZ'/'YZ') and other unsupported CQ features (S5-A2)
+        if "plane" in e_str.lower() or "origin" in e_str.lower():
+            hints.append(
+                "Hint: Only cq.Workplane('XY') is supported. Build the shape "
+                "on XY, then orient it with .rotate((0,0,0), (1,0,0), 90) and "
+                "position it with .translate((x, y, z)). To raise the sketch "
+                "plane along +Z use cq.Workplane('XY', origin=(x,y,z)) or "
+                ".workplane(offset=N)."
+            )
+        else:
+            hints.append(
+                "Hint: This CQ feature is not supported — see the error "
+                "message for supported alternatives, then rewrite the approach."
+            )
+
     elif e_type == "AttributeError":
         # CQ mode: cylinder() parameter order confusion
         if "cylinder" in e_str and ("positional" in e_str.lower() or "argument" in e_str.lower()):
