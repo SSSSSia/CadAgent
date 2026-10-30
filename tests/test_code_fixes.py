@@ -387,3 +387,63 @@ class TestImportErrorHints:
         hint, fixed = error_hint(self._import_error("No module named 'nonexistent_module'"), code)
         assert "Unknown import" in hint
         assert fixed is None
+
+
+# ---- S5-A6/A7: shared cadquery fixer + universal syntax gate ----
+
+class TestCadqueryNameErrorFix:
+    """NameError raised while an 'import cadquery' line is still in the code."""
+
+    def test_name_error_with_bare_import(self):
+        # The failing line runs before the import line, so a NameError fires
+        # while an 'import cadquery' line is still in the code.
+        err = NameError("name 'body' is not defined")
+        code = "body = cq.Workplane('XY').box(10, 10, 10)\nimport cadquery"
+        hint, fixed = error_hint(err, code)
+        assert "import cadquery" in hint
+        assert fixed is not None
+        assert "import cadquery" not in fixed
+        assert pre_validate_code(fixed)[0]
+
+    def test_name_error_with_alias_import(self):
+        err = NameError("name 'body' is not defined")
+        code = "import cadquery as cqd\nbody2 = cqd.Workplane('XY').box(1, 1, 1)"
+        hint, fixed = error_hint(err, code)
+        assert fixed is not None
+        assert "cqd = cq" in fixed
+        assert "import cadquery" not in fixed
+        assert pre_validate_code(fixed)[0]
+
+    def test_name_error_cadquery_no_import_line_no_fix(self):
+        # Error mentions cadquery but there is no import line to remove —
+        # no pointless re-run of identical code (old code returned it verbatim).
+        err = NameError("name 'cadquery' is not defined")
+        code = "body = cadquery.Workplane('XY').box(1, 1, 1)"
+        hint, fixed = error_hint(err, code)
+        assert fixed is None
+        assert hint
+
+
+class TestSyntaxGate:
+    """All fixed_code passes the _gated() compile gate before leaving error_hint."""
+
+    def test_gate_helper_drops_uncompilable(self):
+        assert _mod._gated("x = (1, 2", "x = f(1, 2)") is None
+
+    def test_gate_helper_drops_unchanged(self):
+        assert _mod._gated("x = f(1, 2)", "x = f(1, 2)") is None
+
+    def test_gate_helper_passes_none_through(self):
+        assert _mod._gated(None, "x = f(1, 2)") is None
+
+    def test_gate_helper_keeps_valid_fix(self):
+        assert _mod._gated("y = f(1, 2)", "x = f(1, 2)") == "y = f(1, 2)"
+
+    def test_error_hint_blocks_unchanged_fix(self):
+        # A fixer that returns the code unchanged must not trigger a retry
+        # (the old NameError cadquery branch did exactly this).
+        err = NameError("name 'makeBox' is not defined")
+        code = "box = Part.makeBox(10, 20, 30)\nprint(box)"  # nothing bare to fix
+        hint, fixed = error_hint(err, code)
+        assert fixed is None
+        assert hint

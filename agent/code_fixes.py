@@ -12,7 +12,11 @@ _BOOL_OPS = r'(?:cut|fuse|common)'
 _CQ_METHODS = ("box", "cylinder", "cone", "sphere", "torus", "extrude", "cut",
                "union", "intersect", "translate", "rotate", "mirror", "circle",
                "rect", "polygon", "workplane", "solid", "val")
-_CQ_MAKES = ("makeBox", "makeCylinder", "makeCone", "makeSphere", "makeTorus")
+_PART_MAKES = ("makeBox", "makeCylinder", "makeCone", "makeSphere", "makeTorus")
+
+# Matches a standalone 'import cadquery' / 'import cadquery as alias' line
+_CADQ_IMPORT_RE = re.compile(r"^[ \t]*import cadquery(\s+as\s+\w+)?[ \t]*$",
+                             re.MULTILINE)
 
 
 def pre_validate_code(code: str) -> tuple[bool, str]:
@@ -29,6 +33,31 @@ def pre_validate_code(code: str) -> tuple[bool, str]:
         return False, f"SyntaxError at {line_info}{detail}{pointer}"
 
 
+def _fix_cadquery_import(code: str) -> str | None:
+    """Remove 'import cadquery' lines and rebind any alias to the injected cq.
+
+    Returns the fixed code, or None when there is no import line to remove.
+    """
+    filtered = _CADQ_IMPORT_RE.sub("", code)
+    alias = re.search(r"import cadquery\s+as\s+(\w+)", code)
+    if alias:
+        filtered = f"{alias.group(1)} = cq\n" + filtered
+    if filtered == code:
+        return None
+    return filtered
+
+
+def _gated(fixed_code: str | None, code: str) -> str | None:
+    """Universal syntax gate (S5-A6/A7): drop a fix that is unchanged or
+    does not compile — a broken auto-fix wastes a snapshot restore and
+    re-executes garbage."""
+    if fixed_code is None:
+        return None
+    if fixed_code == code or not pre_validate_code(fixed_code)[0]:
+        return None
+    return fixed_code
+
+
 def error_hint(error: Exception, code: str) -> tuple[str, str | None]:
     """Generate an actionable hint and optional auto-fix code.
 
@@ -40,24 +69,11 @@ def error_hint(error: Exception, code: str) -> tuple[str, str | None]:
     e_str = str(error)
     fixed_code = None
 
-    _MAKE_FNS = ("makeBox", "makeCylinder", "makeCone", "makeSphere", "makeTorus")
-
     # import cadquery raises ImportError/ModuleNotFoundError, not NameError —
     # handle it first so the most common mistake gets a real hint (S2-A9)
     if e_type in ("ImportError", "ModuleNotFoundError"):
         if "cadquery" in e_str.lower():
-            fixed_code = re.sub(
-                r"^[ \t]*import cadquery(\s+as\s+\w+)?[ \t]*$",
-                "",
-                code,
-                flags=re.MULTILINE,
-            )
-            alias = re.search(r"import cadquery\s+as\s+(\w+)", code)
-            if alias:
-                # Rebind the model's alias to the injected cq module
-                fixed_code = f"{alias.group(1)} = cq\n" + fixed_code
-            if fixed_code == code:
-                fixed_code = None
+            fixed_code = _fix_cadquery_import(code)
             hints.append(
                 "Hint: Do NOT 'import cadquery' — CadQuery is not installed. "
                 "The 'cq' module is pre-injected: use cq.Workplane('XY') directly."
@@ -70,31 +86,29 @@ def error_hint(error: Exception, code: str) -> tuple[str, str | None]:
         return "\n".join(hints), fixed_code
 
     if e_type == "NameError":
-        # CQ mode: bare Part constructor (should use cq API instead)
-        if "cadquery" in e_str.lower() or "import cadquery" in code:
+        # Code still contains an 'import cadquery' line (the failing line ran
+        # before it). Remove the line and rebind any alias (S5-A6).
+        if _CADQ_IMPORT_RE.search(code):
+            fixed_code = _fix_cadquery_import(code)
             hints.append(
-                "Hint: Do NOT 'import cadquery'. "
-                "The 'cq' module is pre-injected — use cq.Workplane('XY') directly."
+                "Hint: Do NOT 'import cadquery' — CadQuery is not installed. "
+                "The 'cq' module is pre-injected: use cq.Workplane('XY') directly."
             )
-            fixed_code = code.replace("import cadquery", "").replace("import cadquery as cq", "")
-            fixed_code = fixed_code.replace("cq", "cq", 1)  # keep at least one cq reference
-            # Remove blank lines left by removed import
-            import re as _re
-            fixed_code = _re.sub(r'\n\s*\n\s*\n', '\n\n', fixed_code)
 
-        # CQ mode: bare Part constructor — suggest CQ equivalent
+        # Bare Part constructor (makeBox(...) without the Part. prefix)
         if not hints:
-            for fn in _CQ_MAKES:
-                if fn in e_str and "Part" not in e_str:
-                    fixed_code = re.sub(
-                        r'(?<!\w)' + fn + r'\s*\(',
-                        f'Part.{fn}(', code
-                    )
+            for fn in _PART_MAKES:
+                if fn in e_str:
+                    pat = re.compile(r'(?<!\w)(?<!\.)' + fn + r'\s*\(')
+                    fixed_code = pat.sub(f'Part.{fn}(', code)
                     if fixed_code != code:
                         hints.append(
-                            f"Hint: '{fn}' needs 'Part.' prefix. "
-                            f"Or use cq.Workplane API: cq.Workplane('XY').{fn[4:].lower()}(...)"
+                            f"Hint: '{fn}' is not a standalone function. "
+                            f"Use Part.{fn}(...), or the cq API: "
+                            f"cq.Workplane('XY').{fn[4:].lower()}(...)."
                         )
+                    else:
+                        fixed_code = None
                     break
 
         # CQ mode: bare CQ method called without Workplane
@@ -114,28 +128,18 @@ def error_hint(error: Exception, code: str) -> tuple[str, str | None]:
                 "Use 'FreeCADGui' instead (the official module name). "
                 "Replace 'Gui.' with 'FreeCADGui.' in your code."
             )
-            if re.search(r'(?<!FreeCAD)\bGui\b', code):
+            if fixed_code is None and re.search(r'(?<!FreeCAD)\bGui\b', code):
                 fixed_code = re.sub(r'(?<!FreeCAD)\bGui\b', 'FreeCADGui', code)
-            # Fall through to check for other issues too
         elif re.search(r'\bFreecadGUI\b|\bFreeCADgui\b|\bfreecadgui\b', code, re.IGNORECASE):
             hints.append(
                 "Hint: Use 'FreeCADGui' (exact camelCase) as the module name."
             )
-            fixed_code = re.sub(
-                r'\bFreecadGUI\b|\bFreeCADgui\b|\bfreecadgui\b',
-                'FreeCADGui', code, flags=re.IGNORECASE
-            )
+            if fixed_code is None:
+                fixed_code = re.sub(
+                    r'\bFreecadGUI\b|\bFreeCADgui\b|\bfreecadgui\b',
+                    'FreeCADGui', code, flags=re.IGNORECASE
+                )
 
-        # Check if the undefined name is a bare Part constructor
-        for fn in _MAKE_FNS:
-            if fn in e_str:
-                pat = re.compile(r'(?<!\w)(?<!\.)' + fn + r'\s*\(')
-                fixed_code = pat.sub(f'Part.{fn}(', code)
-                if fixed_code != code:
-                    hints.append(f"Hint: '{fn}' is not a standalone function. Use Part.{fn}(...).")
-                else:
-                    fixed_code = None
-                break
         if not hints:
             hints.append(
                 "Hint: A variable is used before being defined. "
@@ -380,4 +384,6 @@ def error_hint(error: Exception, code: str) -> tuple[str, str | None]:
                 "(2) try a different boolean order."
             )
 
+    # Universal syntax gate — see _gated().
+    fixed_code = _gated(fixed_code, code)
     return "\n".join(hints), fixed_code
