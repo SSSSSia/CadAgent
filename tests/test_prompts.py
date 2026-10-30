@@ -136,3 +136,30 @@ class TestCQSemanticsDocumented:
     @pytest.mark.parametrize("name,prompt", list(AGENT_PROMPTS.items()))
     def test_workplane_origin_documented(self, name, prompt):
         assert "workplane(offset=N)" in prompt
+
+
+class TestSharedPromptSections:
+    """S6-A13: both prompts assemble from shared section constants.
+
+    Guards against re-duplicating the sections: the shared pieces must
+    stay identical between the two prompts.
+    """
+
+    def test_prompts_share_identical_tail(self):
+        """Everything from CLARIFICATION POLICY to {context} is common."""
+        idx_a = AGENT_SYSTEM_PROMPT.index("CLARIFICATION POLICY:")
+        idx_r = REACT_SYSTEM_PROMPT.index("CLARIFICATION POLICY:")
+        assert AGENT_SYSTEM_PROMPT[idx_a:] == REACT_SYSTEM_PROMPT[idx_r:]
+
+    def test_prompts_share_identical_workflow(self):
+        idx_a = AGENT_SYSTEM_PROMPT.index("WORKFLOW:")
+        idx_r = REACT_SYSTEM_PROMPT.index("WORKFLOW:")
+        end_a = AGENT_SYSTEM_PROMPT.index("7. Respond")
+        end_r = REACT_SYSTEM_PROMPT.index("7. Respond")
+        assert AGENT_SYSTEM_PROMPT[idx_a:end_a] == REACT_SYSTEM_PROMPT[idx_r:end_r]
+
+    def test_mode_specific_sections_differ(self):
+        assert "AVAILABLE TOOLS:" in AGENT_SYSTEM_PROMPT
+        assert "AVAILABLE TOOLS:" not in REACT_SYSTEM_PROMPT
+        assert "TOOL CALLING FORMAT" in REACT_SYSTEM_PROMPT
+        assert "TOOL CALLING FORMAT" not in AGENT_SYSTEM_PROMPT
