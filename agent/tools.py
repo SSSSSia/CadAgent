@@ -504,13 +504,24 @@ def _attempt_auto_fix(
             f"Auto-fix retry failed: {type(retry_error).__name__}: "
             f"{retry_error}\n{retry_tb}"
         )
+        # The restore consumed one undo level — re-take a snapshot of the
+        # restored state so the user's undo depth survives the failed
+        # auto-fix (S4-C12).
+        try:
+            from core.snapshot import take_snapshot
+            take_snapshot()
+        except Exception:
+            pass
         return None
 
     # Success — persist user variables.
     _save_user_vars(namespace)
 
-    # Take a new snapshot for future undo.
+    # Take a new snapshot for future undo. (The bare take_snapshot() call
+    # used to raise NameError — swallowed by the except below — so this
+    # snapshot was never actually taken; import it properly. S4-C12.)
     try:
+        from core.snapshot import take_snapshot
         take_snapshot()
     except Exception:
         pass
