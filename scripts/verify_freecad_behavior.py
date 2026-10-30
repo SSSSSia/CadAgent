@@ -206,7 +206,7 @@ def part_b(workdir):
     )
 
     # --- B4: untitled-doc restore must not leave FileName on the snapshot ---
-    entry = mgr._stack[-1]
+    entry = mgr.latest_entry()
     restore_result = mgr.restore_latest()
     restored = FreeCAD.ActiveDocument
     _report(
@@ -219,6 +219,55 @@ def part_b(workdir):
         restored is not None and restored.Label == pre_label,
         "B5 restore restores the original Label",
         f"before={pre_label!r} after={getattr(restored, 'Label', None)!r}",
+    )
+
+    # --- B6: multi-document undo order (S4-C7 regression gate) ---
+    _close_all_documents()  # drop the user_part doc left open by B4/B5
+    doc_a = FreeCAD.newDocument("partA")
+    box_a = doc_a.addObject("Part::Feature", "Box")
+    box_a.Shape = Part.makeBox(10, 10, 10)
+    doc_a.recompute()
+    doc_b = FreeCAD.newDocument("partB")
+    box_b = doc_b.addObject("Part::Feature", "Box")
+    box_b.Shape = Part.makeBox(20, 20, 20)
+    doc_b.recompute()
+
+    mgr.take(doc_a)
+    box_a.Shape = Part.makeBox(11, 11, 11)
+    doc_a.recompute()
+    mgr.take(doc_b)
+    box_b.Shape = Part.makeBox(22, 22, 22)
+    doc_b.recompute()
+
+    snap_dir_files_before = len([
+        f for f in os.listdir(mgr.get_snapshot_dir()) if f.endswith(".FCStd")
+    ])
+
+    r1 = mgr.restore_latest()   # newest = partB snapshot
+    r2 = mgr.restore_latest()   # next    = partA snapshot
+    _report(
+        r1.startswith("SUCCESS") and r2.startswith("SUCCESS"),
+        "B6a multi-doc restores succeed",
+        f"r1={r1.splitlines()[0]!r}",
+    )
+    docs_now = list(FreeCAD.listDocuments().keys())
+    _report(
+        len(docs_now) == 2,
+        "B6b no duplicate documents after restores",
+        f"docs={docs_now}",
+    )
+    _report(
+        mgr.count() == 0,
+        "B6c stack empty after both restores",
+        f"count={mgr.count()}",
+    )
+    snap_dir_files_after = len([
+        f for f in os.listdir(mgr.get_snapshot_dir()) if f.endswith(".FCStd")
+    ])
+    _report(
+        snap_dir_files_after == snap_dir_files_before - 2,
+        "B6d restored snapshot files deleted",
+        f"before={snap_dir_files_before} after={snap_dir_files_after}",
     )
 
     _close_all_documents()
