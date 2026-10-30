@@ -167,11 +167,16 @@ class Workplane:
     def extrude(self, height: float, both: bool = False) -> Workplane:
         """Extrude the pending 2D sketch into a solid.
 
+        CadQuery semantics (S5-A4):
+        - extrude(H) rises from the workplane along +Z: z = 0 → +H
+        - extrude(H, both=True) extrudes the full height in BOTH
+          directions: z = -H → +H (total height 2H)
+
         Handles:
         - Single circle  → Part.makeCylinder (solid cylinder)
-        - Two circles    → make_hollow_cylinder (concentric: first = outer)
+        - Two circles    → hollow cylinder (concentric: larger = outer)
         - Single rect    → Part.makeBox
-        - Single polygon → revolved polygon (approximated)
+        - Single polygon → extruded regular polygon
         """
         if not self._pending:
             raise ValueError("No pending 2D operations to extrude. "
@@ -379,14 +384,66 @@ class Workplane:
 # Internal: resolve pending 2D operations into a FreeCAD solid
 # ---------------------------------------------------------------------------
 
+def _extrude_pending_op(op: tuple, height: float, both: bool):
+    """Extrude a single pending 2D op with CadQuery semantics.
+
+    z spans 0 → +H normally, or -H → +H when both=True (total 2H).
+    """
+    total_h = 2 * height if both else height
+    z0 = -height if both else 0
+
+    if op[0] == "circle":
+        R = op[1]
+        if R <= 0:
+            raise ValueError(f"Circle radius must be positive: {R}")
+        shape = Part.makeCylinder(R, total_h)
+        shape.translate(_fc_vec(0, 0, z0))
+        return shape
+
+    if op[0] == "rect":
+        _, L, W, centered = op
+        if L <= 0 or W <= 0:
+            raise ValueError(f"rect dimensions must be positive: L={L}, W={W}")
+        shape = Part.makeBox(L, W, total_h)
+        dx, dy = (-L / 2, -W / 2) if centered else (0.0, 0.0)
+        shape.translate(_fc_vec(dx, dy, z0))
+        return shape
+
+    if op[0] == "polygon":
+        _, n, R, centered = op
+        if n < 3 or R <= 0:
+            raise ValueError(f"polygon needs n>=3 and R>0, got n={n}, R={R}")
+        # Vertices sit on a circle of radius R around the origin, so the
+        # polygon is always XY-centered (the centered flag only exists for
+        # API symmetry with rect).
+        edges = []
+        for i in range(n):
+            a = 2 * math.pi * i / n
+            a2 = 2 * math.pi * ((i + 1) % n) / n
+            edge = Part.makeLine(
+                _fc_vec(R * math.cos(a), R * math.sin(a), 0),
+                _fc_vec(R * math.cos(a2), R * math.sin(a2), 0),
+            )
+            edges.append(edge)
+        face = Part.Face(Part.Wire(edges))
+        shape = face.extrude(_fc_vec(0, 0, total_h))
+        shape.translate(_fc_vec(0, 0, z0))
+        return shape
+
+    raise ValueError(f"Unsupported pending 2D operation: {op[0]}")
+
+
 def _resolve_extrude(
     pending: list[tuple], height: float, both: bool
 ):
     """Convert accumulated pending 2D operations to a FreeCAD shape via extrude.
 
+    CadQuery semantics (S5-A4): rises from the workplane (z=0 → +H);
+    both=True spans z=-H → +H (total 2H).
+
     Supported patterns:
     - [('circle', R)]              → solid cylinder
-    - [('circle', R1), ('circle', R2)] → hollow cylinder (R1 > R2 = outer)
+    - [('circle', R1), ('circle', R2)] → hollow cylinder (outer = max radius)
     - [('rect', L, W, centered)]   → box
     - [('polygon', n, R, centered)] → regular polygon extrusion
     """
@@ -403,88 +460,22 @@ def _resolve_extrude(
                 raise ValueError(
                     f"Hollow cylinder requires R1 > R2, got R1={r1}, R2={r2}"
                 )
-            bottom = 0 if both else 0  # both → hollow cylinder (open both ends)
             if both:
-                # Open at both ends: use two cylinders + cut
-                outer = Part.makeCylinder(r1, height)
-                inner = Part.makeCylinder(r2, height + 0.01)
-                # Offset inner slightly to ensure clean boolean
-                inner.translate(_fc_vec(0, 0, -0.005))
-                shape = safe_cut(outer, inner)
-            else:
-                # Closed bottom
-                shape = make_hollow_cylinder(r1, r2, height, bottom=0)
-            # Center on XY
-            shape.translate(_fc_vec(0, 0, -height / 2))
-            return shape
+                # Open tube spanning -H..+H
+                outer = Part.makeCylinder(r1, 2 * height)
+                outer.translate(_fc_vec(0, 0, -height))
+                inner = Part.makeCylinder(r2, 2 * height + 0.01)
+                inner.translate(_fc_vec(0, 0, -(height + 0.005)))
+                return safe_cut(outer, inner)
+            # Open tube spanning 0..H
+            return make_hollow_cylinder(r1, r2, height, bottom=0)
 
-    # --- Single circle → solid cylinder ---
+    # --- Single op (circle / rect / polygon) ---
     if len(pending) == 1:
-        op = pending[0]
-        if op[0] == "circle":
-            R = op[1]
-            if R <= 0:
-                raise ValueError(f"Circle radius must be positive: {R}")
-            shape = Part.makeCylinder(R, height)
-            shape.translate(_fc_vec(0, 0, -height / 2))  # center on XY
-            return shape
+        return _extrude_pending_op(pending[0], height, both)
 
-        if op[0] == "rect":
-            _, L, W, centered = op
-            if L <= 0 or W <= 0:
-                raise ValueError(f"rect dimensions must be positive: L={L}, W={W}")
-            shape = Part.makeBox(L, W, height)
-            if centered:
-                shape.translate(_fc_vec(-L / 2, -W / 2, -height / 2))
-            else:
-                shape.translate(_fc_vec(0, 0, -height / 2))
-            return shape
-
-        if op[0] == "polygon":
-            _, n, R, centered = op
-            if n < 3 or R <= 0:
-                raise ValueError(f"polygon needs n>=3 and R>0, got n={n}, R={R}")
-            # Build polygon wire from vertices
-            edges = []
-            for i in range(n):
-                a = 2 * math.pi * i / n
-                x = R * math.cos(a)
-                y = R * math.sin(a)
-                a2 = 2 * math.pi * ((i + 1) % n) / n
-                x2 = R * math.cos(a2)
-                y2 = R * math.sin(a2)
-                edge = Part.makeLine(
-                    _fc_vec(x, y, 0), _fc_vec(x2, y2, 0)
-                )
-                edges.append(edge)
-            wire = Part.Wire(edges)
-            face = Part.Face(wire)
-            shape = face.extrude(_fc_vec(0, 0, height))
-            if centered:
-                shape.translate(_fc_vec(0, 0, -height / 2))
-            return shape
-
-    # --- Multiple rects / mixed — fallback: fuse individual extrusions ---
-    shapes = []
-    for op in pending:
-        if op[0] == "circle":
-            R = op[1]
-            s = Part.makeCylinder(R, height)
-            s.translate(_fc_vec(0, 0, -height / 2))
-        elif op[0] == "rect":
-            _, L, W, centered = op
-            s = Part.makeBox(L, W, height)
-            if centered:
-                s.translate(_fc_vec(-L / 2, -W / 2, -height / 2))
-            else:
-                s.translate(_fc_vec(0, 0, -height / 2))
-        else:
-            raise ValueError(
-                f"Unsupported pending operation in multi-op extrude: {op[0]}"
-            )
-        shapes.append(s)
-
-    # Fuse all shapes together
+    # --- Multiple ops — extrude each, then fuse ---
+    shapes = [_extrude_pending_op(op, height, both) for op in pending]
     result = shapes[0]
     for s in shapes[1:]:
         result = safe_fuse(result, s)

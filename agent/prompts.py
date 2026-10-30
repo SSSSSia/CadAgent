@@ -62,10 +62,11 @@ cq API Quick Reference:
 - .sphere(R) — sphere centered at origin
 - .torus(major_r, minor_r) — torus
 
-2D sketch → extrude:
-- .circle(R).extrude(H) — solid cylinder
+2D sketch → extrude (rises from the workplane along +Z, NOT centered):
+- .circle(R).extrude(H) — solid cylinder (z=0 → +H)
 - .circle(R1).circle(R2).extrude(H) — hollow cylinder (R1=outer, R2=inner)
-- .rect(L, W).extrude(H) — box
+- .rect(L, W).extrude(H) — box rising from the workplane
+- .extrude(H, both=True) — extrude the full height both ways (z=-H → +H)
 
 Boolean ops (chain methods, return new Workplane):
 - .cut(other) — subtract other from self
@@ -185,10 +186,11 @@ cq API Quick Reference:
 - .sphere(R) — sphere centered at origin
 - .torus(major_r, minor_r) — torus
 
-2D sketch → extrude:
-- .circle(R).extrude(H) — solid cylinder
+2D sketch → extrude (rises from the workplane along +Z, NOT centered):
+- .circle(R).extrude(H) — solid cylinder (z=0 → +H)
 - .circle(R1).circle(R2).extrude(H) — hollow cylinder (R1=outer, R2=inner)
-- .rect(L, W).extrude(H) — box
+- .rect(L, W).extrude(H) — box rising from the workplane
+- .extrude(H, both=True) — extrude the full height both ways (z=-H → +H)
 
 Boolean ops (chain methods, return new Workplane):
 - .cut(other) — subtract other from self

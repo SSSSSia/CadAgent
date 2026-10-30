@@ -61,14 +61,18 @@ class _MockShape:
                                                                  vec.x, vec.y, vec.z]))
 
     def fuse(self, other):
+        a, b = self.bounds, other.bounds
         return _MockShape(shape_type="Solid",
                           volume=self.volume + other.volume,
                           solids=[self],
-                          bounds=(0, 0, 0, 0, 0, 0))
+                          bounds=(min(a[0], b[0]), min(a[1], b[1]), min(a[2], b[2]),
+                                  max(a[3], b[3]), max(a[4], b[4]), max(a[5], b[5])))
 
     def cut(self, other):
+        # Cut removes material — remaining bbox is a subset of self's
         return _MockShape(shape_type="Solid", solids=[self],
-                          volume=max(0, self.volume - other.volume))
+                          volume=max(0, self.volume - other.volume),
+                          bounds=self.bounds)
 
     def common(self, other):
         return _MockShape(shape_type="Solid", solids=[self], volume=0)
@@ -203,7 +207,8 @@ def _make_fc_mock():
             pass
 
         def extrude(self, vec):
-            return _MockShape(shape_type="Solid", volume=500)
+            return _MockShape(shape_type="Solid", volume=500,
+                              bounds=(0, 0, 0, 0, 0, vec.z))
 
     part.Face = _Face
 
@@ -418,6 +423,80 @@ def test_extrude_hollow_reverses_radii():
     """Two circles with R1 < R2 should work (max becomes outer)."""
     wp = Workplane("XY").circle(35).circle(40).extrude(80)
     assert len(wp._shapes) == 1
+
+
+# ---- Extrude semantics (S5-A4): CadQuery alignment ----
+# Mock bounds order is (xmin, ymin, zmin, xmax, ymax, zmax); z range is [2]..[5].
+
+def _zrange(wp):
+    b = wp.solid().bounds
+    return b[2], b[5]
+
+
+def test_extrude_circle_rises_from_zero():
+    zmin, zmax = _zrange(Workplane("XY").circle(10).extrude(20))
+    assert zmin == 0
+    assert zmax == 20
+
+
+def test_extrude_circle_both_symmetric():
+    zmin, zmax = _zrange(Workplane("XY").circle(10).extrude(20, both=True))
+    assert zmin == -20
+    assert zmax == 20
+
+
+def test_extrude_rect_rises_from_zero():
+    zmin, zmax = _zrange(Workplane("XY").rect(10, 20).extrude(5))
+    assert zmin == 0
+    assert zmax == 5
+
+
+def test_extrude_rect_both_symmetric():
+    zmin, zmax = _zrange(Workplane("XY").rect(10, 20).extrude(5, both=True))
+    assert zmin == -5
+    assert zmax == 5
+
+
+def test_extrude_rect_uncentered_corner_at_origin():
+    b = Workplane("XY").rect(10, 20, centered=False).extrude(5).solid().bounds
+    assert (b[0], b[1]) == (0, 0)
+    assert (b[3], b[4]) == (10, 20)
+
+
+def test_extrude_polygon_rises_from_zero():
+    zmin, zmax = _zrange(Workplane("XY").polygon(6, 30).extrude(10))
+    assert zmin == 0
+    assert zmax == 10
+
+
+def test_extrude_polygon_both_symmetric():
+    zmin, zmax = _zrange(Workplane("XY").polygon(6, 30).extrude(10, both=True))
+    assert zmin == -10
+    assert zmax == 10
+
+
+def test_extrude_hollow_rises_from_zero():
+    zmin, zmax = _zrange(Workplane("XY").circle(40).circle(35).extrude(80))
+    assert zmin == 0
+    assert zmax == 80
+
+
+def test_extrude_hollow_both_symmetric():
+    zmin, zmax = _zrange(Workplane("XY").circle(40).circle(35).extrude(80, both=True))
+    assert zmin == -80
+    assert zmax == 80
+
+
+def test_extrude_multi_op_rises_from_zero():
+    zmin, zmax = _zrange(Workplane("XY").rect(10, 10).rect(20, 20).extrude(5))
+    assert zmin == 0
+    assert zmax == 5
+
+
+def test_extrude_multi_op_both_symmetric():
+    zmin, zmax = _zrange(Workplane("XY").rect(10, 10).rect(20, 20).extrude(5, both=True))
+    assert zmin == -5
+    assert zmax == 5
 
 
 # ---- Boolean operations ----
