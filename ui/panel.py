@@ -22,7 +22,6 @@ from agent.controller import AgentController
 from agent.loop import AgentLoop, LoopAction, LoopActionKind, ToolExecution
 from core.session import ChatSession
 from core.doc_analyzer import analyze_document
-from core.token_budget import token_summary
 from core.session_store import SessionStore
 from agent.tools import dispatch_tool
 import core.config as _config
@@ -38,7 +37,6 @@ from ui.panel_status import _PanelStatusMixin
 class _LlmCallThread(QtCore.QThread):
     """Background thread: streams LLM API response, emits incremental chunks."""
     chunkReady = QtCore.Signal(str)
-    reasoningReady = QtCore.Signal(str)
     streamDone = QtCore.Signal(dict)
     error = QtCore.Signal(str)
 
@@ -75,11 +73,6 @@ class _LlmCallThread(QtCore.QThread):
                 if c:
                     content += c
                     self.chunkReady.emit(c)
-
-                # Reasoning content — disabled (not shown in UI)
-                # rc = delta.get("reasoning_content")
-                # if rc:
-                #     self.reasoningReady.emit(rc)
 
                 # Tool calls accumulation
                 for tc in (delta.get("tool_calls") or []):
@@ -162,7 +155,6 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         self._streaming_text = ""
         self._stream_replace_start = 0
         self._stream_timer = None
-        self._reasoning_text = ""
         self._theme_colors = None
         self._store = SessionStore()
         self._setup_ui()
@@ -174,11 +166,6 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             from ui.theme import get_theme_colors
             self._theme_colors = get_theme_colors()
         return self._theme_colors
-
-    def _refresh_theme(self):
-        from ui.theme import get_theme_colors
-        self._theme_colors = get_theme_colors()
-        self._apply_dynamic_styles()
 
     def _reset_turn_state(self):
         """Reset per-turn loop and streaming state.
@@ -193,7 +180,6 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         self._turn_active = False
         self._streaming_text = ""
         self._stream_replace_start = 0
-        self._reasoning_text = ""
         if self._stream_timer and self._stream_timer.isActive():
             self._stream_timer.stop()
 
@@ -381,7 +367,6 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         self._update_token_label(action.token_used, action.token_budget, action.token_trimmed)
         thread = _LlmCallThread(action.messages, action.tools, parent=self)
         thread.chunkReady.connect(self._on_stream_chunk)
-        thread.reasoningReady.connect(self._on_reasoning_chunk)
         thread.streamDone.connect(self._on_stream_done)
         thread.error.connect(self._on_llm_error)
         thread.finished.connect(lambda t=thread: self._forget_thread(t))
@@ -419,10 +404,6 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
                 )
         self._llm_threads = [t for t in self._llm_threads if t.isRunning()]
 
-    def _on_reasoning_chunk(self, text):
-        """Accumulate reasoning content from models that support it."""
-        self._reasoning_text += text
-
     def _on_stream_done(self, data):
         """Streaming complete — finalize display, then route response."""
         if self._controller is None:
@@ -439,9 +420,6 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
                 return
             content = choices[0].get("message", {}).get("content", "")
 
-            # Save position so reasoning can be inserted before the bubble
-            bubble_start = self._stream_replace_start
-
             # ReAct rounds stream raw <tool> XML as plain text — strip the
             # blocks so the bubble shows only prose (S3-D15)
             if self._streaming_text and "<tool" in self._streaming_text:
@@ -453,11 +431,6 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
                 self._finalize_streaming_bubble()
             else:
                 self._remove_streaming_bubble()
-                bubble_start = None  # no bubble to insert before
-
-            # Reasoning block — disabled
-            # self._render_reasoning_block(insert_before_pos=bubble_start)
-            self._reasoning_text = ""
 
             has_streaming_text = bool(self._streaming_text and self._streaming_text.strip())
             action = self._loop.handle_stream_done(data, has_streaming_text)
@@ -622,7 +595,6 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         for t in self._live_threads():
             for sig, slot in (
                 (t.chunkReady, self._on_stream_chunk),
-                (t.reasoningReady, self._on_reasoning_chunk),
                 (t.streamDone, self._on_stream_done),
                 (t.error, self._on_llm_error),
             ):

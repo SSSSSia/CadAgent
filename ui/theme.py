@@ -19,9 +19,7 @@ class ThemeColors:
     tool_icon_error: str
     tool_text: str
     system_text: str
-    reasoning_bg: str
-    reasoning_text: str
-    reasoning_border: str
+    preview_bg: str
     # UI chrome
     border: str
     input_bg: str
@@ -77,9 +75,7 @@ _LIGHT_COLORS = ThemeColors(
     tool_icon_error="#d32f2f",
     tool_text="#888888",
     system_text="#888888",
-    reasoning_bg="#f5f5f5",
-    reasoning_text="#666666",
-    reasoning_border="#cccccc",
+    preview_bg="#f5f5f5",
     border="#dddddd",
     input_bg="#ffffff",
     button_primary="#4a90d9",
@@ -113,9 +109,7 @@ _DARK_COLORS = ThemeColors(
     tool_icon_error="#ef5350",
     tool_text="#aaaaaa",
     system_text="#888888",
-    reasoning_bg="#2a2a2a",
-    reasoning_text="#b0b0b0",
-    reasoning_border="#555555",
+    preview_bg="#2a2a2a",
     border="#444444",
     input_bg="#2a2a2a",
     button_primary="#3a7bd5",

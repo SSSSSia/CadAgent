@@ -66,7 +66,7 @@ class _PanelStreamMixin:
             body = esc("\n".join(shown))
             if hidden > 0:
                 body += f'<br><i>... ({hidden} more lines — see log/cadagent.log)</i>'
-            bg = c.reasoning_bg
+            bg = c.preview_bg  # neutral block background
             color = c.tool_text if not is_error else c.tool_icon_error
             self._insert_html(
                 f'<div style="margin:0 0 2px 20px; padding:4px 8px; '
@@ -81,38 +81,6 @@ class _PanelStreamMixin:
             f'<div style="margin:4px 0; color:{c.system_text}; font-style:italic; '
             f'font-size:12px; text-align:center;">{esc(text)}</div>'
         )
-        self._scroll_bottom()
-
-    def _render_reasoning_block(self, insert_before_pos=None):
-        """Render accumulated reasoning content as a gray block.
-
-        If insert_before_pos is given, insert at that position (before the
-        agent bubble). Otherwise append at end.
-        """
-        if not self._reasoning_text:
-            return
-        c = self._get_colors()
-
-        html = (
-            f'<div style="margin:4px 0 2px 0; padding:6px 10px;'
-            f' background-color:{c.reasoning_bg};'
-            f' border-left:2px solid {c.reasoning_border};'
-            f' border-radius:3px; font-size:12px;'
-            f' color:{c.reasoning_text}; font-style:italic;">'
-            f'<b style="font-size:11px; font-style:normal;">Reasoning:</b> '
-            f'{esc(self._reasoning_text)}'
-            f'</div>'
-        )
-        if insert_before_pos is not None:
-            doc = self.chat_display.document()
-            max_pos = doc.characterCount() - 1
-            pos = min(insert_before_pos, max(0, max_pos))
-            cursor = QTextCursor(doc)
-            cursor.setPosition(pos)
-            cursor.insertHtml(html)
-            self._compact_blocks_from(pos)
-        else:
-            self._insert_html(html)
         self._scroll_bottom()
 
     def _insert_html(self, html):
