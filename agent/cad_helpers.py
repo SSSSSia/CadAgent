@@ -186,21 +186,26 @@ def make_arc_handle(cup_radius, handle_r, arc_r, z_center):
     return extract_solid(handle)
 
 
-# Track labels of objects created by cq_show so we can clean up stale
-# intermediates on the next call.  Keeps the document at exactly one
-# cq_show-managed object for the common single-part agent workflow.
-_CQ_SHOW_LABELS: set[str] = set()
+# cq_show marks the document objects IT creates with this Name prefix
+# (FreeCAD uniquifies to cqobj_, cqobj_001, ...). Ownership is identified
+# by Name prefix only — user-created objects are never touched, even when
+# they share a Label with the one being shown.
+_CQ_OBJ_PREFIX = "cqobj_"
 
 
 def cq_show(result, label="Part", doc=None):
     """Add a Workplane or FreeCAD shape to the document and recompute.
 
-    This is the CQ-style bridge to FreeCAD's document model.  Call it
+    This is the CQ-style bridge to FreeCAD's document model. Call it
     after building geometry to make the result visible in the viewport.
 
-    Reuses an existing object with the same Label (updates Shape in-place)
-    and removes stale objects from previous cq_show calls to keep the
-    document clean for the single-part agent workflow.
+    Ownership model (S5-A5): cq_show only manages objects it created,
+    identified by their ``Name`` starting with ``cqobj_``. Repeated calls
+    with the same *label* update that object's Shape in-place; calls with
+    a different label remove the previous cq_show object so the document
+    stays clean for the single-part agent workflow. Objects created by
+    the user (or any other source) are never modified or removed, even
+    when their Label matches.
 
     Args:
         result: A cq.Workplane or raw FreeCAD shape.
@@ -213,41 +218,32 @@ def cq_show(result, label="Part", doc=None):
         doc = FreeCAD.newDocument("CadAgentModel")
     shape = result.solid() if hasattr(result, "solid") else result
 
-    # Reuse existing object with the same Label, or create a new one.
-    existing = None
-    if hasattr(doc, "Objects"):
-        for obj in doc.Objects:
-            if getattr(obj, "Label", None) == label:
-                existing = obj
-                break
+    own = [
+        obj for obj in getattr(doc, "Objects", [])
+        if getattr(obj, "Name", "").startswith(_CQ_OBJ_PREFIX)
+    ]
 
-    returned = existing
-    if existing is not None and hasattr(existing, "Shape"):
-        existing.Shape = shape
-    else:
-        obj = doc.addObject("Part::Feature", label)
-        obj.Shape = shape
-        returned = obj
+    # Reuse our own object with the same Label, or create a new one.
+    target = None
+    for obj in own:
+        if getattr(obj, "Label", None) == label:
+            target = obj
+            break
+    if target is None:
+        target = doc.addObject("Part::Feature", _CQ_OBJ_PREFIX)
+        target.Label = label
+    target.Shape = shape
 
     # Remove stale objects from previous cq_show calls (different labels).
-    to_remove = []
-    if hasattr(doc, "Objects"):
-        for obj in doc.Objects:
-            if getattr(obj, "TypeId", "") != "Part::Feature":
-                continue
-            if obj.Label in _CQ_SHOW_LABELS and obj.Label != label:
-                to_remove.append(obj)
-    for obj in to_remove:
-        try:
-            doc.removeObject(obj.Name)
-            _CQ_SHOW_LABELS.discard(obj.Label)
-        except Exception:
-            pass
+    for obj in own:
+        if obj is not target:
+            try:
+                doc.removeObject(obj.Name)
+            except Exception:
+                pass
 
-    _CQ_SHOW_LABELS.discard(label)
-    _CQ_SHOW_LABELS.add(label)
     doc.recompute()
-    return returned
+    return target
 
 
 def ensure_doc(name=None):

@@ -428,3 +428,96 @@ class TestBuiltinNamesCoverage:
             "helpers missing from _BUILTIN_NAMES — "
             "LLM could overwrite them in subsequent execute_code calls"
         )
+
+
+# ===========================================================================
+# cq_show ownership tests (S5-A5)
+# ===========================================================================
+
+class _ShowObj:
+    """Document object double."""
+
+    def __init__(self, name, label=None):
+        self.Name = name
+        self.Label = label if label is not None else name
+        self.Shape = None
+        self.TypeId = "Part::Feature"
+
+
+class _ShowDoc:
+    """Document double emulating FreeCAD's Name uniquification."""
+
+    def __init__(self, name="TestDoc"):
+        self.Name = name
+        self.Objects = []
+        self.recomputes = 0
+
+    def add_user_object(self, label):
+        obj = _ShowObj(label, label)
+        self.Objects.append(obj)
+        return obj
+
+    def addObject(self, type_id, name):
+        self.Objects.append(_ShowObj(f"{name}{len(self.Objects)}"))
+        return self.Objects[-1]
+
+    def removeObject(self, name):
+        self.Objects = [o for o in self.Objects if o.Name != name]
+
+    def recompute(self):
+        self.recomputes += 1
+
+
+cq_show = _mod.cq_show
+_CQ_OBJ_PREFIX = _mod._CQ_OBJ_PREFIX
+
+
+class TestCqShow:
+    """cq_show only manages objects it created (Name prefix cqobj_)."""
+
+    def test_user_object_with_same_label_not_overwritten(self):
+        doc = _ShowDoc()
+        user_obj = doc.add_user_object("Part")
+        returned = cq_show(_MockShape("Solid"), "Part", doc=doc)
+        assert user_obj.Shape is None          # user geometry untouched
+        assert returned is not user_obj
+        assert returned.Name.startswith(_CQ_OBJ_PREFIX)
+        assert returned.Label == "Part"
+        assert returned.Shape is not None
+
+    def test_repeated_same_label_updates_same_object(self):
+        doc = _ShowDoc()
+        first = cq_show(_MockShape("Solid"), "Body", doc=doc)
+        second = cq_show(_MockShape("Solid"), "Body", doc=doc)
+        assert second is first
+        own = [o for o in doc.Objects if o.Name.startswith(_CQ_OBJ_PREFIX)]
+        assert len(own) == 1
+
+    def test_different_label_removes_previous_own_object(self):
+        doc = _ShowDoc()
+        user_obj = doc.add_user_object("Base")
+        cq_show(_MockShape("Solid"), "Body", doc=doc)
+        cq_show(_MockShape("Solid"), "Lid", doc=doc)
+        labels = [o.Label for o in doc.Objects]
+        assert "Body" not in labels
+        assert "Lid" in labels
+        assert user_obj in doc.Objects
+
+    def test_documents_are_isolated(self):
+        doc_a, doc_b = _ShowDoc("A"), _ShowDoc("B")
+        cq_show(_MockShape("Solid"), "Body", doc=doc_a)
+        cq_show(_MockShape("Solid"), "Body", doc=doc_b)
+        cq_show(_MockShape("Solid"), "Lid", doc=doc_b)
+        own_a = [o for o in doc_a.Objects if o.Name.startswith(_CQ_OBJ_PREFIX)]
+        assert [o.Label for o in own_a] == ["Body"]  # doc A unaffected
+
+    def test_workplane_argument_and_default_doc(self, monkeypatch):
+        class _WpLike:
+            def solid(self):
+                return _MockShape("Solid")
+
+        doc = _ShowDoc()
+        monkeypatch.setattr(_mod.FreeCAD, "ActiveDocument", doc)
+        returned = cq_show(_WpLike(), "FromActive")
+        assert returned.Label == "FromActive"
+        assert returned.Shape is not None
