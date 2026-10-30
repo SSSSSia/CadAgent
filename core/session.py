@@ -16,8 +16,6 @@ from datetime import datetime
 class ChatSession:
     """一次完整的设计会话，包含多轮 Agent 交互。"""
 
-    SESSION_VERSION = 1  # Bump when serialization format changes
-
     def __init__(self):
         self.session_id = uuid.uuid4().hex[:12]
         self.created_at = datetime.now().isoformat()
@@ -29,7 +27,6 @@ class ChatSession:
         self.parametric_code: str = ""
         self.persistent_vars: dict = {}
         self._system_prompt: str = ""
-        self._version: int = self.SESSION_VERSION
         # Message list is read by the LLM worker thread while the main
         # thread may append — cheap explicit safety (S2-B17, done in S3)
         self._lock = threading.Lock()
@@ -124,9 +121,12 @@ class ChatSession:
                 self.messages.append({"role": "system", "content": system})
 
     def to_dict(self) -> dict:
-        """序列化为字典（用于持久化）。"""
+        """序列化为字典（用于持久化）。
+
+        Schema: keys are consumed best-effort by from_dict — unknown keys in
+        older files (e.g. the removed "version" field) are simply ignored.
+        """
         return {
-            "version": self._version,
             "session_id": self.session_id,
             "created_at": self.created_at,
             "summary": self.summary,
@@ -143,7 +143,6 @@ class ChatSession:
         """从字典反序列化。"""
         session = cls.__new__(cls)
         session._lock = threading.Lock()
-        session._version = data.get("version", 0)  # 0 = legacy format
         session.session_id = data.get("session_id", uuid.uuid4().hex[:12])
         session.created_at = data.get("created_at", datetime.now().isoformat())
         session.messages = data.get("messages", [])

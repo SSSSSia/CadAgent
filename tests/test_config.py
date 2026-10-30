@@ -72,20 +72,20 @@ class TestConstants:
         config = _reload_isolated()
         assert config.LLM_TIMEOUT == 180
 
-    def test_validation_thresholds(self):
-        config = _reload_isolated()
-        assert config.VALIDATE_VOLUME_THRESHOLD == 0.01
-        assert config.VALIDATE_DIMENSION_THRESHOLD == 0.001
+    def test_refresh_returns_parsed_agent_limits(self, monkeypatch):
+        """refresh() dict must include the parsed agent limit values (B18)."""
+        import core.config as cfg_mod
+        monkeypatch.setenv("MAX_ITERATIONS", "30")
+        monkeypatch.setenv("LLM_TIMEOUT", "60")
+        result = cfg_mod._default_config.refresh()
+        assert result["MAX_ITERATIONS"] == 30
+        assert result["LLM_TIMEOUT"] == 60
+        assert result["MAX_SNAPSHOTS"] == cfg_mod._default_config.MAX_SNAPSHOTS
+        assert result["MAX_CONTEXT_TOKENS"] == cfg_mod._default_config.MAX_CONTEXT_TOKENS
 
     def test_env_override(self):
         config = _reload_isolated(env={"MAX_ITERATIONS": "30"})
         assert config.MAX_ITERATIONS == 30
-
-    def test_strip_markdown_backward_compat(self):
-        """strip_markdown is re-exported from config for backward compat."""
-        config = _reload_isolated()
-        assert callable(config.strip_markdown)
-        assert config.strip_markdown("```python\nx=1\n```") == "x=1"
 
 
 class TestVisionConfig:

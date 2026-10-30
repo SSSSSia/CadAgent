@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime
 import logging
+import logging.handlers
 import os
 import sys
 import tempfile
@@ -39,8 +40,10 @@ def _setup_file_logger() -> logging.Logger:
     for log_dir in (_get_log_dir(), _fallback_log_dir()):
         try:
             os.makedirs(log_dir, exist_ok=True)
-            fh = logging.FileHandler(
-                os.path.join(log_dir, "cadagent.log"), encoding="utf-8"
+            fh = logging.handlers.RotatingFileHandler(
+                os.path.join(log_dir, "cadagent.log"),
+                maxBytes=5 * 1024 * 1024, backupCount=3,
+                encoding="utf-8", delay=True,
             )
         except OSError:
             continue
@@ -95,5 +98,4 @@ def log_quiet(msg: str) -> None:
     to avoid triggering FreeCAD's Report view popup. The information is
     already shown inline in the chat panel via _append_tool_msg().
     """
-    log_level = logging.INFO
-    _file_logger.log(log_level, msg)
+    _log(msg, "info", quiet=True)

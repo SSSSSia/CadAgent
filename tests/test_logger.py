@@ -1,8 +1,9 @@
-"""Tests for core/logger.py — file-handler fallback (S1-B2)."""
+"""Tests for core/logger.py — file-handler fallback (S1-B2) + rotation (S6-B19)."""
 from __future__ import annotations
 
 import importlib
 import logging
+import logging.handlers
 
 
 def _fresh_logger():
@@ -21,7 +22,7 @@ def test_file_handler_failure_degrades_to_console_only(monkeypatch):
     def boom(*args, **kwargs):
         raise OSError("simulated unwritable location")
 
-    monkeypatch.setattr(logging, "FileHandler", boom)
+    monkeypatch.setattr(logging.handlers, "RotatingFileHandler", boom)
     try:
         importlib.reload(logger_mod)
         assert lg.handlers == []
@@ -34,10 +35,15 @@ def test_file_handler_failure_degrades_to_console_only(monkeypatch):
         assert len(lg.handlers) == 1
 
 
-def test_normal_setup_attaches_single_file_handler():
+def test_normal_setup_attaches_rotating_file_handler():
     import core.logger as logger_mod
 
     lg = _fresh_logger()
     importlib.reload(logger_mod)
     assert len(lg.handlers) == 1
-    assert isinstance(lg.handlers[0], logging.FileHandler)
+    fh = lg.handlers[0]
+    # RotatingFileHandler IS a FileHandler subclass; assert the rotation
+    # config explicitly (S6-B19: 5 MB x 3 backups).
+    assert isinstance(fh, logging.handlers.RotatingFileHandler)
+    assert fh.maxBytes == 5 * 1024 * 1024
+    assert fh.backupCount == 3

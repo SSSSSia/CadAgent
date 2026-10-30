@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 
-from core.text_utils import strip_markdown  # noqa: F401 — backward compat
 
 
 _CFG_DEFAULTS = {
@@ -57,8 +56,6 @@ class Config:
         self.MAX_SNAPSHOTS: int = 0
         self.MAX_CONTEXT_TOKENS: int = 0
         self.LLM_TIMEOUT: int = 0
-        self.VALIDATE_VOLUME_THRESHOLD: float = 0.01
-        self.VALIDATE_DIMENSION_THRESHOLD: float = 0.001
         self.VISION_API_BASE_URL: str = ""
         self.VISION_API_KEY: str = ""
         self.VISION_MODEL_NAME: str = ""
@@ -86,7 +83,16 @@ class Config:
         self.VISION_MAX_TOKENS = _parse_int(os.environ.get("VISION_MAX_TOKENS", ""), 2048)
         self.VISION_TEMPERATURE = _parse_float(os.environ.get("VISION_TEMPERATURE", ""), 0.3)
         self.VISION_TIMEOUT = _parse_int(os.environ.get("VISION_TIMEOUT", ""), 60)
-        return dict(self._cfg)
+        result = dict(self._cfg)
+        # Agent limits are parsed (int) values, not raw _CFG_DEFAULTS strings —
+        # include them so callers of refresh() see the effective values (B18).
+        result.update({
+            "MAX_ITERATIONS": self.MAX_ITERATIONS,
+            "MAX_SNAPSHOTS": self.MAX_SNAPSHOTS,
+            "MAX_CONTEXT_TOKENS": self.MAX_CONTEXT_TOKENS,
+            "LLM_TIMEOUT": self.LLM_TIMEOUT,
+        })
+        return result
 
 
 def _strip_matching_quotes(value: str) -> str:
@@ -138,8 +144,6 @@ MAX_ITERATIONS = _default_config.MAX_ITERATIONS
 MAX_SNAPSHOTS = _default_config.MAX_SNAPSHOTS
 MAX_CONTEXT_TOKENS = _default_config.MAX_CONTEXT_TOKENS
 LLM_TIMEOUT = _default_config.LLM_TIMEOUT
-VALIDATE_VOLUME_THRESHOLD = _default_config.VALIDATE_VOLUME_THRESHOLD
-VALIDATE_DIMENSION_THRESHOLD = _default_config.VALIDATE_DIMENSION_THRESHOLD
 VISION_API_BASE_URL = _default_config.VISION_API_BASE_URL
 VISION_API_KEY = _default_config.VISION_API_KEY
 VISION_MODEL_NAME = _default_config.VISION_MODEL_NAME
@@ -152,7 +156,6 @@ def _refresh_constants():
     """Re-derive module-level constants from the default Config instance."""
     global API_BASE_URL, API_KEY, MODEL_NAME, MAX_TOKENS, TEMPERATURE
     global MAX_ITERATIONS, MAX_SNAPSHOTS, MAX_CONTEXT_TOKENS, LLM_TIMEOUT
-    global VALIDATE_VOLUME_THRESHOLD, VALIDATE_DIMENSION_THRESHOLD
     global VISION_API_BASE_URL, VISION_API_KEY, VISION_MODEL_NAME
     global VISION_MAX_TOKENS, VISION_TEMPERATURE, VISION_TIMEOUT
     _default_config.refresh()
@@ -165,8 +168,6 @@ def _refresh_constants():
     MAX_SNAPSHOTS = _default_config.MAX_SNAPSHOTS
     MAX_CONTEXT_TOKENS = _default_config.MAX_CONTEXT_TOKENS
     LLM_TIMEOUT = _default_config.LLM_TIMEOUT
-    VALIDATE_VOLUME_THRESHOLD = _default_config.VALIDATE_VOLUME_THRESHOLD
-    VALIDATE_DIMENSION_THRESHOLD = _default_config.VALIDATE_DIMENSION_THRESHOLD
     VISION_API_BASE_URL = _default_config.VISION_API_BASE_URL
     VISION_API_KEY = _default_config.VISION_API_KEY
     VISION_MODEL_NAME = _default_config.VISION_MODEL_NAME

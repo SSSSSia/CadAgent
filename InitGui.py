@@ -18,6 +18,23 @@ if _mod_dir not in sys.path:
 FreeCAD._cadagent_dir = _mod_dir
 
 
+def _show_agent_panel():
+    """Create the Agent panel once and show/raise it (shared by the
+    workbench Activated and the toolbar command)."""
+    from PySide6 import QtCore
+    from ui.panel import AgentPanel
+    import FreeCADGui
+    if not hasattr(FreeCADGui, '_cadagent_panel') or FreeCADGui._cadagent_panel is None:
+        FreeCADGui._cadagent_panel = AgentPanel()
+        FreeCADGui.getMainWindow().addDockWidget(QtCore.Qt.RightDockWidgetArea, FreeCADGui._cadagent_panel)
+    FreeCADGui._cadagent_panel.show()
+    FreeCADGui._cadagent_panel.raise_()
+
+
+# Same exec() scope trap as above — expose the helper to method bodies.
+FreeCAD._cadagent_show_panel = _show_agent_panel
+
+
 # FreeCAD exec() 作用域陷阱：InitGui.py 被 exec() 加载时，文件内定义的顶层名称
 # （函数、类）在其方法体中不可作为全局变量使用。方法体只能访问：
 #   1. FreeCAD 预注入的名称（FreeCAD, FreeCADGui, Workbench 等）
@@ -49,14 +66,7 @@ class CadAgentWorkbench(Workbench):
 
     def Activated(self):
         """每次切换到此工作台时调用，创建并显示 Agent panel。"""
-        from PySide6 import QtCore
-        from ui.panel import AgentPanel
-        import FreeCADGui
-        if not hasattr(FreeCADGui, '_cadagent_panel') or FreeCADGui._cadagent_panel is None:
-            FreeCADGui._cadagent_panel = AgentPanel()
-            FreeCADGui.getMainWindow().addDockWidget(QtCore.Qt.RightDockWidgetArea, FreeCADGui._cadagent_panel)
-        FreeCADGui._cadagent_panel.show()
-        FreeCADGui._cadagent_panel.raise_()
+        FreeCAD._cadagent_show_panel()
 
     def Deactivated(self):
         """切换离开此工作台时调用。"""
@@ -73,14 +83,7 @@ class _ShowPanelCmd:
         }
 
     def Activated(self):
-        from PySide6 import QtCore
-        from ui.panel import AgentPanel
-        import FreeCADGui
-        if not hasattr(FreeCADGui, '_cadagent_panel') or FreeCADGui._cadagent_panel is None:
-            FreeCADGui._cadagent_panel = AgentPanel()
-            FreeCADGui.getMainWindow().addDockWidget(QtCore.Qt.RightDockWidgetArea, FreeCADGui._cadagent_panel)
-        FreeCADGui._cadagent_panel.show()
-        FreeCADGui._cadagent_panel.raise_()
+        FreeCAD._cadagent_show_panel()
 
     def IsActive(self):
         return True

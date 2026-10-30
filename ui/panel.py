@@ -684,7 +684,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         # Interrupt and (bounded) wait for LLM threads first — destroying a
         # running QThread is a hard Qt abort (S1-D1).
         self._shutdown_threads(5000)
-        self._store.save_current_on_close(self._session)
+        self._store.save_if_not_empty(self._session)
         from core.snapshot import cleanup_all_snapshots
         cleanup_all_snapshots()
         super().closeEvent(event)

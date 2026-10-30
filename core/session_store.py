@@ -6,11 +6,22 @@ Falls back to <temp>/CadAgent/sessions/ when FreeCAD is not available (testing).
 """
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import tempfile
 
 from core.logger import log_warning
+
+
+def _parse_ts(ts: str) -> str:
+    """Sort key for created_at: ISO strings sort correctly, but parse to a
+    normalized form so mixing formats or corrupt values degrades to a stable
+    "" (oldest) instead of interleaving (B13)."""
+    try:
+        return datetime.datetime.fromisoformat(ts).isoformat()
+    except (TypeError, ValueError):
+        return ""
 
 
 def _get_storage_dir() -> str:
@@ -79,7 +90,7 @@ class SessionStore:
             except Exception as e:
                 log_warning(f"Skipping corrupt session file {filename}: {e}")
 
-        sessions.sort(key=lambda s: s["created_at"], reverse=True)
+        sessions.sort(key=lambda s: _parse_ts(s["created_at"]), reverse=True)
         return sessions
 
     def delete(self, session_id: str) -> bool:
@@ -93,12 +104,6 @@ class SessionStore:
         except Exception as e:
             log_warning(f"Failed to delete session {session_id}: {e}")
             return False
-
-    def save_current_on_close(self, session):
-        """Auto-save on close, skipping sessions with no user messages."""
-        if not any(m.get("role") == "user" for m in session.messages):
-            return
-        self.save(session)
 
     def save_if_not_empty(self, session) -> str:
         """Save session only if it contains at least one user message."""

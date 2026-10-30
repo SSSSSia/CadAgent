@@ -33,10 +33,10 @@ def _extract_face_info(face) -> FaceInfo:
     radius = getattr(surf, "Radius", None)
     if radius is not None:
         c = getattr(surf, "Center", None)
-        if c:
+        if c is not None:
             center = (c.x, c.y, c.z)
         a = getattr(surf, "Axis", None)
-        if a:
+        if a is not None:
             axis = (a.x, a.y, a.z)
 
     # Cone-specific: half-angle
@@ -79,7 +79,7 @@ def _extract_shape_info(shape) -> ShapeInfo:
         faces=len(shape.Faces),
         edges=len(shape.Edges),
         vertices=len(shape.Vertexes),
-        center_of_mass=(com.x, com.y, com.z) if com else None,
+        center_of_mass=(com.x, com.y, com.z) if com is not None else None,
         shape_type=shape.ShapeType,
         solid_count=len(solid_list),
         solids=[
