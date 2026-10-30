@@ -15,11 +15,10 @@ import tempfile
 
 
 def _get_log_dir() -> str:
-    """Preferred log dir: <CadAgent install>/log. No side effects here —
-    directory creation and failure handling live in _setup_file_logger."""
-    # Get the core module directory (core/logger.py), go up to CadAgent root
-    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(base, "log")
+    """Preferred log dir: <CadAgent data root>/log (S4-C9). No side effects
+    here — directory creation and failure handling live in _setup_file_logger."""
+    from core.paths import subdir
+    return subdir("log")
 
 
 def _fallback_log_dir() -> str:

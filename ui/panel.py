@@ -657,10 +657,8 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         if not file_path:
             return
 
-        uploads_dir = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "..", "uploads"
-        )
-        os.makedirs(uploads_dir, exist_ok=True)
+        from core.paths import subdir
+        uploads_dir = subdir("uploads")
 
         ext = os.path.splitext(file_path)[1]
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

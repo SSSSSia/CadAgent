@@ -14,36 +14,9 @@ from core.logger import log_warning
 
 
 def _get_storage_dir() -> str:
-    """Use project directory Mod/CadAgent/sessions for session storage."""
-    # Get the CadAgent module directory
-    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    session_dir = os.path.join(base, "sessions")
-    os.makedirs(session_dir, exist_ok=True)
-
-    # Migrate from old FreeCAD user data directory
-    try:
-        import FreeCAD
-        old_base = FreeCAD.getUserAppDataDir()
-    except (ImportError, AttributeError):
-        old_base = None
-
-    if old_base:
-        old_dir = os.path.join(old_base, "CadAgent", "sessions")
-        if os.path.isdir(old_dir) and not os.listdir(session_dir):
-            # New dir is empty, migrate all sessions
-            try:
-                import shutil
-                for f in os.listdir(old_dir):
-                    if f.endswith(".json"):
-                        src = os.path.join(old_dir, f)
-                        dst = os.path.join(session_dir, f)
-                        if not os.path.isfile(dst):
-                            shutil.copy2(src, dst)
-                log_warning(f"Migrated sessions from {old_dir} to {session_dir}")
-            except OSError as e:
-                log_warning(f"Failed to migrate sessions: {e}")
-
-    return session_dir
+    """Sessions live under the CadAgent data root (S4-C9)."""
+    from core.paths import subdir
+    return subdir("sessions")
 
 
 class SessionStore:
