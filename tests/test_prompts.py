@@ -1,6 +1,6 @@
 """Tests for agent/prompts.py — prompt content invariants.
 
-Validates that all 6 prompts (2 agent loop + 4 legacy) conform to the
+Validates that both agent-loop prompts conform to the
 helper-first, quality-gate-aware paradigm established in Phase 1-2.
 """
 from __future__ import annotations
@@ -15,31 +15,15 @@ _mod = load_module("prompts", "agent", "prompts.py")
 
 AGENT_SYSTEM_PROMPT = _mod.AGENT_SYSTEM_PROMPT
 REACT_SYSTEM_PROMPT = _mod.REACT_SYSTEM_PROMPT
-SYSTEM_PROMPT_NEW = _mod.SYSTEM_PROMPT_NEW
-SYSTEM_PROMPT_MODIFY = _mod.SYSTEM_PROMPT_MODIFY
-SYSTEM_PROMPT_DERIVE = _mod.SYSTEM_PROMPT_DERIVE
-SYSTEM_PROMPT_VARIANT = _mod.SYSTEM_PROMPT_VARIANT
-
-ALL_PROMPTS = {
-    "AGENT_SYSTEM_PROMPT": AGENT_SYSTEM_PROMPT,
-    "REACT_SYSTEM_PROMPT": REACT_SYSTEM_PROMPT,
-    "SYSTEM_PROMPT_NEW": SYSTEM_PROMPT_NEW,
-    "SYSTEM_PROMPT_MODIFY": SYSTEM_PROMPT_MODIFY,
-    "SYSTEM_PROMPT_DERIVE": SYSTEM_PROMPT_DERIVE,
-    "SYSTEM_PROMPT_VARIANT": SYSTEM_PROMPT_VARIANT,
-}
 
 AGENT_PROMPTS = {
     "AGENT_SYSTEM_PROMPT": AGENT_SYSTEM_PROMPT,
     "REACT_SYSTEM_PROMPT": REACT_SYSTEM_PROMPT,
 }
 
-LEGACY_PROMPTS = {
-    "SYSTEM_PROMPT_NEW": SYSTEM_PROMPT_NEW,
-    "SYSTEM_PROMPT_MODIFY": SYSTEM_PROMPT_MODIFY,
-    "SYSTEM_PROMPT_DERIVE": SYSTEM_PROMPT_DERIVE,
-    "SYSTEM_PROMPT_VARIANT": SYSTEM_PROMPT_VARIANT,
-}
+# Both live prompts share the invariant suites below (was 6 prompts before
+# the legacy single-shot prompts were removed in S6).
+ALL_PROMPTS = AGENT_PROMPTS
 
 HELPER_NAMES = [
     "extract_solid",
@@ -67,17 +51,6 @@ class TestAgentPromptsContainHelpers:
         assert helper in REACT_SYSTEM_PROMPT, (
             f"REACT_SYSTEM_PROMPT missing helper: {helper}"
         )
-
-
-class TestLegacyPromptsContainCQApi:
-    """Legacy prompts must reference CQ-style boolean ops (.cut()/.union())."""
-
-    CQ_PATTERNS = [".cut(", ".union("]
-
-    @pytest.mark.parametrize("name,prompt", list(LEGACY_PROMPTS.items()))
-    @pytest.mark.parametrize("pattern", CQ_PATTERNS)
-    def test_legacy_has_cq_pattern(self, name, prompt, pattern):
-        assert pattern in prompt, f"{name} missing CQ pattern: {pattern}"
 
 
 class TestPromptForbiddenContent:
@@ -132,55 +105,6 @@ class TestContextPlaceholder:
 
     def test_react_has_context(self):
         assert "{context}" in REACT_SYSTEM_PROMPT
-
-    def test_new_no_context(self):
-        assert "{context}" not in SYSTEM_PROMPT_NEW
-
-    def test_modify_has_context(self):
-        assert "{context}" in SYSTEM_PROMPT_MODIFY
-
-    def test_derive_has_context(self):
-        assert "{context}" in SYSTEM_PROMPT_DERIVE
-
-    def test_variant_has_context(self):
-        assert "{context}" in SYSTEM_PROMPT_VARIANT
-
-
-class TestLegacyNoRawFuse:
-    """Legacy prompts must not have bare .fuse() in code examples.
-
-    CQ-style prompts use .cut()/.union() as chain methods — .fuse() is the
-    old FreeCAD API that should not appear in examples.
-    Code lines are lines starting with whitespace (indented code, not bullets).
-    The regex (?<!safe_)\\.fuse\\( matches raw fuse calls.
-    """
-
-    RAW_FUSE_RE = re.compile(r"(?<!safe_)\.fuse\(")
-
-    @pytest.mark.parametrize("name,prompt", list(LEGACY_PROMPTS.items()))
-    def test_no_raw_fuse_in_code(self, name, prompt):
-        for i, line in enumerate(prompt.split("\n"), 1):
-            stripped = line.lstrip()
-            if not stripped or not line[0].isspace():
-                continue
-            match = self.RAW_FUSE_RE.search(line)
-            assert match is None, (
-                f"{name} line {i} has raw .fuse(): {line.strip()}"
-            )
-
-
-class TestNoMakeLoftExample:
-    """SYSTEM_PROMPT_NEW must not have Part.makeLoft as a code example."""
-
-    def test_no_make_loft(self):
-        assert "Part.makeLoft" not in SYSTEM_PROMPT_NEW
-
-
-class TestNoBSplineExample:
-    """SYSTEM_PROMPT_NEW must not have Part.BSplineCurve() as a code example."""
-
-    def test_no_bspline(self):
-        assert "Part.BSplineCurve()" not in SYSTEM_PROMPT_NEW
 
 
 class TestAgentPromptsFailRule:

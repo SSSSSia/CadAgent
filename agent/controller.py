@@ -5,30 +5,21 @@ from core.session import ChatSession
 
 
 class AgentResult:
-    """Outcome of an agent run."""
+    """Outcome of an agent run (written by AgentLoop, read by the panel)."""
     def __init__(self):
         self.success: bool = False
         self.summary: str = ""
-        self.iterations: int = 0
         self.errors: list[str] = []
         self.tool_calls_log: list[dict] = []
-        self.start_time: float = 0.0
-        self.last_quality_passed: bool | None = None
-        self.last_quality_summary: str = ""
 
 
 class AgentController:
     """Container for session + result, used by the UI-driven agent loop.
 
-    Note: the actual agent loop (state machine) lives in ui/panel.py.
-    This class provides shared state (session, result, mode) that the
-    panel's signal handlers read and update during the loop.
+    Note: the actual agent loop (state machine) lives in agent/loop.py.
+    This class provides shared state (session, result) that the loop and
+    the panel's signal handlers read and update during the run.
     """
     def __init__(self, session: ChatSession):
         self.session = session
         self.result = AgentResult()
-        self._stopped = False
-        self._mode = "auto"  # "auto" | "tool_calling" | "react"
-
-    def stop(self):
-        self._stopped = True
