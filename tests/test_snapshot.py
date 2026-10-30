@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+import time
 
 from tests.helpers import install_sys_modules, load_module, restore_sys_modules
 
@@ -38,9 +39,9 @@ def test_counter_starts_at_zero():
     assert m._counter == 0
 
 
-def test_orphan_cleaned_starts_false():
-    m = SnapshotManager()
-    assert not m._orphan_cleaned
+def test_orphan_flag_is_module_level():
+    # S4-C5: the once-per-process flag lives on the module, not the manager
+    assert hasattr(_mod, "_ORPHAN_CLEANED")
 
 
 def test_max_snapshots_default():
@@ -87,7 +88,7 @@ def test_cleanup_old_enforces_limit():
         path = os.path.join(tmpdir, f"snap_{i}.FCStd")
         with open(path, "w") as f:
             f.write(f"snapshot {i}")
-        m._stack.append({
+        m._stacks.setdefault("test_doc", []).append({
             "path": path,
             "doc_name": "test_doc",
             "original_path": "",
@@ -122,7 +123,7 @@ def test_cleanup_all_clears_stack():
         path = os.path.join(tmpdir, f"snap_{i}.FCStd")
         with open(path, "w") as f:
             f.write(f"snapshot {i}")
-        m._stack.append({
+        m._stacks.setdefault("test_doc", []).append({
             "path": path,
             "doc_name": "test_doc",
             "original_path": "",
@@ -191,7 +192,7 @@ def test_cleanup_for_session_removes_matching():
         path = os.path.join(tmpdir, f"snap_aaa_{i}.FCStd")
         with open(path, "w") as f:
             f.write(f"snapshot {i}")
-        m._stack.append({
+        m._stacks.setdefault("test_doc", []).append({
             "path": path,
             "doc_name": "test_doc",
             "original_path": "",
@@ -202,7 +203,7 @@ def test_cleanup_for_session_removes_matching():
     path_b = os.path.join(tmpdir, f"snap_bbb_0.FCStd")
     with open(path_b, "w") as f:
         f.write("snapshot b")
-    m._stack.append({
+    m._stacks.setdefault("test_doc", []).append({
         "path": path_b,
         "doc_name": "test_doc",
         "original_path": "",
@@ -213,7 +214,7 @@ def test_cleanup_for_session_removes_matching():
     path_legacy = os.path.join(tmpdir, f"snap_legacy.FCStd")
     with open(path_legacy, "w") as f:
         f.write("legacy snapshot")
-    m._stack.append({
+    m._stacks.setdefault("test_doc", []).append({
         "path": path_legacy,
         "doc_name": "test_doc",
         "original_path": "",
@@ -245,7 +246,7 @@ def test_cleanup_for_session_preserves_no_id_entries():
     path = os.path.join(tmpdir, "snap_old.FCStd")
     with open(path, "w") as f:
         f.write("old snapshot")
-    m._stack.append({
+    m._stacks.setdefault("test_doc", []).append({
         "path": path,
         "doc_name": "test_doc",
         "original_path": "",
@@ -375,7 +376,7 @@ class TestTakeSaveSemantics:
         doc = self._make_doc()
         path, tmpdir = self._take(m, doc)
 
-        entry = m._stack[-1]
+        entry = m._stacks["user_part"][-1]
         assert entry["original_path"] == r"C:\work\user_part.FCStd"
         assert entry["original_label"] == "My Bracket"
         assert entry["doc_name"] == "user_part"
@@ -409,7 +410,7 @@ class TestRestoreFileName:
         fcgui = MagicMock()
         fcgui.activeDocument.return_value = None
 
-        m._stack.append({
+        m._stacks.setdefault("test_doc", []).append({
             "path": snap_path,
             "doc_name": restored.Name,
             "original_path": "",
@@ -466,7 +467,7 @@ class TestRestoreLabelAndFilename:
         fcgui = MagicMock()
         fcgui.activeDocument.return_value = None
 
-        m._stack.append({
+        m._stacks.setdefault("test_doc", []).append({
             "path": snap_path,
             "doc_name": restored.Name,
             "original_path": "",
@@ -510,4 +511,204 @@ class TestRestoreLabelAndFilename:
         fname = os.path.basename(path)
         expected_prefix = "Model_0001_" + "0c5b85877c95"[:6] + "_"
         assert fname.startswith(expected_prefix) and fname.endswith(".FCStd"), fname
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+# ---- S4: per-document stacks, unified lifecycle, disk cleanup ----
+
+class _FakeFreeCAD:
+    """FreeCAD stand-in with controllable open/close for restore tests."""
+
+    def __init__(self):
+        self.docs = {}
+        self.opened_paths = []
+
+    def listDocuments(self):
+        return dict(self.docs)
+
+    def openDocument(self, path):
+        from unittest.mock import MagicMock
+        doc = MagicMock()
+        doc.Name = os.path.splitext(os.path.basename(path))[0]
+        doc.Label = doc.Name
+        doc.FileName = path
+        self.docs[doc.Name] = doc
+        self.opened_paths.append(path)
+        return doc
+
+    def closeDocument(self, name):
+        self.docs.pop(name, None)
+
+
+def _fake_doc(name):
+    from unittest.mock import MagicMock
+    doc = MagicMock()
+    doc.Name = name
+    doc.Label = name
+    doc.FileName = ""
+    doc.saveCopy.side_effect = lambda path: open(path, "wb").write(b"snap")
+    return doc
+
+
+def _install_fc(fake):
+    from unittest.mock import MagicMock
+    fcgui = MagicMock()
+    fcgui.activeDocument.return_value = None
+    return install_sys_modules({"FreeCAD": fake, "FreeCADGui": fcgui})
+
+
+class TestPerDocumentStacks:
+
+    def test_multi_doc_restore_order(self):
+        fake = _FakeFreeCAD()
+        m = SnapshotManager()
+        tmpdir = tempfile.mkdtemp()
+        m.get_snapshot_dir = lambda: tmpdir
+        saved = install_sys_modules({"FreeCAD": fake})
+        try:
+            p_a1 = m.take(_fake_doc("DocA"))
+            p_b1 = m.take(_fake_doc("DocB"))
+            p_a2 = m.take(_fake_doc("DocA"))
+            assert m.count() == 3
+
+            r1 = m.restore_latest()
+            r2 = m.restore_latest()
+            r3 = m.restore_latest()
+        finally:
+            restore_sys_modules(saved)
+        assert r1.startswith("SUCCESS") and r2.startswith("SUCCESS") and r3.startswith("SUCCESS")
+        # Newest first, per document: A2, B1, A1
+        assert fake.opened_paths == [p_a2, p_b1, p_a1]
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_restore_deletes_file_on_success(self):
+        fake = _FakeFreeCAD()
+        m = SnapshotManager()
+        tmpdir = tempfile.mkdtemp()
+        m.get_snapshot_dir = lambda: tmpdir
+        saved = install_sys_modules({"FreeCAD": fake})
+        try:
+            path = m.take(_fake_doc("DocA"))
+            assert os.path.isfile(path)
+            result = m.restore_latest()
+        finally:
+            restore_sys_modules(saved)
+        assert result.startswith("SUCCESS")
+        assert not os.path.isfile(path)
+        assert m.count() == 0
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_restore_missing_file_keeps_entry(self):
+        fake = _FakeFreeCAD()
+        m = SnapshotManager()
+        tmpdir = tempfile.mkdtemp()
+        m.get_snapshot_dir = lambda: tmpdir
+        saved = install_sys_modules({"FreeCAD": fake})
+        try:
+            path = m.take(_fake_doc("DocA"))
+            os.remove(path)  # snapshot file vanished
+            result = m.restore_latest()
+        finally:
+            restore_sys_modules(saved)
+        assert result.startswith("ERROR")
+        assert "not found" in result
+        assert m.count() == 1  # entry kept, not silently dropped
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+class TestLifecycleInvariants:
+
+    def test_fifty_take_restore_cycles_leave_no_files(self):
+        """S4 exit criteria: files on disk == entries in stacks."""
+        fake = _FakeFreeCAD()
+        m = SnapshotManager()
+        tmpdir = tempfile.mkdtemp()
+        m.get_snapshot_dir = lambda: tmpdir
+        saved = install_sys_modules({"FreeCAD": fake})
+        try:
+            for _ in range(50):
+                m.take(_fake_doc("DocA"))
+                m.take(_fake_doc("DocB"))
+                assert m.restore_latest().startswith("SUCCESS")
+                assert m.restore_latest().startswith("SUCCESS")
+        finally:
+            restore_sys_modules(saved)
+        assert m.count() == 0
+        files = [f for f in os.listdir(tmpdir) if f.endswith(".FCStd")]
+        assert files == []
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_cap_evicts_oldest_across_docs(self):
+        fake = _FakeFreeCAD()
+        m = SnapshotManager(max_snapshots=5)
+        tmpdir = tempfile.mkdtemp()
+        m.get_snapshot_dir = lambda: tmpdir
+        saved = install_sys_modules({"FreeCAD": fake})
+        try:
+            for i in range(8):
+                m.take(_fake_doc("DocA" if i % 2 else "DocB"))
+        finally:
+            restore_sys_modules(saved)
+        assert m.count() == 5
+        files = [f for f in os.listdir(tmpdir) if f.endswith(".FCStd")]
+        assert len(files) == 5  # file presence == stack membership
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+class TestSessionDiskCleanup:
+
+    def test_disk_sweep_matches_hash_segment_only(self):
+        m = SnapshotManager()
+        tmpdir = tempfile.mkdtemp()
+        m.get_snapshot_dir = lambda: tmpdir
+        match = os.path.join(tmpdir, "DocA_0001_aaaabb_1000000000.FCStd")
+        other = os.path.join(tmpdir, "DocA_0002_cccdef_1000000000.FCStd")
+        legacy = os.path.join(tmpdir, "DocA_0003_1000000000.FCStd")
+        for p in (match, other, legacy):
+            with open(p, "w") as f:
+                f.write("x")
+
+        removed = m.cleanup_for_session("aaaabbbbcccc")
+
+        assert removed == 1
+        assert not os.path.isfile(match)
+        assert os.path.isfile(other)      # other session preserved
+        assert os.path.isfile(legacy)     # legacy (no session) preserved
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_empty_session_id_noop(self):
+        m = SnapshotManager()
+        assert m.cleanup_for_session("") == 0
+
+
+class TestOrphanRetry:
+
+    def test_failed_scan_retries_later(self):
+        m = SnapshotManager()
+        tmpdir = tempfile.mkdtemp()
+        m.get_snapshot_dir = lambda: tmpdir
+        old_path = os.path.join(tmpdir, "old_orphan.FCStd")
+        with open(old_path, "w") as f:
+            f.write("old")
+        two_hours_ago = time.time() - 7200
+        os.utime(old_path, (two_hours_ago, two_hours_ago))
+
+        # Direct flag control (not monkeypatch): undo() would restore the
+        # pre-test True from earlier tests in the same process.
+        _mod._ORPHAN_CLEANED = False
+
+        def failing_listdir(path):
+            raise OSError("directory locked")
+        real_listdir = os.listdir
+        os.listdir = failing_listdir
+        try:
+            m.cleanup_orphans()
+        finally:
+            os.listdir = real_listdir
+        assert _mod._ORPHAN_CLEANED is False   # flag set only after success
+        assert os.path.isfile(old_path)
+
+        m.cleanup_orphans()  # retry now succeeds
+        assert _mod._ORPHAN_CLEANED is True
+        assert not os.path.isfile(old_path)
         shutil.rmtree(tmpdir, ignore_errors=True)
