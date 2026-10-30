@@ -273,12 +273,103 @@ def part_b(workdir):
     _close_all_documents()
 
 
+# ---------------------------------------------------------------------------
+# Part C — CQ semantics gate (S5: XY-only planes, extrude direction, cq_show)
+# ---------------------------------------------------------------------------
+
+def part_c(workdir):
+    repo_root = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
+    from agent.cq import Workplane
+    from agent.cad_helpers import cq_show
+
+    import FreeCAD
+    import Part
+    print("\nPart C — CQ semantics (S5)")
+
+    # --- C1: non-XY planes must raise honestly ---
+    raised = 0
+    for plane in ("XZ", "YZ"):
+        try:
+            Workplane(plane)
+        except NotImplementedError:
+            raised += 1
+    _report(raised == 2, "C1 XZ/YZ planes raise NotImplementedError",
+            f"raised={raised}/2")
+
+    # --- C2: extrude rises from the workplane ---
+    bb2 = Workplane("XY").circle(10).extrude(20).solid().BoundBox
+    _report(
+        abs(bb2.ZMin) < 1e-6 and abs(bb2.ZMax - 20) < 1e-6,
+        "C2 circle extrude spans z=0..+H",
+        f"ZMin={bb2.ZMin:.3f} ZMax={bb2.ZMax:.3f}",
+    )
+
+    # --- C3: both=True is symmetric ±H (total 2H, CadQuery semantics) ---
+    bb3 = Workplane("XY").circle(10).extrude(20, both=True).solid().BoundBox
+    _report(
+        abs(bb3.ZMin + 20) < 1e-6 and abs(bb3.ZMax - 20) < 1e-6,
+        "C3 extrude both=True spans z=-H..+H",
+        f"ZMin={bb3.ZMin:.3f} ZMax={bb3.ZMax:.3f}",
+    )
+
+    # --- C4: rect extrude, plain and both ---
+    bb4a = Workplane("XY").rect(10, 10).extrude(5).solid().BoundBox
+    bb4b = Workplane("XY").rect(10, 10).extrude(5, both=True).solid().BoundBox
+    _report(
+        abs(bb4a.ZMin) < 1e-6 and abs(bb4a.ZMax - 5) < 1e-6
+        and abs(bb4b.ZMin + 5) < 1e-6 and abs(bb4b.ZMax - 5) < 1e-6,
+        "C4 rect extrude 0..H / both -H..+H",
+        f"plain=[{bb4a.ZMin:.2f},{bb4a.ZMax:.2f}] both=[{bb4b.ZMin:.2f},{bb4b.ZMax:.2f}]",
+    )
+
+    # --- C5: workplane(offset) raises the sketch plane ---
+    bb5 = Workplane("XY").workplane(offset=10).circle(5).extrude(8).solid().BoundBox
+    _report(
+        abs(bb5.ZMin - 10) < 1e-6 and abs(bb5.ZMax - 18) < 1e-6,
+        "C5 workplane(offset=10) extrude spans z=10..18",
+        f"ZMin={bb5.ZMin:.3f} ZMax={bb5.ZMax:.3f}",
+    )
+
+    # --- C6: cq_show ownership — user objects never touched ---
+    doc = FreeCAD.newDocument("cq_show_check")
+    user_obj = doc.addObject("Part::Feature", "Part")
+    user_obj.Label = "Part"
+    user_shape = Part.makeBox(5, 5, 5)
+    user_obj.Shape = user_shape
+    doc.recompute()
+
+    shown = cq_show(Workplane("XY").circle(6).extrude(12), "Part", doc=doc)
+    user_untouched = (
+        doc.getObject(user_obj.Name) is user_obj
+        and abs(user_obj.Shape.Volume - user_shape.Volume) < 1e-9
+    )
+    _report(
+        user_untouched and shown.Name.startswith("cqobj_"),
+        "C6a cq_show never touches user objects (cqobj_ prefix ownership)",
+        f"shown.Name={shown.Name!r} user_untouched={user_untouched}",
+    )
+
+    cq_show(Workplane("XY").box(3, 3, 3), "Body", doc=doc)
+    own = [o for o in doc.Objects if o.Name.startswith("cqobj_")]
+    user_still = doc.getObject(user_obj.Name) is user_obj
+    _report(
+        len(own) == 1 and own[0].Label == "Body" and user_still,
+        "C6b label swap cleans only cq_show's own object",
+        f"own={[o.Label for o in own]} user_present={user_still}",
+    )
+
+    _close_all_documents()
+
+
 def main():
     _import_freecad()
     workdir = tempfile.mkdtemp(prefix="cadagent_verify_")
     try:
         part_a(workdir)
         part_b(workdir)
+        part_c(workdir)
     finally:
         _close_all_documents()
         shutil.rmtree(workdir, ignore_errors=True)
