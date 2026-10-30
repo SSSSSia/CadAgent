@@ -9,9 +9,15 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import re
 import tempfile
 
 from core.logger import log_warning
+
+# ChatSession generates session_id as uuid4().hex[:12] — exactly 12 lowercase
+# hex chars. load()/delete() reject anything else before touching the
+# filesystem, so a crafted id like "../evil" cannot escape the storage dir.
+_SESSION_ID_RE = re.compile(r"^[0-9a-f]{12}$")
 
 
 def _parse_ts(ts: str) -> str:
@@ -51,7 +57,13 @@ class SessionStore:
             return ""
 
     def load(self, session_id: str):
-        """Load session by id. Return ChatSession or None."""
+        """Load session by id. Return ChatSession or None.
+
+        Rejects session ids that don't match the generated format
+        (12 lowercase hex chars) before any filesystem access (B22).
+        """
+        if not _SESSION_ID_RE.match(session_id or ""):
+            return None
         from core.session import ChatSession
 
         path = os.path.join(self._dir, f"{session_id}.json")
@@ -94,7 +106,13 @@ class SessionStore:
         return sessions
 
     def delete(self, session_id: str) -> bool:
-        """Delete a session file. Return True if deleted."""
+        """Delete a session file. Return True if deleted.
+
+        Rejects session ids that don't match the generated format before
+        any filesystem access (B22).
+        """
+        if not _SESSION_ID_RE.match(session_id or ""):
+            return False
         path = os.path.join(self._dir, f"{session_id}.json")
         try:
             if os.path.isfile(path):

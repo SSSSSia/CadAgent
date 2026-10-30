@@ -208,9 +208,16 @@ def _safe_active_doc():
 
 
 # ---------------------------------------------------------------------------
-# Restricted __builtins__ for exec() sandbox (CODE-1)
+# __builtins__ whitelist for the execute_code namespace (CODE-1)
+#
+# SECURITY NOTE (S6-A16): this is NOT a security boundary. __import__ is
+# included unrestricted, so LLM-generated code can execute anything the
+# FreeCAD Python process can — reading/writing files, network calls, shell.
+# It exists only to surface common NameErrors (missing builtin names) as
+# clear errors instead of surprises, and to keep the sandbox namespace
+# minimal. Run the agent only in environments you trust with LLM output.
 # ---------------------------------------------------------------------------
-SAFE_BUILTINS = {
+SANDBOX_BUILTINS = {
     "__import__": __import__,
     "print": print, "range": range, "len": len, "int": int,
     "float": float, "str": str, "list": list, "dict": dict,
@@ -313,7 +320,7 @@ def _tool_execute_code(args_json: str) -> str:
         "Part": Part,
         "math": math,
         "doc": target_doc if target_doc else FreeCAD.ActiveDocument,
-        "__builtins__": SAFE_BUILTINS,
+        "__builtins__": SANDBOX_BUILTINS,
         "extract_solid": extract_solid,
         "safe_fuse": safe_fuse,
         "safe_cut": safe_cut,
@@ -477,7 +484,7 @@ def _attempt_auto_fix(
         "Part": Part,
         "math": math,
         "doc": restored_doc,
-        "__builtins__": SAFE_BUILTINS,
+        "__builtins__": SANDBOX_BUILTINS,
         "extract_solid": extract_solid,
         "safe_fuse": safe_fuse,
         "safe_cut": safe_cut,
