@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.1.0 (2026-10-31)
+
+Parametric regeneration (ROADMAP 12.2): the parameter contract is now a
+closed loop — edit values in the UI and the model rebuilds deterministically,
+without an LLM call.
+
+- **Code history**: every successfully executed `execute_code` segment is
+  recorded (with its target document) and persisted with the session,
+  replacing the never-populated `parametric_code` placeholder.
+- **Rebuild engine** (`rebuild_with_params`): snapshots all involved
+  documents first (rebuild is undoable; failures roll everything back),
+  removes only cq_show-owned objects (user geometry untouched), replays the
+  history with the new parameter values, and runs the CAD quality gate.
+  Cross-segment variable continuity is preserved.
+- **ƒ(x) button + parameter dialog**: editable table of the extracted
+  parameters; invalid values are rejected in-dialog; running agent blocks
+  rebuild with a clear message.
+- Regression gate: the real-FreeCAD verification script gained Part D
+  (build → rebuild OD 40→60 → undo → user object survives), now 35 checks.
+- Tests: 693 → 714.
+
 ## v1.0.0 (2026-10-31)
 
 First stable release. This version concludes the S0–S7 hardening plan

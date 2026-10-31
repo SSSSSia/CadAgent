@@ -1,6 +1,6 @@
 # CadAgent — FreeCAD CAD Agent Workbench
 
-**v1.0.0**
+**v1.1.0**
 
 [中文](README.md)
 
@@ -12,7 +12,7 @@ An LLM Agent-powered FreeCAD workbench that generates and modifies 3D mechanical
 - **ReAct Agent Loop** — LLM reasoning → generate CQ-style code → execute → analyze results → self-correct, iterating until the design is complete
 - **Natural Language Design** — Describe parts in plain text, and the Agent automatically plans and generates 3D models
 - **5 Agent Tools** — Code execution, undo/rollback, STEP/IGES/STL/OBJ export (with pre-export quality check), viewport capture with vision analysis, reference image analysis
-- **Parameter-Aware Design** — Named parameters in code (e.g. `OD = 200`) are extracted automatically and injected into later turns' context; to change one, tell the Agent the new value and it re-models. The status bar shows the current parameter table live
+- **Parametric Rebuild** — Named parameters in code (e.g. `OD = 200`) are extracted automatically and injected into later turns' context; click the toolbar **ƒ(x)** button to edit values and rebuild the model deterministically (replays this session's modeling code with zero LLM calls; snapshots first, fully undoable). The status bar shows the live parameter table
 - **Multi-Document Part Creation** — Create parts in separate documents (one part per document); assembly combination is not yet supported — multi-solid part groups are recognized in assembly mode instead
 - **Enhanced Geometry Analysis** — Detects cylinders, cones, spheres, helix surfaces, hole patterns, symmetry, and wall thickness
 - **CAD Quality Gate** — Automatic geometry quality check after each code execution (solid integrity, topology validity, dimension sanity). Blocks agent from finishing when quality fails.
@@ -82,7 +82,7 @@ Available Tools (5):
    - "Create an L-bracket 100x50x30"
 3. Click **Send** — the Agent will automatically reason, generate CQ-style code, and iterate
 4. The 3D model appears in the viewport in real-time; the Agent may perform multiple rounds of optimization
-5. Click **Stop** at any time to interrupt the Agent loop
+5. Click **Stop** at any time to interrupt the Agent loop; click **ƒ(x)** to edit extracted parameters and rebuild the model deterministically (undoable)
 6. Click **Settings** or use the menu **CadAgent Settings** to change API configuration and Agent parameters at any time
 
 ## Requirements
@@ -133,7 +133,7 @@ CadAgent/
 │   ├── chat_renderer.py  # Markdown → HTML rendering (with syntax highlighting)
 │   ├── theme.py          # Light/dark mode theme colors
 │   └── settings_dialog.py # Settings dialog (7 provider presets, connection test)
-├── tests/                # 693 unit tests (no FreeCAD dependency)
+├── tests/                # 714 unit tests (no FreeCAD dependency)
 ├── .env.example          # API config template
 ├── .gitignore
 ├── LICENSE
@@ -148,7 +148,7 @@ CadAgent/
 - **Thread Safety** — LLM API calls run in a background QThread; FreeCAD API operations (tool execution) return to the main thread via Signal/Slot
 - **Standard Library Only** — HTTP requests use `urllib` — no external Python package dependencies (CadQuery not installed)
 - **Compatibility** — Automatically detects whether the model supports Tool Calling, falls back to ReAct XML tag mode; error hints support both CQ-style and native FreeCAD API patterns
-- **693 Automated Tests** — Covering core modules (react_parser, token_budget, chat_renderer, config, session, session_store, code_fixes, agent_loop, tool_dispatch, tool_quality_integration, quality, parametric, cq_workplane, snapshot, paths, etc.), plus a 30-check real-FreeCAD behavior regression script (`scripts/verify_freecad_behavior.py`)
+- **714 Automated Tests** — Covering core modules (react_parser, token_budget, chat_renderer, config, session, session_store, code_fixes, agent_loop, tool_dispatch, tool_quality_integration, quality, parametric, cq_workplane, snapshot, paths, etc.), plus a 35-check real-FreeCAD behavior regression script (`scripts/verify_freecad_behavior.py`)
 
 ## Security Notes
 

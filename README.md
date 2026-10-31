@@ -1,6 +1,6 @@
 # CadAgent — FreeCAD CAD Agent 工作台
 
-**v1.0.0**
+**v1.1.0**
 
 [English](README_EN.md)
 
@@ -12,7 +12,7 @@
 - **ReAct 智能体循环** — LLM 推理 → 生成 CQ 风格代码 → 执行 → 分析结果 → 自纠错，多轮迭代直到设计完成
 - **自然语言设计** — 用中文或英文描述零件，Agent 自动规划并生成 3D 模型
 - **5 个 Agent 工具** — 代码执行、撤销回滚、STEP/IGES/STL/OBJ 导出（导出前自动质量检查）、视口截图分析、参考图片分析
-- **参数感知设计** — 代码中的命名参数（如 `OD = 200`）被自动提取并注入后续对话上下文；修改参数 = 告诉 Agent 新值，由 Agent 重新建模。状态栏实时显示当前参数表
+- **参数化重放** — 代码中的命名参数（如 `OD = 200`）被自动提取并注入后续对话上下文；点击工具栏 **ƒ(x)** 编辑参数即可**确定性重建模型**（重放本会话的建模代码，零 LLM 调用，重建前自动快照、可 Undo）。状态栏实时显示当前参数表
 - **多文档零件创建** — 在多个文档中分别创建零件（每文档单零件）；装配组合暂不支持，多 solid 零件组会按装配模式识别放行
 - **增强几何分析** — 检测圆柱、圆锥、球面、螺旋面、孔阵列、对称性、壁厚等特征
 - **CAD 质量门禁** — 每次代码执行后自动检查几何质量（固体完整性、拓扑有效性、尺寸合理性），质量不达标时阻止 Agent 结束
@@ -82,7 +82,7 @@ Agent 循环 (ReAct):
    - "创建一个 100x50x30 的 L 型支架"
 3. 点击 **发送** — Agent 将自动推理、生成 CQ 风格代码并迭代执行
 4. 3D 模型在视口中实时生成；Agent 可能进行多轮优化和修正
-5. 可随时点击 **停止** 中断 Agent 循环
+5. 可随时点击 **停止** 中断 Agent 循环；点击 **ƒ(x)** 编辑已提取的参数并确定性重建模型（可 Undo）
 6. 点击 **Settings** 按钮或菜单栏 **CadAgent Settings** 可随时修改 API 配置和 Agent 参数
 
 ## 安全须知
@@ -142,7 +142,7 @@ CadAgent/
 │   ├── chat_renderer.py  # Markdown → HTML 渲染（含代码高亮）
 │   ├── theme.py          # 亮/暗模式主题配色
 │   └── settings_dialog.py # 设置对话框（7 个提供商预设、连接测试）
-├── tests/                # 693 个单元测试（不依赖 FreeCAD）
+├── tests/                # 714 个单元测试（不依赖 FreeCAD）
 ├── .env.example          # API 配置模板
 ├── .gitignore
 ├── LICENSE
@@ -157,7 +157,7 @@ CadAgent/
 - **线程安全**：LLM API 调用在后台 QThread 中执行，FreeCAD API 操作（工具执行）通过 Signal/Slot 回到主线程
 - **纯标准库**：HTTP 请求使用 `urllib`，无外部 Python 包依赖（不安装 CadQuery）
 - **兼容性**：自动检测模型是否支持 Tool Calling，不支持时回退到 ReAct XML 标签模式；代码错误提示同时支持 CQ 风格和 FreeCAD 原生 API
-- **693 个自动化测试**：覆盖核心模块（react_parser、token_budget、chat_renderer、config、session、session_store、code_fixes、agent_loop、tool_dispatch、tool_quality_integration、quality、parametric、cq_workplane、snapshot、paths 等），另含 30 项真实 FreeCAD 运行时行为回归脚本（`scripts/verify_freecad_behavior.py`）
+- **714 个自动化测试**：覆盖核心模块（react_parser、token_budget、chat_renderer、config、session、session_store、code_fixes、agent_loop、tool_dispatch、tool_quality_integration、quality、parametric、cq_workplane、snapshot、paths 等），另含 35 项真实 FreeCAD 运行时行为回归脚本（`scripts/verify_freecad_behavior.py`）
 
 ## 数据存储位置
 
