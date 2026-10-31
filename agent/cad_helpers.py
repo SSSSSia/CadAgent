@@ -246,6 +246,24 @@ def cq_show(result, label="Part", doc=None):
     return target
 
 
+def clear_cq_objects(doc) -> int:
+    """Remove ALL cq_show-owned objects from *doc*. Return count removed.
+
+    Used by the parametric rebuild engine (P12.2) before replaying code:
+    cq_show will recreate its objects fresh. Objects not created by cq_show
+    (user geometry) are never touched — same ownership model as cq_show.
+    """
+    removed = 0
+    for obj in list(getattr(doc, "Objects", [])):
+        if getattr(obj, "Name", "").startswith(_CQ_OBJ_PREFIX):
+            try:
+                doc.removeObject(obj.Name)
+                removed += 1
+            except Exception:
+                pass
+    return removed
+
+
 def ensure_doc(name=None):
     """Get or create a FreeCAD document.
 

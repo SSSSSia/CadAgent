@@ -363,6 +363,112 @@ def part_c(workdir):
     _close_all_documents()
 
 
+# ---------------------------------------------------------------------------
+# Part D — parametric rebuild end-to-end (P12.2)
+# ---------------------------------------------------------------------------
+
+def part_d(workdir):
+    import json as _json
+
+    repo_root = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
+    from agent import tools as agent_tools
+
+    import FreeCAD
+    import Part
+    print("\nPart D — parametric rebuild (P12.2)")
+
+    _close_all_documents()
+    doc = FreeCAD.newDocument("rebuild_check")
+    FreeCAD.setActiveDocument("rebuild_check")
+
+    # User-created object must survive every rebuild
+    keeper = doc.addObject("Part::Feature", "Keeper")
+    keeper.Label = "KeepMe"
+    keeper.Shape = Part.makeBox(2, 2, 2)
+    doc.recompute()
+
+    # D1: build a hollow cup via the real execute_code path (records history)
+    agent_tools.clear_persistent_vars()
+    agent_tools.set_code_history([])
+    code1 = (
+        "OD = 40" + chr(10) + "ID = 35" + chr(10) + "H = 90" + chr(10) +
+        "body = cq.Workplane('XY').circle(OD).circle(ID).extrude(H)" + chr(10) +
+        "cq_show(body, 'Cup')"
+    )
+    r1 = agent_tools._tool_execute_code(_json.dumps({"code": code1}))
+    bb1 = _rebuild_bbox(doc)
+    _report(
+        r1.startswith("OK:") and bb1 is not None
+        and abs(bb1.XMax - 40) < 1e-6 and abs(bb1.ZMax - 90) < 1e-6,
+        "D1 execute_code builds cup with OD=40, H=90",
+        f"r1={r1.splitlines()[0][:40]!r} bb=({_f(bb1.XMax)},{_f(bb1.ZMax)})" if bb1 else "no shape",
+    )
+
+    # D2: rebuild with new parameters — geometry must change deterministically
+    r2 = agent_tools.rebuild_with_params({"OD": 60, "ID": 50})
+    bb2 = _rebuild_bbox(doc)
+    _report(
+        r2.startswith("OK:") and bb2 is not None
+        and abs(bb2.XMax - 60) < 1e-6 and abs(bb2.ZMax - 90) < 1e-6,
+        "D2 rebuild with OD=60 changes geometry",
+        f"r2={r2.splitlines()[0][:40]!r} bb=({_f(bb2.XMax)},{_f(bb2.ZMax)})" if bb2 else "no shape",
+    )
+
+    # D3: user object survives the rebuild
+    keeper_after = doc.getObject("Keeper")
+    _report(
+        keeper_after is keeper and abs(keeper.Shape.Volume - 8.0) < 1e-6,
+        "D3 user object untouched by rebuild",
+        f"present={keeper_after is not None}",
+    )
+
+    # D4: undo rolls back to the pre-rebuild state (OD=40)
+    from core.snapshot import restore_latest_snapshot
+    r_undo = restore_latest_snapshot()
+    doc2 = FreeCAD.ActiveDocument
+    bb3 = _rebuild_bbox(doc2) if doc2 is not None else None
+    keeper_undo = doc2.getObject("Keeper") if doc2 is not None else None
+    _report(
+        r_undo.startswith("SUCCESS") and bb3 is not None
+        and abs(bb3.XMax - 40) < 1e-6
+        and keeper_undo is not None,
+        "D4 undo restores pre-rebuild geometry (and keeper)",
+        f"undo={r_undo.splitlines()[0][:30]!r} bb={_f(bb3.XMax) if bb3 else '?'} keeper={keeper_undo is not None}",
+    )
+
+    # D5: parameter store reflects the edited values after rebuild
+    from core.snapshot import cleanup_all_snapshots
+    agent_tools.rebuild_with_params({"OD": 60, "ID": 50})
+    _report(
+        agent_tools.get_param_store().get("OD") == 60
+        and agent_tools.get_code_history(),
+        "D5 param store + code history populated by replay",
+        f"params={agent_tools.get_param_store()} steps={len(agent_tools.get_code_history())}",
+    )
+
+    cleanup_all_snapshots()
+    _close_all_documents()
+
+
+def _rebuild_bbox(doc):
+    shapes = [
+        o.Shape for o in doc.Objects
+        if getattr(o, "Name", "").startswith("cqobj_") and hasattr(o, "Shape")
+    ]
+    if not shapes:
+        return None
+    bb = shapes[0].BoundBox
+    for s in shapes[1:]:
+        bb.add(s.BoundBox)
+    return bb
+
+
+def _f(v):
+    return f"{v:.2f}"
+
+
 def main():
     _import_freecad()
     workdir = tempfile.mkdtemp(prefix="cadagent_verify_")
@@ -370,6 +476,7 @@ def main():
         part_a(workdir)
         part_b(workdir)
         part_c(workdir)
+        part_d(workdir)
     finally:
         _close_all_documents()
         shutil.rmtree(workdir, ignore_errors=True)

@@ -672,6 +672,148 @@ def _tool_undo_last(args_json: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Tool: parametric rebuild (P12.2)
+# ---------------------------------------------------------------------------
+
+def apply_param_values(code: str, params: dict) -> str:
+    """Replace parameter definition lines in *code* with new values.
+
+    Only lines matching the parameter pattern whose name is present in
+    *params* are rewritten; everything else passes through untouched.
+    """
+    out_lines = []
+    for line in code.split("\n"):
+        m = _PARAM_PATTERN.match(line.strip())
+        if m and m.group(1) in params:
+            out_lines.append(f"{m.group(1)} = {params[m.group(1)]}")
+        else:
+            out_lines.append(line)
+    return "\n".join(out_lines)
+
+
+def rebuild_with_params(params: dict) -> str:
+    """Deterministically rebuild the model by replaying the successful code
+    history with new parameter values (P12.2) — no LLM involved.
+
+    Contract:
+    - Snapshots every involved document FIRST: the rebuild is undoable, and
+      a failure rolls all documents back to the pre-rebuild state.
+    - Deletes only cq_show-owned objects (cqobj_ prefix) — user objects are
+      never touched (same ownership model as cq_show).
+    - First line carries OK:/FAIL:/ERROR: per the loop result protocol.
+    """
+    history = get_code_history()
+    if not history:
+        return "ERROR: No rebuildable code history in this session yet."
+
+    # --- Resolve the document each segment targets -------------------------
+    resolved: list[tuple] = []  # (doc, code)
+    missing = []
+    for doc_name, code in history:
+        doc = None
+        if doc_name:
+            try:
+                doc = FreeCAD.getDocument(doc_name)
+            except (NameError, RuntimeError):
+                doc = None
+            if doc is None:
+                # auto-created documents may have been closed; recreate by
+                # name so the replay lands in the same document identity
+                if doc_name == "CadAgentModel":
+                    doc = FreeCAD.newDocument(doc_name)
+                else:
+                    missing.append(doc_name)
+                    continue
+        else:
+            doc = FreeCAD.ActiveDocument
+            if doc is None:
+                missing.append("(active document)")
+                continue
+        resolved.append((doc, code))
+    if missing:
+        return (
+            "ERROR: Cannot rebuild — target document(s) no longer open: "
+            + ", ".join(sorted(set(missing)))
+            + ". Reopen the document(s), or rebuild via the Agent."
+        )
+
+    # --- Snapshot every involved document (undo + rollback anchor) ---------
+    involved = []
+    seen = set()
+    for doc, _code in resolved:
+        if doc.Name not in seen:
+            seen.add(doc.Name)
+            involved.append(doc)
+    taken = 0
+    try:
+        from core.snapshot import take_snapshot_for_doc
+        for doc in involved:
+            take_snapshot_for_doc(doc)
+            taken += 1
+    except Exception as e:
+        log_warning(f"Rebuild: pre-snapshot failed, undo unavailable: {e}")
+
+    # --- Clean state: vars, params, cq_show-owned objects -------------------
+    clear_persistent_vars()
+    set_param_store(dict(params))
+    from agent.cad_helpers import clear_cq_objects
+    cleared = 0
+    for doc in involved:
+        cleared += clear_cq_objects(doc)
+
+    # --- Replay with cross-segment variable continuity ----------------------
+    stdout_capture = io.StringIO()
+    step = 0
+    try:
+        with contextlib.redirect_stdout(stdout_capture):
+            for step, (doc, code) in enumerate(resolved, 1):
+                namespace = _build_exec_namespace(doc)
+                exec(apply_param_values(code, params), namespace)
+                _save_user_vars(namespace)
+    except Exception as e:
+        # Roll every pre-rebuild snapshot back (stack top order = take order)
+        from core.snapshot import restore_latest_snapshot
+        rolled = 0
+        for _ in range(taken):
+            if restore_latest_snapshot().startswith("SUCCESS"):
+                rolled += 1
+            else:
+                break
+        clear_persistent_vars()
+        log_quiet(
+            f"Rebuild failed: {type(e).__name__}: {e}\n{traceback.format_exc()}"
+        )
+        return (
+            f"FAIL: Rebuild failed at step {step}: {type(e).__name__}: {e}\n"
+            f"Rolled back {rolled}/{taken} document(s) to the pre-rebuild state."
+        )
+
+    # --- Success: quality gate decides the first line ------------------------
+    parts = [
+        f"OK: Model rebuilt with {len(params)} parameter(s) "
+        f"across {len(resolved)} step(s) ({cleared} old object(s) replaced)."
+    ]
+    try:
+        from core.quality import format_quality_report
+        main_doc = resolved[-1][0]
+        q_report, used_assembly = _quality_report_for_doc(main_doc)
+        parts.append(format_quality_report(q_report))
+        if used_assembly:
+            parts.append(_ASSEMBLY_NOTE)
+        if not q_report.passed:
+            parts[0] = "FAIL: Rebuild completed but CAD quality check failed."
+    except Exception as e:
+        parts[0] = "FAIL: Rebuild completed but CAD quality check crashed."
+        parts.append(f"Quality check error: {type(e).__name__}: {e}")
+
+    parts.append("Parameters: " + ", ".join(f"{k}={v}" for k, v in params.items()))
+    stdout_text = stdout_capture.getvalue()
+    if stdout_text:
+        parts.append(f"Stdout:\n{stdout_text}")
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
 # Tool: export_step
 # ---------------------------------------------------------------------------
 
