@@ -4,6 +4,10 @@ Supports multiple fallback strategies for robustness with weak models:
 1. Standard paired tags with relaxed whitespace
 2. Self-closing tags
 3. Unclosed tags (model stopped generating)
+
+NOTE (S5-A17): tool names are matched with word characters only — all 5
+built-in tools comply; a tool name containing dashes/dots would not parse
+and is rejected as an unknown tool.
 """
 from __future__ import annotations
 

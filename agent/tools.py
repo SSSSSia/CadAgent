@@ -134,7 +134,12 @@ def set_persistent_vars(vars: dict) -> None:
 
 
 def _extract_parameters(code: str) -> dict:
-    """Extract parameter definitions (UPPER_NAME = value) from top of code."""
+    """Extract parameter definitions (UPPER_NAME = value) from top of code.
+
+    Limitation (S5-A17, kept by design): only the leading consecutive
+    parameter block is recognized — parameters defined later in the code
+    are intentionally ignored to avoid capturing loop temporaries."""
+
     params = {}
     for line in code.strip().split('\n'):
         m = _PARAM_PATTERN.match(line.strip())
