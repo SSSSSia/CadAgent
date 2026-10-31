@@ -142,7 +142,7 @@ CadAgent/
 │   ├── chat_renderer.py  # Markdown → HTML 渲染（含代码高亮）
 │   ├── theme.py          # 亮/暗模式主题配色
 │   └── settings_dialog.py # 设置对话框（7 个提供商预设、连接测试）
-├── tests/                # 692 个单元测试（不依赖 FreeCAD）
+├── tests/                # 693 个单元测试（不依赖 FreeCAD）
 ├── .env.example          # API 配置模板
 ├── .gitignore
 ├── LICENSE
@@ -157,7 +157,7 @@ CadAgent/
 - **线程安全**：LLM API 调用在后台 QThread 中执行，FreeCAD API 操作（工具执行）通过 Signal/Slot 回到主线程
 - **纯标准库**：HTTP 请求使用 `urllib`，无外部 Python 包依赖（不安装 CadQuery）
 - **兼容性**：自动检测模型是否支持 Tool Calling，不支持时回退到 ReAct XML 标签模式；代码错误提示同时支持 CQ 风格和 FreeCAD 原生 API
-- **692 个自动化测试**：覆盖核心模块（react_parser、token_budget、chat_renderer、config、session、session_store、code_fixes、agent_loop、tool_dispatch、tool_quality_integration、quality、parametric、cq_workplane、snapshot、paths 等），另含 30 项真实 FreeCAD 运行时行为回归脚本（`scripts/verify_freecad_behavior.py`）
+- **693 个自动化测试**：覆盖核心模块（react_parser、token_budget、chat_renderer、config、session、session_store、code_fixes、agent_loop、tool_dispatch、tool_quality_integration、quality、parametric、cq_workplane、snapshot、paths 等），另含 30 项真实 FreeCAD 运行时行为回归脚本（`scripts/verify_freecad_behavior.py`）
 
 ## 数据存储位置
 

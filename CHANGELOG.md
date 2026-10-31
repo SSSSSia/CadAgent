@@ -65,5 +65,5 @@ documented, or triaged to the roadmap).
   (byte-identical to the previous text, drift-guarded by tests).
 
 ### Tests
-- 576 → **692** unit tests plus a 30-check real-FreeCAD behavior regression
+- 576 → **693** unit tests plus a 30-check real-FreeCAD behavior regression
   script (`scripts/verify_freecad_behavior.py`).
