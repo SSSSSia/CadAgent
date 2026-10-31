@@ -687,6 +687,48 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         else:
             self._append_system_msg(f"Undo failed: {result}")
 
+    def _on_params_button(self):
+        """User clicked ƒ(x) — edit parameters and rebuild deterministically (P12.2)."""
+        from agent.tools import get_code_history, get_param_store
+        from ui.params_dialog import ParamsDialog
+
+        if self._live_threads() or self._turn_active:
+            self._append_system_msg(
+                "Cannot rebuild while the agent is running — wait for it to finish."
+            )
+            return
+
+        params = get_param_store()
+        dialog = ParamsDialog(self, params, can_rebuild=bool(get_code_history()))
+        if dialog.exec() != ParamsDialog.DialogCode.Accepted:
+            return
+        new_params = dialog.result_params()
+        if new_params is None or not new_params:
+            return
+
+        self._status_set("executing_tool", "rebuild")
+        from agent.tools import rebuild_with_params
+        result = rebuild_with_params(new_params)
+        self._status_reset()
+
+        is_error = result.startswith(("ERROR", "FAIL"))
+        self._append_tool_msg(
+            self._loop.iteration if self._loop else 0,
+            "rebuild (user)", ", ".join(f"{k}={v}" for k, v in new_params.items()),
+            result, is_error,
+        )
+        if not is_error:
+            self._append_system_msg(
+                "Model rebuilt with new parameters. Use Undo to roll back."
+            )
+        # Refresh the visible parameter table either way
+        self._update_params_label()
+        try:
+            self._session.parameters = get_param_store()
+            self._session.code_history = get_code_history()
+        except Exception:
+            pass
+
         self._update_undo_button_state()
 
     def _update_undo_button_state(self):

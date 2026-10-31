@@ -93,14 +93,16 @@ class _PanelSessionMixin:
         from core.snapshot import set_snapshot_session_id
         set_snapshot_session_id(loaded.session_id)
 
-        # Sync parameters and persistent vars from loaded session to tool store
-        if loaded.parameters:
-            try:
-                from agent.tools import set_code_history, set_param_store
-                set_param_store(loaded.parameters)
-                set_code_history(loaded.code_history)
-            except Exception:
-                pass
+        # Sync parameters and code history from loaded session to tool stores.
+        # Unconditional: a session may have code history without parameters
+        # (successful code with no top-of-code definitions) — the rebuild
+        # engine needs the history either way (P12.2).
+        try:
+            from agent.tools import set_code_history, set_param_store
+            set_param_store(loaded.parameters)
+            set_code_history(loaded.code_history)
+        except Exception:
+            pass
         if loaded.persistent_vars:
             try:
                 from agent.tools import set_persistent_vars
@@ -109,6 +111,7 @@ class _PanelSessionMixin:
                 pass
 
         self._reset_turn_state()
+        self._update_params_label()  # parameter table follows the session
         self._restore_chat_display(loaded)
         c = self._get_colors()
         turns = loaded.user_turn_count()
