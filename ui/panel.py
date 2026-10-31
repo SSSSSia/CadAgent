@@ -193,10 +193,11 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         Every lifecycle method (new, switch, delete, close) should call
         this instead of doing partial cleanup.
         """
-        from agent.tools import clear_persistent_vars, set_param_store
+        from agent.tools import clear_persistent_vars, set_code_history, set_param_store
         from core.snapshot import cleanup_all_snapshots, set_snapshot_session_id
         clear_persistent_vars()
         set_param_store({})
+        set_code_history([])
         cleanup_all_snapshots()
         if new_session_id:
             set_snapshot_session_id(new_session_id)
@@ -509,10 +510,13 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
                     description=desc, result=tool_result, is_error=is_error,
                 ))
 
-            # Sync parameters and persistent vars from tools to session
+            # Sync parameters, code history and persistent vars to session
             try:
-                from agent.tools import get_param_store, get_persistent_vars
+                from agent.tools import (
+                    get_code_history, get_param_store, get_persistent_vars,
+                )
                 self._controller.session.parameters = get_param_store()
+                self._controller.session.code_history = get_code_history()
                 self._controller.session.persistent_vars = get_persistent_vars()
             except Exception:
                 pass

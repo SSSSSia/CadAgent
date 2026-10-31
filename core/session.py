@@ -24,7 +24,10 @@ class ChatSession:
         self.document_state: str = ""
         self.last_mode: str = "auto"
         self.parameters: dict = {}
-        self.parametric_code: str = ""
+        # Successful execute_code segments as (doc_name, code) tuples —
+        # replayed by rebuild_with_params for parametric regeneration (P12.2).
+        # Replaces the never-populated parametric_code placeholder.
+        self.code_history: list = []
         self.persistent_vars: dict = {}
         self._system_prompt: str = ""
         # Message list is read by the LLM worker thread while the main
@@ -115,7 +118,7 @@ class ChatSession:
             self.summary = ""
             self.document_state = ""
             self.parameters = {}
-            self.parametric_code = ""
+            self.code_history = []
             self.persistent_vars = {}
             if system:
                 self.messages.append({"role": "system", "content": system})
@@ -134,7 +137,7 @@ class ChatSession:
             "last_mode": self.last_mode,
             "messages": self.messages,
             "parameters": self.parameters,
-            "parametric_code": self.parametric_code,
+            "code_history": [list(entry) for entry in self.code_history],
             "persistent_vars": self.persistent_vars,
         }
 
@@ -150,7 +153,10 @@ class ChatSession:
         session.document_state = data.get("document_state", "")
         session.last_mode = data.get("last_mode", "auto")
         session.parameters = data.get("parameters", {})
-        session.parametric_code = data.get("parametric_code", "")
+        session.code_history = [
+            tuple(entry) for entry in data.get("code_history", [])
+            if isinstance(entry, (list, tuple)) and len(entry) == 2
+        ]
         session.persistent_vars = data.get("persistent_vars", {})
         # Only trust the first message as the system prompt if it actually
         # IS one — a legacy session starting with a user message used to be

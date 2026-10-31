@@ -83,46 +83,66 @@ class TestSessionParameters:
         from core.session import ChatSession
         s = ChatSession()
         assert s.parameters == {}
-        assert s.parametric_code == ""
+        assert s.code_history == []
+        assert not hasattr(s, "parametric_code")  # placeholder removed (P12.2)
 
     def test_serialization_round_trip(self):
         from core.session import ChatSession
         s = ChatSession()
         s.parameters = {"OD": 200, "HEIGHT": 360}
-        s.parametric_code = "OD = 200\nHEIGHT = 360\nbody = Part.makeCylinder(OD/2, HEIGHT)"
+        s.code_history = [("Model", "OD = 200" + chr(10) + "body = cq.Workplane('XY')"),
+                          ("Model", "body = body.cut(hole)")]
         s.set_system_prompt("sys")
 
         d = s.to_dict()
         assert d["parameters"] == {"OD": 200, "HEIGHT": 360}
-        assert d["parametric_code"] == "OD = 200\nHEIGHT = 360\nbody = Part.makeCylinder(OD/2, HEIGHT)"
+        assert d["code_history"] == [
+            ["Model", "OD = 200" + chr(10) + "body = cq.Workplane('XY')"],
+            ["Model", "body = body.cut(hole)"],
+        ]
 
         s2 = ChatSession.from_dict(d)
         assert s2.parameters == {"OD": 200, "HEIGHT": 360}
-        assert s2.parametric_code == "OD = 200\nHEIGHT = 360\nbody = Part.makeCylinder(OD/2, HEIGHT)"
+        assert s2.code_history == [("Model", "OD = 200" + chr(10) + "body = cq.Workplane('XY')"),
+                                   ("Model", "body = body.cut(hole)")]
 
     def test_deserialize_missing_fields(self):
         from core.session import ChatSession
         d = {"session_id": "abc", "messages": []}
         s = ChatSession.from_dict(d)
         assert s.parameters == {}
-        assert s.parametric_code == ""
+        assert s.code_history == []
+
+    def test_deserialize_old_parametric_code_key_ignored(self):
+        from core.session import ChatSession
+        d = {"session_id": "abc", "messages": [],
+             "parametric_code": "OD = 200"}  # legacy field — simply ignored
+        s = ChatSession.from_dict(d)
+        assert s.code_history == []
+
+    def test_deserialize_malformed_history_entries_skipped(self):
+        from core.session import ChatSession
+        d = {"session_id": "abc", "messages": [],
+             "code_history": [["ok", "x=1"], "garbage", [1, 2, 3], None]}
+        s = ChatSession.from_dict(d)
+        assert s.code_history == [("ok", "x=1")]
 
     def test_clear_resets_parameters(self):
         from core.session import ChatSession
         s = ChatSession()
         s.parameters = {"OD": 200}
-        s.parametric_code = "OD = 200"
+        s.code_history = [("Model", "OD = 200")]
         s.set_system_prompt("sys")
         s.clear()
         assert s.parameters == {}
-        assert s.parametric_code == ""
+        assert s.code_history == []
 
     def test_clear_preserves_system_prompt_with_params(self):
         from core.session import ChatSession
         s = ChatSession()
         s.set_system_prompt("sys")
         s.parameters = {"OD": 200}
-        s.parametric_code = "OD = 200"
+        s.code_history = [("Model", "OD = 200")]
         s.clear()
         assert len(s.messages) == 1
         assert s.messages[0]["role"] == "system"

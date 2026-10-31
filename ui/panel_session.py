@@ -96,8 +96,9 @@ class _PanelSessionMixin:
         # Sync parameters and persistent vars from loaded session to tool store
         if loaded.parameters:
             try:
-                from agent.tools import set_param_store
+                from agent.tools import set_code_history, set_param_store
                 set_param_store(loaded.parameters)
+                set_code_history(loaded.code_history)
             except Exception:
                 pass
         if loaded.persistent_vars:

@@ -552,3 +552,124 @@ class TestExportStepIges:
         )
         assert result.startswith("ERROR")
         assert "No active document" in result
+
+
+# ---------------------------------------------------------------------------
+# P12.2: code-history recording for parametric replay
+# ---------------------------------------------------------------------------
+
+class TestCodeHistoryRecording:
+
+    def _run(self, code, doc_name="TestDoc"):
+        import core.quality as quality_mod
+        from core.quality import QualityReport
+        from tests.helpers import install_sys_modules, restore_sys_modules
+
+        tools, mock_fc, _ = _load_tools()
+        mock_doc = MagicMock()
+        mock_doc.Name = doc_name
+        mock_doc.Objects = []
+        mock_fc.ActiveDocument = mock_doc
+        orig = quality_mod.analyze_document_quality
+        quality_mod.analyze_document_quality = lambda doc, assembly_mode=False:             QualityReport(passed=True, severity="ok", issues=[], summary="PASSED")
+        tools.clear_persistent_vars()
+        tools.set_code_history([])
+        saved = install_sys_modules({"FreeCAD": mock_fc})
+        try:
+            result = tools._tool_execute_code(json.dumps({"code": code}))
+            return result, tools, tools.get_code_history()
+        finally:
+            restore_sys_modules(saved)
+            quality_mod.analyze_document_quality = orig
+            tools.clear_persistent_vars()
+            tools.set_code_history([])
+
+    def test_success_records_segment_with_doc_name(self):
+        code = "OD = 200" + chr(10) + "x = OD * 2"
+        result, _, history = self._run(code)
+        assert result.startswith("OK:")
+        assert history == [("TestDoc", code)]
+
+    def test_failed_exec_records_nothing(self):
+        result, _, history = self._run("1 / 0")
+        assert result.startswith("ERROR")
+        assert history == []
+
+    def test_successive_segments_append_in_order(self):
+        tools_holder = {}
+        _, tools1, h1 = self._run("A = 1")
+        # second call uses a fresh tools module instance in _run; emulate the
+        # module-level accumulation by calling twice on the same instance
+        result2 = None
+        import core.quality as quality_mod
+        from core.quality import QualityReport
+        from tests.helpers import install_sys_modules, restore_sys_modules
+        tools, mock_fc, _ = _load_tools()
+        mock_doc = MagicMock()
+        mock_doc.Name = "D"
+        mock_doc.Objects = []
+        mock_fc.ActiveDocument = mock_doc
+        orig = quality_mod.analyze_document_quality
+        quality_mod.analyze_document_quality = lambda doc, assembly_mode=False:             QualityReport(passed=True, severity="ok", issues=[], summary="PASSED")
+        tools.clear_persistent_vars()
+        tools.set_code_history([])
+        saved = install_sys_modules({"FreeCAD": mock_fc})
+        try:
+            tools._tool_execute_code(json.dumps({"code": "A = 1"}))
+            tools._tool_execute_code(json.dumps({"code": "B = A + 1"}))
+            history = tools.get_code_history()
+        finally:
+            restore_sys_modules(saved)
+            quality_mod.analyze_document_quality = orig
+            tools.clear_persistent_vars()
+            tools.set_code_history([])
+        assert history == [("D", "A = 1"), ("D", "B = A + 1")]
+
+    def test_auto_fix_success_records_fixed_code(self):
+        import core.snapshot as snapshot_mod
+        import core.quality as quality_mod
+        from core.quality import QualityReport
+        from tests.helpers import install_sys_modules, restore_sys_modules
+
+        tools, mock_fc, _ = _load_tools()
+        mock_doc = MagicMock()
+        mock_doc.Name = "Fixed"
+        mock_doc.Objects = []
+        mock_fc.ActiveDocument = mock_doc
+        tools.clear_persistent_vars()
+        tools.set_code_history([])
+        orig_restore = snapshot_mod.restore_latest_snapshot
+        orig_take = snapshot_mod.take_snapshot
+        orig_quality = quality_mod.analyze_document_quality
+        snapshot_mod.restore_latest_snapshot = lambda: "SUCCESS: Document restored."
+        snapshot_mod.take_snapshot = lambda: None
+        quality_mod.analyze_document_quality = lambda doc, assembly_mode=False:             QualityReport(passed=True, severity="ok", issues=[], summary="PASSED")
+        saved = install_sys_modules({"FreeCAD": mock_fc})
+        try:
+            result = tools._attempt_auto_fix(
+                original_error=ValueError("x"),
+                original_code="bad = 1",
+                fixed_code="good = 1",
+                hint_text="hint",
+                auto_created_doc=False,
+            )
+            history = tools.get_code_history()
+        finally:
+            restore_sys_modules(saved)
+            snapshot_mod.restore_latest_snapshot = orig_restore
+            snapshot_mod.take_snapshot = orig_take
+            quality_mod.analyze_document_quality = orig_quality
+            tools.clear_persistent_vars()
+            tools.set_code_history([])
+        assert result is not None and result.startswith("OK:")
+        assert history == [("Fixed", "good = 1")]
+
+    def test_set_and_get_history_round_trip(self):
+        tools, _, _ = _load_tools()
+        tools.set_code_history([("A", "x=1"), ("B", "y=2")])
+        assert tools.get_code_history() == [("A", "x=1"), ("B", "y=2")]
+        # returned copy is decoupled from the store
+        h = tools.get_code_history()
+        h.append(("C", "z=3"))
+        assert tools.get_code_history() == [("A", "x=1"), ("B", "y=2")]
+        tools.set_code_history([])

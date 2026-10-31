@@ -162,6 +162,62 @@ def set_param_store(params: dict) -> None:
     _PARAM_STORE.update(params)
 
 
+# Successful execute_code segments in execution order: (doc_name, code).
+# The rebuild engine (rebuild_with_params) replays these with new parameter
+# values, so users get deterministic parametric regeneration without the LLM.
+_CODE_HISTORY: list[tuple[str, str]] = []
+
+
+def get_code_history() -> list[tuple[str, str]]:
+    """Return a copy of the successful-code history."""
+    return list(_CODE_HISTORY)
+
+
+def set_code_history(history: list) -> None:
+    """Replace the code history (session restore)."""
+    _CODE_HISTORY.clear()
+    for entry in history:
+        _CODE_HISTORY.append((entry[0], entry[1]))
+
+
+def _record_code_history(doc, code: str) -> None:
+    """Append a successfully executed segment with its target document."""
+    name = getattr(doc, "Name", None) if doc is not None else None
+    _CODE_HISTORY.append((name or "", code))
+
+
+def _build_exec_namespace(doc) -> dict:
+    """Fresh sandbox namespace for exec(), merging persisted variables.
+
+    Single source of the exec environment (P12.2): was duplicated inline in
+    _tool_execute_code and _attempt_auto_fix; the rebuild engine reuses it
+    so replayed code sees an identical environment.
+    """
+    namespace = {
+        "FreeCAD": FreeCAD,
+        "FreeCADGui": FreeCADGui,
+        "Part": Part,
+        "math": math,
+        "doc": doc,
+        "__builtins__": SANDBOX_BUILTINS,
+        "extract_solid": extract_solid,
+        "safe_fuse": safe_fuse,
+        "safe_cut": safe_cut,
+        "make_hollow_cylinder": make_hollow_cylinder,
+        "make_ring": make_ring,
+        "make_box_handle": make_box_handle,
+        "make_arc_handle": make_arc_handle,
+        "ensure_doc": ensure_doc,
+        # CQ-style chain API (CadQuery-like wrapper over FreeCAD Part)
+        "cq": _cq_module,
+        "Workplane": _CQWorkplane,
+        "cq_show": cq_show,
+    }
+    # Inject variables from previous execute_code calls (includes FreeCAD objects)
+    namespace.update(_EXEC_NAMESPACE)
+    return namespace
+
+
 def format_params_label(params: dict, max_items: int = 3) -> str:
     """Format the parameter store for the status-bar label (S7-F2).
 
@@ -336,28 +392,9 @@ def _tool_execute_code(args_json: str) -> str:
 
     stdout_capture = io.StringIO()
 
-    namespace = {
-        "FreeCAD": FreeCAD,
-        "FreeCADGui": FreeCADGui,
-        "Part": Part,
-        "math": math,
-        "doc": target_doc if target_doc else FreeCAD.ActiveDocument,
-        "__builtins__": SANDBOX_BUILTINS,
-        "extract_solid": extract_solid,
-        "safe_fuse": safe_fuse,
-        "safe_cut": safe_cut,
-        "make_hollow_cylinder": make_hollow_cylinder,
-        "make_ring": make_ring,
-        "make_box_handle": make_box_handle,
-        "make_arc_handle": make_arc_handle,
-        "ensure_doc": ensure_doc,
-        # CQ-style chain API (CadQuery-like wrapper over FreeCAD Part)
-        "cq": _cq_module,
-        "Workplane": _CQWorkplane,
-        "cq_show": cq_show,
-    }
-    # Inject variables from previous execute_code calls (includes FreeCAD objects)
-    namespace.update(_EXEC_NAMESPACE)
+    namespace = _build_exec_namespace(
+        target_doc if target_doc else FreeCAD.ActiveDocument
+    )
 
     try:
         # Snapshot before execution (so user can undo)
@@ -415,6 +452,18 @@ def _tool_execute_code(args_json: str) -> str:
         params = _extract_parameters(code)
         if params:
             _PARAM_STORE.update(params)
+
+        # Record the successful segment for parametric replay (P12.2).
+        # Strip the auto-create line — replay ensures the target document
+        # exists itself (newDocument on an existing name would fork it).
+        recorded = code
+        if auto_created_doc:
+            doc_create_line = 'doc = FreeCAD.newDocument("CadAgentModel")' + "\n"
+            if recorded.startswith(doc_create_line):
+                recorded = recorded[len(doc_create_line):]
+        _record_code_history(
+            target_doc if target_doc else FreeCAD.ActiveDocument, recorded
+        )
 
         result = "\n".join(parts)
         log_info(f"execute_code result:\n{result}")
@@ -500,27 +549,7 @@ def _attempt_auto_fix(
             execution_code = execution_code[len(doc_create_line):]
 
     # Build fresh namespace for exec().
-    namespace = {
-        "FreeCAD": FreeCAD,
-        "FreeCADGui": FreeCADGui,
-        "Part": Part,
-        "math": math,
-        "doc": restored_doc,
-        "__builtins__": SANDBOX_BUILTINS,
-        "extract_solid": extract_solid,
-        "safe_fuse": safe_fuse,
-        "safe_cut": safe_cut,
-        "make_hollow_cylinder": make_hollow_cylinder,
-        "make_ring": make_ring,
-        "make_box_handle": make_box_handle,
-        "make_arc_handle": make_arc_handle,
-        "ensure_doc": ensure_doc,
-        # CQ-style chain API
-        "cq": _cq_module,
-        "Workplane": _CQWorkplane,
-        "cq_show": cq_show,
-    }
-    namespace.update(_EXEC_NAMESPACE)
+    namespace = _build_exec_namespace(restored_doc)
 
     # Execute the fixed code.
     stdout_capture = io.StringIO()
@@ -545,6 +574,8 @@ def _attempt_auto_fix(
 
     # Success — persist user variables.
     _save_user_vars(namespace)
+    # Record the fixed segment for parametric replay (P12.2).
+    _record_code_history(restored_doc, execution_code)
 
     # Take a new snapshot for future undo. (The bare take_snapshot() call
     # used to raise NameError — swallowed by the except below — so this
