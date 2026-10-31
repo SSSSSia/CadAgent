@@ -33,8 +33,12 @@ def data_root() -> str:
         return env
     try:
         import FreeCAD
-        return os.path.join(FreeCAD.getUserAppDataDir(), "CadAgent")
-    except (ImportError, AttributeError):
+        app_data = FreeCAD.getUserAppDataDir()
+        # Guard against a mocked/odd FreeCAD (seen in test runs: a MagicMock
+        # satisfies __fspath__ and makedirs builds junk dirs in the CWD).
+        if isinstance(app_data, str) and app_data:
+            return os.path.join(app_data, "CadAgent")
+    except (ImportError, AttributeError, TypeError):
         pass
     return os.path.join(os.path.expanduser("~"), ".cadagent")
 

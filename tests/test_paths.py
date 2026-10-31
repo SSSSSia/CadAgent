@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import sys
 
 import core.paths as paths
 
@@ -64,3 +65,27 @@ class TestMigration:
         self._setup(monkeypatch, tmp_path)
         paths.subdir("sessions")
         assert (tmp_path / "install" / "sessions" / "old_sessions.file").exists()
+
+
+class TestDataRootMockGuard:
+    """S7: a mocked FreeCAD (MagicMock) must fall back to ~/.cadagent —
+    its __fspath__ satisfies os.path.join and makedirs used to build junk
+    directories (MagicMock/mock.getUserAppDataDir()) in the CWD."""
+
+    def test_mock_freecad_falls_back_to_home(self, tmp_path, monkeypatch):
+        from unittest.mock import MagicMock
+        monkeypatch.delenv("CADAGENT_DATA_DIR", raising=False)
+        saved = sys.modules.get("FreeCAD")
+        sys.modules["FreeCAD"] = MagicMock()
+        try:
+            root = paths.data_root()
+            assert root == os.path.join(os.path.expanduser("~"), ".cadagent")
+            # And subdir must never create directories in the CWD
+            before = set(os.listdir(os.getcwd()))
+            paths.subdir("log")
+            assert set(os.listdir(os.getcwd())) == before
+        finally:
+            if saved is None:
+                sys.modules.pop("FreeCAD", None)
+            else:
+                sys.modules["FreeCAD"] = saved
