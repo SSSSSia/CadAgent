@@ -177,3 +177,32 @@ class TestPersistentVarsFilter:
     def test_all_temporaries_filtered(self):
         ns = {k: 1 for k in TOOLS._LOOP_TEMPORARY_NAMES}
         assert _filter_persistent_vars(ns) == {}
+
+
+class TestFormatParamsLabel:
+    """S7-F2: status-bar formatting for the extracted parameter store."""
+
+    def test_empty_returns_empty_string(self):
+        assert TOOLS.format_params_label({}) == ""
+
+    def test_single_param(self):
+        assert TOOLS.format_params_label({"OD": 200}) == "Params: OD=200"
+
+    def test_three_params_shown(self):
+        result = TOOLS.format_params_label(
+            {"OD": 200, "H": 90, "T": 2.5}
+        )
+        assert result == "Params: OD=200, H=90, T=2.5"
+
+    def test_extra_params_truncated_with_count(self):
+        result = TOOLS.format_params_label(
+            {"A": 1, "B": 2, "C": 3, "D": 4, "E": 5}
+        )
+        assert result == "Params: A=1, B=2, C=3 (+2 more)"
+
+    def test_float_formatting(self):
+        assert TOOLS.format_params_label({"TOL": 0.1}) == "Params: TOL=0.1"
+
+    def test_custom_max_items(self):
+        result = TOOLS.format_params_label({"A": 1, "B": 2}, max_items=1)
+        assert result == "Params: A=1 (+1 more)"

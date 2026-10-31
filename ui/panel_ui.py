@@ -105,13 +105,21 @@ class _PanelUIMixin:
 
         main_layout.addLayout(ctrl_row)
 
-        # --- Status bar (token + status on one line) ---
+        # --- Status bar (token + params + status on one line) ---
         status_row = QtWidgets.QHBoxLayout()
         status_row.setContentsMargins(0, 2, 0, 0)
         status_row.setSpacing(0)
         self.token_label = QtWidgets.QLabel(f"Tokens: 0 / {_config.MAX_CONTEXT_TOKENS}")
+        self.params_label = QtWidgets.QLabel("")
+        self.params_label.setToolTip(
+            "Named parameters extracted from executed code. They are injected "
+            "into later turns' context — to change one, tell the Agent the "
+            "new value."
+        )
+        self.params_label.setVisible(False)  # hidden until params exist
         self.status_label = QtWidgets.QLabel("Ready")
         status_row.addWidget(self.token_label)
+        status_row.addWidget(self.params_label)
         status_row.addStretch()
         status_row.addWidget(self.status_label)
         main_layout.addLayout(status_row)
@@ -200,6 +208,10 @@ class _PanelUIMixin:
         )
         self.token_label.setStyleSheet(
             f"color:{c.token_ok}; font-size:10px; font-family:{font};"
+        )
+        self.params_label.setStyleSheet(
+            f"color:{c.token_ok}; font-size:10px; font-family:{font};"
+            " padding-left:8px;"
         )
         self.status_label.setStyleSheet(
             f"color:{c.status_idle}; font-size:10px; font-family:{font};"

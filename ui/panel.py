@@ -102,7 +102,8 @@ class _LlmCallThread(QtCore.QThread):
                     json.loads(tc["function"]["arguments"])
                 except (json.JSONDecodeError, KeyError):
                     self.error.emit(
-                        "Stream interrupted: incomplete tool call arguments"
+                        "Malformed tool call: incomplete JSON arguments "
+                        "(stream truncated or invalid model output)"
                     )
                     return
 
@@ -343,6 +344,18 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         tag = " [trimmed]" if trimmed else ""
         self.token_label.setText(f"Tokens: {used} / {budget}{tag}")
         self.token_label.setStyleSheet(f"color:{color}; font-size:10px;")
+        self._update_params_label()
+
+    def _update_params_label(self):
+        """Show extracted parameters in the status bar (S7-F2).
+
+        Params are injected into later turns' context (loop.py); making
+        them visible keeps the README's parameter contract honest.
+        """
+        from agent.tools import get_param_store, format_params_label
+        text = format_params_label(get_param_store())
+        self.params_label.setText(text)
+        self.params_label.setVisible(bool(text))
 
     def _execute_action(self, action: LoopAction):
         if action.kind == LoopActionKind.CALL_LLM:
@@ -503,6 +516,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
                 self._controller.session.persistent_vars = get_persistent_vars()
             except Exception:
                 pass
+            self._update_params_label()  # params changed with this tool run
 
             next_action = self._loop.handle_tool_results(executions)
             self._execute_action(next_action)

@@ -157,6 +157,23 @@ def set_param_store(params: dict) -> None:
     _PARAM_STORE.update(params)
 
 
+def format_params_label(params: dict, max_items: int = 3) -> str:
+    """Format the parameter store for the status-bar label (S7-F2).
+
+    Parameters are extracted from executed code and injected into later
+    turns' context — surfacing them in the UI makes that contract visible.
+    Returns "" when there is nothing to show (label hides itself).
+    """
+    if not params:
+        return ""
+    items = [f"{k}={v}" for k, v in params.items()]
+    shown = ", ".join(items[:max_items])
+    extra = len(items) - max_items
+    if extra > 0:
+        shown += f" (+{extra} more)"
+    return f"Params: {shown}"
+
+
 # ---------------------------------------------------------------------------
 # Document resolution helper
 # ---------------------------------------------------------------------------
