@@ -1,5 +1,7 @@
 # CadAgent — FreeCAD CAD Agent 工作台
 
+**v1.0.0**
+
 [English](README_EN.md)
 
 基于 LLM Agent 的 FreeCAD 工作台插件，通过自然语言描述生成和修改 3D 机械模型。
@@ -10,8 +12,8 @@
 - **ReAct 智能体循环** — LLM 推理 → 生成 CQ 风格代码 → 执行 → 分析结果 → 自纠错，多轮迭代直到设计完成
 - **自然语言设计** — 用中文或英文描述零件，Agent 自动规划并生成 3D 模型
 - **5 个 Agent 工具** — 代码执行、撤销回滚、STEP/IGES/STL/OBJ 导出（导出前自动质量检查）、视口截图分析、参考图片分析
-- **参数化设计** — 定义命名参数（如 `OD = 200`），修改参数自动重新生成模型
-- **多文档装配** — 在多个文档中分别创建零件，自动组合为装配体
+- **参数感知设计** — 代码中的命名参数（如 `OD = 200`）被自动提取并注入后续对话上下文；修改参数 = 告诉 Agent 新值，由 Agent 重新建模。状态栏实时显示当前参数表
+- **多文档零件创建** — 在多个文档中分别创建零件（每文档单零件）；装配组合暂不支持，多 solid 零件组会按装配模式识别放行
 - **增强几何分析** — 检测圆柱、圆锥、球面、螺旋面、孔阵列、对称性、壁厚等特征
 - **CAD 质量门禁** — 每次代码执行后自动检查几何质量（固体完整性、拓扑有效性、尺寸合理性），质量不达标时阻止 Agent 结束
 - **CAD 辅助函数** — 内置 extract_solid、safe_fuse、safe_cut 和 CQ 风格 Workplane API，避免常见布尔运算错误
@@ -140,7 +142,7 @@ CadAgent/
 │   ├── chat_renderer.py  # Markdown → HTML 渲染（含代码高亮）
 │   ├── theme.py          # 亮/暗模式主题配色
 │   └── settings_dialog.py # 设置对话框（7 个提供商预设、连接测试）
-├── tests/                # 576 个单元测试（不依赖 FreeCAD）
+├── tests/                # 692 个单元测试（不依赖 FreeCAD）
 ├── .env.example          # API 配置模板
 ├── .gitignore
 ├── LICENSE
@@ -150,12 +152,24 @@ CadAgent/
 
 ## 技术细节
 
-- **CQ 运行时翻译层** — `agent/cq.py` 提供约 320 行的 `Workplane` 类，每个方法直接调用 FreeCAD Part API。LLM 生成 CadQuery 风格链式代码，`box()`→`Part.makeBox()`，`cut()`→`safe_cut()`，`translate()` 返回新对象（避免 FreeCAD 的 in-place 陷阱）
+- **CQ 运行时翻译层** — `agent/cq.py` 提供约 320 行的 `Workplane` 类，每个方法直接调用 FreeCAD Part API。LLM 生成 CadQuery 风格链式代码，`box()`→`Part.makeBox()`，`cut()`→`safe_cut()`，`translate()` 返回新对象（避免 FreeCAD 的 in-place 陷阱）。拉伸语义与 CadQuery 对齐（从工作平面向 +Z 拉伸、`both=True` 对称双侧）；当前仅支持 XY 工作平面（支持 `origin` 定位与 `.workplane(offset=N)` 抬升），XZ/YZ 朝向需求请在 XY 上构建后用 `.rotate()` 定向
 - **双层架构**：AgentLoop 纯逻辑状态机与 UI 线程编排分离，可独立测试
 - **线程安全**：LLM API 调用在后台 QThread 中执行，FreeCAD API 操作（工具执行）通过 Signal/Slot 回到主线程
 - **纯标准库**：HTTP 请求使用 `urllib`，无外部 Python 包依赖（不安装 CadQuery）
 - **兼容性**：自动检测模型是否支持 Tool Calling，不支持时回退到 ReAct XML 标签模式；代码错误提示同时支持 CQ 风格和 FreeCAD 原生 API
-- **576 个自动化测试**：覆盖核心模块（react_parser、token_budget、chat_renderer、config、session、code_fixes、agent_loop、tool_dispatch、quality、parametric、cq_workplane 等）
+- **692 个自动化测试**：覆盖核心模块（react_parser、token_budget、chat_renderer、config、session、session_store、code_fixes、agent_loop、tool_dispatch、tool_quality_integration、quality、parametric、cq_workplane、snapshot、paths 等），另含 30 项真实 FreeCAD 运行时行为回归脚本（`scripts/verify_freecad_behavior.py`）
+
+## 数据存储位置
+
+用户数据保存在 FreeCAD 用户数据目录下的 `CadAgent/` 中（可用环境变量 `CADAGENT_DATA_DIR` 覆盖，安装目录中的旧数据会在首次运行时自动迁移）：
+
+```
+<FreeCAD 用户数据目录>/CadAgent/
+├── sessions/    # 会话历史（JSON）
+├── snapshots/   # 撤销快照（.FCStd）
+├── uploads/     # 参考图片
+└── log/         # 运行日志（5MB 自动轮转，保留 3 份）
+```
 
 ## 许可证
 

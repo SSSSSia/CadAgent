@@ -1,5 +1,7 @@
 # CadAgent — FreeCAD CAD Agent Workbench
 
+**v1.0.0**
+
 [中文](README.md)
 
 An LLM Agent-powered FreeCAD workbench that generates and modifies 3D mechanical models through natural language descriptions.
@@ -10,8 +12,8 @@ An LLM Agent-powered FreeCAD workbench that generates and modifies 3D mechanical
 - **ReAct Agent Loop** — LLM reasoning → generate CQ-style code → execute → analyze results → self-correct, iterating until the design is complete
 - **Natural Language Design** — Describe parts in plain text, and the Agent automatically plans and generates 3D models
 - **5 Agent Tools** — Code execution, undo/rollback, STEP/IGES/STL/OBJ export (with pre-export quality check), viewport capture with vision analysis, reference image analysis
-- **Parametric Design** — Define named parameters (e.g. `OD = 200`), update them to automatically regenerate the model
-- **Multi-Document Assembly** — Create parts in separate documents, then combine them into an assembly with positions
+- **Parameter-Aware Design** — Named parameters in code (e.g. `OD = 200`) are extracted automatically and injected into later turns' context; to change one, tell the Agent the new value and it re-models. The status bar shows the current parameter table live
+- **Multi-Document Part Creation** — Create parts in separate documents (one part per document); assembly combination is not yet supported — multi-solid part groups are recognized in assembly mode instead
 - **Enhanced Geometry Analysis** — Detects cylinders, cones, spheres, helix surfaces, hole patterns, symmetry, and wall thickness
 - **CAD Quality Gate** — Automatic geometry quality check after each code execution (solid integrity, topology validity, dimension sanity). Blocks agent from finishing when quality fails.
 - **CAD Helper Functions** — Built-in CQ-style Workplane API and legacy helpers (extract_solid, safe_fuse, safe_cut) to prevent common boolean operation errors
@@ -131,7 +133,7 @@ CadAgent/
 │   ├── chat_renderer.py  # Markdown → HTML rendering (with syntax highlighting)
 │   ├── theme.py          # Light/dark mode theme colors
 │   └── settings_dialog.py # Settings dialog (7 provider presets, connection test)
-├── tests/                # 576 unit tests (no FreeCAD dependency)
+├── tests/                # 692 unit tests (no FreeCAD dependency)
 ├── .env.example          # API config template
 ├── .gitignore
 ├── LICENSE
@@ -141,12 +143,33 @@ CadAgent/
 
 ## Technical Details
 
-- **CQ Runtime Translation Layer** — `agent/cq.py` provides a ~320-line `Workplane` class whose methods directly call FreeCAD Part API. LLMs write CadQuery-style chain code; `box()`→`Part.makeBox()`, `cut()`→`safe_cut()`, `translate()` returns new objects (avoiding FreeCAD's in-place mutation trap)
+- **CQ Runtime Translation Layer** — `agent/cq.py` provides a ~320-line `Workplane` class whose methods directly call FreeCAD Part API. LLMs write CadQuery-style chain code; `box()`→`Part.makeBox()`, `cut()`→`safe_cut()`, `translate()` returns new objects (avoiding FreeCAD's in-place mutation trap). Extrude semantics match CadQuery (rises from the workplane along +Z, `both=True` extrudes symmetrically); only the XY workplane is currently supported (`origin` placement and `.workplane(offset=N)` work) — for XZ/YZ orientations, build on XY then orient with `.rotate()`
 - **Dual-Layer Architecture** — AgentLoop (pure-logic state machine) separated from UI thread orchestration, independently testable
 - **Thread Safety** — LLM API calls run in a background QThread; FreeCAD API operations (tool execution) return to the main thread via Signal/Slot
 - **Standard Library Only** — HTTP requests use `urllib` — no external Python package dependencies (CadQuery not installed)
 - **Compatibility** — Automatically detects whether the model supports Tool Calling, falls back to ReAct XML tag mode; error hints support both CQ-style and native FreeCAD API patterns
-- **576 Automated Tests** — Covering core modules (react_parser, token_budget, chat_renderer, config, session, code_fixes, agent_loop, tool_dispatch, quality, parametric, cq_workplane, etc.)
+- **692 Automated Tests** — Covering core modules (react_parser, token_budget, chat_renderer, config, session, session_store, code_fixes, agent_loop, tool_dispatch, tool_quality_integration, quality, parametric, cq_workplane, snapshot, paths, etc.), plus a 30-check real-FreeCAD behavior regression script (`scripts/verify_freecad_behavior.py`)
+
+## Security Notes
+
+CadAgent executes LLM-generated Python code directly in your local FreeCAD Python process:
+
+- **This is not a sandbox.** The `execute_code` namespace uses a builtin whitelist (`SANDBOX_BUILTINS`), but `__import__` is unrestricted — generated code can read/write files, make network requests, and run system commands. The whitelist only turns common typos into clear errors; it is **not a security boundary**.
+- **Prompt injection is an inherent risk.** The model can be tricked by conversation content, reference images, or document context into generating malicious code.
+- **Recommendations**: run only in environments where you trust the LLM service and input sources; do not run session files from unknown origins on machines holding sensitive data; rotate your key at the provider if you suspect leakage.
+- **API key management**: keys live in the repo-root `.env` (excluded by `.gitignore` — never commit or screenshot it); restart FreeCAD after changing the key.
+
+## Data Location
+
+User data is stored under `CadAgent/` in the FreeCAD user data directory (override with the `CADAGENT_DATA_DIR` environment variable; legacy data in the install directory is migrated automatically on first run):
+
+```
+<FreeCAD user data dir>/CadAgent/
+├── sessions/    # session history (JSON)
+├── snapshots/   # undo snapshots (.FCStd)
+├── uploads/     # reference images
+└── log/         # runtime log (5MB auto-rotation, 3 backups)
+```
 
 ## License
 

@@ -13,7 +13,7 @@ class _PanelSessionMixin:
         sessions = self._store.list_sessions()
         self.session_combo.blockSignals(True)
         self.session_combo.clear()
-        self.session_combo.addItem("当前会话")
+        self.session_combo.addItem("(current session)")
         for s in sessions:
             summary_text = s.get("summary", "") or "No summary"
             created = (s.get("created_at") or "")[:10]  # null-safe (S3-D15)
@@ -31,7 +31,7 @@ class _PanelSessionMixin:
     def _on_session_selected(self, index):
         self.btn_delete_session.setEnabled(index > 0)
         if index <= 0:
-            # Already on a fresh empty session — selecting "当前会话" used to
+            # Already on a fresh empty session — selecting "(current session)" used to
             # wipe the view unconditionally (S3-D14)
             if self._session.user_turn_count() == 0:
                 self._refresh_session_list()
@@ -71,7 +71,7 @@ class _PanelSessionMixin:
         if not session_id or session_id == self._current_session_id:
             return
         if self._live_threads():
-            self._append_system_msg("Agent 运行中，无法切换会话。")
+            self._append_system_msg("Cannot switch session while the agent is running.")
             self._refresh_session_list()
             return
         self._store.save_if_not_empty(self._session)
@@ -82,7 +82,7 @@ class _PanelSessionMixin:
 
         loaded = self._store.load(session_id)
         if loaded is None:
-            self._append_system_msg("加载会话失败。")
+            self._append_system_msg("Failed to load session.")
             self._refresh_session_list()
             return
         self._session = loaded

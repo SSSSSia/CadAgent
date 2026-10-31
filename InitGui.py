@@ -4,6 +4,8 @@ import sys
 import FreeCAD
 import FreeCADGui
 
+__version__ = "1.0.0"
+
 # FreeCAD 通过 exec() 加载 InitGui.py，此时 __file__ 不可用，Python 也不知道本插件
 # 的其他模块在哪里。必须手动定位插件目录并加入 sys.path，
 # 否则后续的 import 会报 ModuleNotFoundError。
