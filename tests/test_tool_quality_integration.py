@@ -317,3 +317,238 @@ class TestExecuteCodeMissingCodeKey:
         result = tools._tool_execute_code(json.dumps({"description": "no code"}))
         assert result.startswith("ERROR")
         assert "'code' key" in result
+
+
+# ---------------------------------------------------------------------------
+# S7-E5: remaining critical-path coverage in agent/tools.py
+# ---------------------------------------------------------------------------
+
+class TestUndoLast:
+    """_tool_undo_last: snapshot restore + stale-var cleanup messaging."""
+
+    def _run(self, restore_result, prepare=None):
+        import core.snapshot as snapshot_mod
+        from tests.helpers import install_sys_modules, restore_sys_modules
+
+        tools, mock_fc, _ = _load_tools()
+        mock_doc = MagicMock()
+        mock_doc.Document = None  # healthy doc: no foreign Document ref
+        body = MagicMock()
+        body.Name = "Body"
+        body.Shape = MagicMock()
+        mock_doc.Objects = [body]
+        mock_fc.ActiveDocument = mock_doc
+
+        tools.clear_persistent_vars()
+        if prepare:
+            prepare(tools)
+        orig_restore = snapshot_mod.restore_latest_snapshot
+        snapshot_mod.restore_latest_snapshot = lambda: restore_result
+        saved = install_sys_modules({"FreeCAD": mock_fc})
+        try:
+            result = tools._tool_undo_last("{}")
+            snapshot = dict(tools._EXEC_NAMESPACE)
+            return result, snapshot
+        finally:
+            restore_sys_modules(saved)
+            snapshot_mod.restore_latest_snapshot = orig_restore
+            tools.clear_persistent_vars()
+
+    def test_success_without_stale_vars(self):
+        result, _ns = self._run("SUCCESS: Document restored.")
+        assert result == "SUCCESS: Document restored."
+
+    def test_success_with_stale_vars_reports_cleanup(self):
+        def prepare(tools):
+            tools._EXEC_NAMESPACE["H"] = 90  # primitive — must survive
+            dead = MagicMock()
+            dead.Document = MagicMock(name="other_doc")  # not the active doc
+            tools._EXEC_NAMESPACE["old_body"] = dead
+
+        result, ns = self._run("SUCCESS: Document restored.", prepare)
+        assert "Cleared stale variables: old_body" in result
+        assert "Objects in restored doc: Body" in result
+        assert "doc.getObject('Name')" in result  # re-reference guidance
+        assert "H" in ns  # primitives kept
+
+    def test_error_result_passed_through(self):
+        result, _ = self._run("ERROR: No snapshot available.")
+        assert result == "ERROR: No snapshot available."
+
+
+class TestCleanStaleNamespaceVars:
+
+    class _Dead:
+        @property
+        def Document(self):
+            raise RuntimeError("wrapped C++ object deleted")
+
+    def _run(self, populate):
+        tools, mock_fc, _ = _load_tools()
+        mock_doc = MagicMock()
+        mock_doc.Objects = []
+        mock_fc.ActiveDocument = mock_doc
+        tools.clear_persistent_vars()
+        populate(tools)
+        from tests.helpers import install_sys_modules, restore_sys_modules
+        saved = install_sys_modules({"FreeCAD": mock_fc})
+        try:
+            removed = tools._clean_stale_namespace_vars()
+            return removed, dict(tools._EXEC_NAMESPACE)
+        finally:
+            restore_sys_modules(saved)
+            tools.clear_persistent_vars()
+
+    def test_primitives_survive(self):
+        def populate(tools):
+            tools._EXEC_NAMESPACE.update({"OD": 200, "TOL": 0.5, "NAME": "x"})
+        removed, ns = self._run(populate)
+        assert removed == []
+        assert set(ns) == {"OD", "TOL", "NAME"}
+
+    def test_foreign_document_reference_removed(self):
+        def populate(tools):
+            obj = MagicMock()
+            obj.Document = MagicMock(name="foreign")
+            tools._EXEC_NAMESPACE["body"] = obj
+        removed, ns = self._run(populate)
+        assert removed == ["body"]
+        assert "body" not in ns
+
+    def test_dead_cpp_reference_removed(self):
+        def populate(tools):
+            tools._EXEC_NAMESPACE["gone"] = self._Dead()
+        removed, _ = self._run(populate)
+        assert removed == ["gone"]
+
+    def test_workplane_with_dead_shape_removed(self):
+        def populate(tools):
+            wp = tools._CQWorkplane("XY")
+            dead_shape = MagicMock()
+            dead_shape.isNull.side_effect = RuntimeError("shape deleted")
+            wp._shapes = [dead_shape]
+            tools._EXEC_NAMESPACE["wp"] = wp
+        removed, _ = self._run(populate)
+        assert removed == ["wp"]
+
+    def test_healthy_workplane_survives(self):
+        def populate(tools):
+            wp = tools._CQWorkplane("XY")
+            wp._shapes = []  # no geometry to probe
+            tools._EXEC_NAMESPACE["wp"] = wp
+        removed, ns = self._run(populate)
+        assert removed == []
+        assert "wp" in ns
+
+
+class TestAutoFixSnapshotRestoreFailure:
+    """S7-E5: restore failure aborts the auto-fix before any retry work."""
+
+    def test_restore_failure_returns_none_without_take(self):
+        import core.snapshot as snapshot_mod
+        from tests.helpers import install_sys_modules, restore_sys_modules
+
+        tools, mock_fc, _ = _load_tools()
+        mock_fc.ActiveDocument = MagicMock()
+        tools.clear_persistent_vars()
+        take_calls = []
+        orig_restore = snapshot_mod.restore_latest_snapshot
+        orig_take = snapshot_mod.take_snapshot
+        snapshot_mod.restore_latest_snapshot = lambda: "ERROR: restore failed"
+        snapshot_mod.take_snapshot = lambda: take_calls.append(1)
+        saved = install_sys_modules({"FreeCAD": mock_fc})
+        try:
+            result = tools._attempt_auto_fix(
+                original_error=ValueError("x"),
+                original_code="bad = 1",
+                fixed_code="good = 1",
+                hint_text="hint",
+                auto_created_doc=False,
+            )
+        finally:
+            restore_sys_modules(saved)
+            snapshot_mod.restore_latest_snapshot = orig_restore
+            snapshot_mod.take_snapshot = orig_take
+            tools.clear_persistent_vars()
+        assert result is None
+        assert take_calls == []
+
+
+class TestExportStepIges:
+    """S7-E5: STEP/IGES branch of _tool_export_step."""
+
+    def _run(self, tools, mock_fc, filename, fmt,
+             import_raises=None, monkeypatch=None):
+        import core.quality as quality_mod
+        from core.quality import QualityReport
+        from tests.helpers import install_sys_modules, restore_sys_modules
+
+        orig_quality = quality_mod.analyze_document_quality
+        quality_mod.analyze_document_quality = lambda doc, assembly_mode=False: \
+            QualityReport(passed=True, severity="ok", issues=[], summary="PASSED")
+
+        mock_shape = MagicMock()
+        mock_shape.isNull.return_value = False
+        mock_obj = MagicMock()
+        mock_obj.Shape = mock_shape
+        mock_doc = MagicMock()
+        mock_doc.Objects = [mock_obj]
+        mock_fc.ActiveDocument = mock_doc
+
+        import_mod = MagicMock()
+        if import_raises:
+            import_mod.export.side_effect = import_raises
+        saved = install_sys_modules({"Import": import_mod})
+        import unittest.mock as _um
+        patches = [
+            _um.patch("os.path.getsize", return_value=123),
+            _um.patch("os.path.isfile", return_value=True),
+        ]
+        for _p in patches:
+            _p.start()
+        try:
+            return tools._tool_export_step(
+                json.dumps({"filename": filename, "format": fmt})
+            ), import_mod
+        finally:
+            for _p in patches:
+                _p.stop()
+            restore_sys_modules(saved)
+            quality_mod.analyze_document_quality = orig_quality
+
+    def test_no_extension_appends_step(self):
+        tools, mock_fc, _ = _load_tools()
+        result, import_mod = self._run(tools, mock_fc, "out", "step")
+        assert result.startswith("SUCCESS")
+        assert import_mod.export.call_args[0][1].endswith("out.step")
+
+    def test_stp_extension_accepted(self):
+        tools, mock_fc, _ = _load_tools()
+        result, import_mod = self._run(tools, mock_fc, "part.stp", "step")
+        assert result.startswith("SUCCESS")
+        import_mod.export.assert_called_once()
+
+    def test_iges_extension_mismatch_errors(self):
+        tools, mock_fc, _ = _load_tools()
+        result, import_mod = self._run(tools, mock_fc, "part.step", "iges")
+        assert result.startswith("ERROR")
+   
+
+
+    def test_import_failure_falls_back_to_part_export(self):
+        tools, mock_fc, _ = _load_tools()
+        result, import_mod = self._run(
+            tools, mock_fc, "part.step", "step",
+            import_raises=RuntimeError("Import module missing"),
+        )
+        assert result.startswith("SUCCESS")
+        assert "Part.export fallback" in result
+
+    def test_no_active_document_errors(self):
+        tools, mock_fc, _ = _load_tools()
+        mock_fc.ActiveDocument = None
+        result = tools._tool_export_step(
+            json.dumps({"filename": "out.step", "format": "step"})
+        )
+        assert result.startswith("ERROR")
+        assert "No active document" in result

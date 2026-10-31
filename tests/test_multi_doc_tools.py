@@ -89,6 +89,10 @@ def test_tool_names():
 # ---------------------------------------------------------------------------
 # Prompt structure tests
 # ---------------------------------------------------------------------------
+# S7-E5: this file keeps only the tool-coverage assertions unique to it
+# (all 5 tools reachable in both modes). Generic prompt-content checks
+# (context placeholder, CRITICAL RULES wording, vision notes...) live in
+# test_prompts.py — maintaining both copies had already caused drift.
 
 def test_agent_prompt_has_core_tools():
     # Verify all 5 tools are mentioned
@@ -99,12 +103,6 @@ def test_agent_prompt_has_core_tools():
     assert "analyze_image" in AGENT_SYSTEM_PROMPT
 
 
-def test_agent_prompt_workflow():
-    # Verify workflow mentions building and execute_code
-    assert "execute_code" in AGENT_SYSTEM_PROMPT
-    assert "WORKFLOW" in AGENT_SYSTEM_PROMPT
-
-
 def test_react_prompt_has_core_tools():
     # Verify XML examples for all 5 tools
     assert '<tool name="execute_code">' in REACT_SYSTEM_PROMPT
@@ -112,41 +110,6 @@ def test_react_prompt_has_core_tools():
     assert '<tool name="export_step">' in REACT_SYSTEM_PROMPT
     assert '<tool name="capture_view">' in REACT_SYSTEM_PROMPT
     assert '<tool name="analyze_image">' in REACT_SYSTEM_PROMPT
-
-
-def test_all_prompts_have_context_placeholder():
-    assert "{context}" in AGENT_SYSTEM_PROMPT
-    assert "{context}" in REACT_SYSTEM_PROMPT
-
-
-def test_agent_prompt_critical_rules():
-    # Verify critical rules section exists
-    assert "CRITICAL RULES" in AGENT_SYSTEM_PROMPT
-    assert "Variables PERSIST" in AGENT_SYSTEM_PROMPT
-    assert "Boolean ops" in AGENT_SYSTEM_PROMPT
-    assert ".translate(" in AGENT_SYSTEM_PROMPT
-
-
-def test_react_prompt_critical_rules():
-    # Verify critical rules section exists in ReAct prompt too
-    assert "CRITICAL RULES" in REACT_SYSTEM_PROMPT
-    assert "Variables PERSIST" in REACT_SYSTEM_PROMPT
-    assert "Boolean ops" in REACT_SYSTEM_PROMPT
-    assert ".translate(" in REACT_SYSTEM_PROMPT
-
-
-def test_agent_prompt_vision_rules():
-    # Verify vision tool rules are present in agent prompt
-    assert "capture_view" in AGENT_SYSTEM_PROMPT
-    assert "vision API configured" in AGENT_SYSTEM_PROMPT
-    assert "[image: path]" in AGENT_SYSTEM_PROMPT
-
-
-def test_react_prompt_vision_rules():
-    # Verify vision tool rules are present in ReAct prompt
-    assert "capture_view" in REACT_SYSTEM_PROMPT
-    assert "vision API configured" in REACT_SYSTEM_PROMPT
-    assert "[image: path]" in REACT_SYSTEM_PROMPT
 
 
 # ---------------------------------------------------------------------------
