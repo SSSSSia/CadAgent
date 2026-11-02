@@ -134,20 +134,21 @@ def set_persistent_vars(vars: dict) -> None:
 
 
 def _extract_parameters(code: str) -> dict:
-    """Extract parameter definitions (UPPER_NAME = value) from top of code.
+    """Extract column-0 parameter definitions (UPPER_NAME = number).
 
-    Limitation (S5-A17, kept by design): only the leading consecutive
-    parameter block is recognized — parameters defined later in the code
-    are intentionally ignored to avoid capturing loop temporaries."""
-
+    Any top-level matching line counts, including ones after other
+    statements (S8-B). Indented assignments are left alone so loop
+    locals are not captured. Expressions are not numeric literals and
+    are ignored.
+    """
     params = {}
-    for line in code.strip().split('\n'):
-        m = _PARAM_PATTERN.match(line.strip())
-        if m:
-            val = float(m.group(2)) if '.' in m.group(2) else int(m.group(2))
-            params[m.group(1)] = val
-        elif line.strip() and not line.strip().startswith('#'):
-            break
+    for line in code.splitlines():
+        m = _PARAM_PATTERN.match(line)
+        if not m:
+            continue
+        raw = m.group(2)
+        val = float(raw) if "." in raw else int(raw)
+        params[m.group(1)] = val
     return params
 
 
@@ -173,17 +174,95 @@ def get_code_history() -> list[tuple[str, str]]:
     return list(_CODE_HISTORY)
 
 
+# How many successful segments FIFO has discarded in this process.
+# Session reload resets it: dropped rows are simply absent from the file.
+_CODE_HISTORY_DROPPED = 0
+
+
+def _history_limit() -> int:
+    import core.config as cfg
+    try:
+        limit = int(getattr(cfg, "MAX_CODE_HISTORY", 50))
+    except (TypeError, ValueError):
+        limit = 50
+    return max(1, limit)
+
+
+def _drop_oldest_true_frame() -> None:
+    """The oldest history-owning undo frame no longer has a row to pop.
+
+    The frame stays in the list so it remains aligned with its snapshot.
+    A leading False (a failed attempt) is left alone — this is not pop(0).
+    """
+    for index, owns_history in enumerate(_UNDO_FRAMES):
+        if owns_history:
+            _UNDO_FRAMES[index] = False
+            return
+
+
+def _trim_code_history() -> None:
+    """Keep at most MAX_CODE_HISTORY successful segments (oldest first)."""
+    global _CODE_HISTORY_DROPPED
+    limit = _history_limit()
+    while len(_CODE_HISTORY) > limit:
+        _CODE_HISTORY.pop(0)
+        _drop_oldest_true_frame()
+        _CODE_HISTORY_DROPPED += 1
+
+
+def _history_replay_note() -> str:
+    """Honest rebuild note when older segments are no longer replayed."""
+    if _CODE_HISTORY_DROPPED <= 0:
+        return ""
+    kept = len(_CODE_HISTORY)
+    total = kept + _CODE_HISTORY_DROPPED
+    return (
+        f"NOTE: Replaying the most recent {kept} segment(s) of {total} total."
+    )
+
+
 def set_code_history(history: list) -> None:
     """Replace the code history (session restore)."""
+    global _CODE_HISTORY_DROPPED
     _CODE_HISTORY.clear()
+    _UNDO_FRAMES.clear()
+    _CODE_HISTORY_DROPPED = 0
     for entry in history:
         _CODE_HISTORY.append((entry[0], entry[1]))
+        # Restored segments are undoable one-for-one until a live execute
+        # pushes a newer frame on top.
+        _UNDO_FRAMES.append(True)
+    _trim_code_history()
 
 
 def _record_code_history(doc, code: str) -> None:
     """Append a successfully executed segment with its target document."""
     name = getattr(doc, "Name", None) if doc is not None else None
     _CODE_HISTORY.append((name or "", code))
+    _trim_code_history()
+
+
+# Parallel to snapshots: True when that snapshot has a history row to drop
+# on undo. Quality failures and exec errors push False so a later undo does
+# not discard an earlier successful segment (S8-R2).
+_UNDO_FRAMES: list[bool] = []
+
+
+def _note_undo_frame(recorded: bool) -> None:
+    """Remember whether the snapshot just taken owns a history row."""
+    _UNDO_FRAMES.append(bool(recorded))
+
+
+def _pop_undo_frame(doc_name: str) -> None:
+    """Drop the history row that belonged to the snapshot just restored."""
+    if not _UNDO_FRAMES:
+        return
+    recorded = _UNDO_FRAMES.pop()
+    if not recorded or not _CODE_HISTORY:
+        return
+    last_name, _code = _CODE_HISTORY[-1]
+    if last_name == (doc_name or ""):
+        _CODE_HISTORY.pop()
 
 
 def _build_exec_namespace(doc) -> dict:
@@ -213,8 +292,13 @@ def _build_exec_namespace(doc) -> dict:
         "Workplane": _CQWorkplane,
         "cq_show": cq_show,
     }
-    # Inject variables from previous execute_code calls (includes FreeCAD objects)
+    # Inject variables from previous execute_code calls (includes FreeCAD objects).
+    # `doc` must stay the document resolved for THIS call. A previous undo or
+    # auto-fix used to stash a Document in _EXEC_NAMESPACE, and update()
+    # overwrote the binding (S8-R1).
     namespace.update(_EXEC_NAMESPACE)
+    namespace["doc"] = doc
+    _EXEC_NAMESPACE.pop("doc", None)
     return namespace
 
 
@@ -396,6 +480,7 @@ def _tool_execute_code(args_json: str) -> str:
         target_doc if target_doc else FreeCAD.ActiveDocument
     )
 
+    snap_ok = False
     try:
         # Snapshot before execution (so user can undo)
         try:
@@ -405,6 +490,7 @@ def _tool_execute_code(args_json: str) -> str:
             else:
                 from core.snapshot import take_snapshot
                 take_snapshot()
+            snap_ok = True
         except Exception as e:
             log_warning(f"Snapshot failed, undo unavailable: {e}")
 
@@ -453,17 +539,24 @@ def _tool_execute_code(args_json: str) -> str:
         if params:
             _PARAM_STORE.update(params)
 
-        # Record the successful segment for parametric replay (P12.2).
-        # Strip the auto-create line — replay ensures the target document
-        # exists itself (newDocument on an existing name would fork it).
+        # Record only a quality-passing segment (OK:, including warnings).
+        # FAIL/ERROR must not enter replay history (S8-R2). Strip the
+        # auto-create line — replay ensures the target document exists
+        # itself (newDocument on an existing name would fork it).
         recorded = code
         if auto_created_doc:
             doc_create_line = 'doc = FreeCAD.newDocument("CadAgentModel")' + "\n"
             if recorded.startswith(doc_create_line):
                 recorded = recorded[len(doc_create_line):]
-        _record_code_history(
-            target_doc if target_doc else FreeCAD.ActiveDocument, recorded
-        )
+        header = parts[0] if parts else ""
+        history_recorded = False
+        if header.startswith("OK:"):
+            _record_code_history(
+                target_doc if target_doc else FreeCAD.ActiveDocument, recorded
+            )
+            history_recorded = True
+        if snap_ok:
+            _note_undo_frame(history_recorded)
 
         result = "\n".join(parts)
         log_info(f"execute_code result:\n{result}")
@@ -477,11 +570,17 @@ def _tool_execute_code(args_json: str) -> str:
         log_error(f"execute_code FAILED: {type(e).__name__}: {e}\n{tb}")
         hint, fixed_code = error_hint(e, code)
 
-        # Phase 5: Auto-fix retry for high-confidence mechanical errors
+        # Phase 5: Auto-fix retry for high-confidence mechanical errors.
+        # A successful auto-fix consumes the pre-exec snapshot and records
+        # its own undo frame. Otherwise the original snapshot is still the
+        # one undo will restore, and it has no history row (S8-R2).
+        auto_result = None
         if fixed_code is not None:
             auto_result = _attempt_auto_fix(e, code, fixed_code, hint, auto_created_doc)
             if auto_result is not None:
                 return auto_result
+        if snap_ok and auto_result is None:
+            _note_undo_frame(False)
 
         parts = [f"ERROR: {type(e).__name__}: {e}"]
         parts.append(f"Traceback:\n{tb}")
@@ -539,8 +638,6 @@ def _attempt_auto_fix(
     if stale:
         log_info(f"Auto-fix: cleared stale vars: {', '.join(stale)}")
 
-    _EXEC_NAMESPACE["doc"] = restored_doc
-
     # Strip auto-creation prefix from fixed_code if applicable.
     execution_code = fixed_code
     if auto_created_doc:
@@ -574,15 +671,16 @@ def _attempt_auto_fix(
 
     # Success — persist user variables.
     _save_user_vars(namespace)
-    # Record the fixed segment for parametric replay (P12.2).
-    _record_code_history(restored_doc, execution_code)
 
     # Take a new snapshot for future undo. (The bare take_snapshot() call
     # used to raise NameError — swallowed by the except below — so this
     # snapshot was never actually taken; import it properly. S4-C12.)
+    # History is recorded only after the quality header is known (below).
+    snap_ok = False
     try:
         from core.snapshot import take_snapshot
         take_snapshot()
+        snap_ok = True
     except Exception:
         pass
 
@@ -616,6 +714,11 @@ def _attempt_auto_fix(
             f"Quality check error: {type(e).__name__}: {e}"
         )
         header = "FAIL: Auto-fix applied but CAD quality check crashed."
+
+    if header.startswith("OK:"):
+        _record_code_history(restored_doc, execution_code)
+    if snap_ok:
+        _note_undo_frame(header.startswith("OK:"))
 
     parts = [header] + detail_parts + quality_parts
 
@@ -653,7 +756,14 @@ def _tool_undo_last(args_json: str) -> str:
     result = restore_latest_snapshot()
     if result.startswith("SUCCESS"):
         import FreeCAD
-        _EXEC_NAMESPACE["doc"] = FreeCAD.ActiveDocument
+        active = FreeCAD.ActiveDocument
+        doc_name = ""
+        if active is not None:
+            try:
+                doc_name = active.Name or ""
+            except (ReferenceError, RuntimeError):
+                doc_name = ""
+        _pop_undo_frame(doc_name)
         stale = _clean_stale_namespace_vars()
         if stale:
             result += f"\nCleared stale variables: {', '.join(stale)}"
@@ -754,6 +864,7 @@ def rebuild_with_params(params: dict) -> str:
         log_warning(f"Rebuild: pre-snapshot failed, undo unavailable: {e}")
 
     # --- Clean state: vars, params, cq_show-owned objects -------------------
+    previous_params = get_param_store()
     clear_persistent_vars()
     set_param_store(dict(params))
     from agent.cad_helpers import clear_cq_objects
@@ -780,13 +891,18 @@ def rebuild_with_params(params: dict) -> str:
             else:
                 break
         clear_persistent_vars()
+        set_param_store(previous_params)
         log_quiet(
             f"Rebuild failed: {type(e).__name__}: {e}\n{traceback.format_exc()}"
         )
-        return (
+        note = _history_replay_note()
+        rolled_back = (
             f"FAIL: Rebuild failed at step {step}: {type(e).__name__}: {e}\n"
             f"Rolled back {rolled}/{taken} document(s) to the pre-rebuild state."
         )
+        if note:
+            rolled_back += "\n" + note
+        return rolled_back
 
     # --- Success: quality gate decides the first line ------------------------
     parts = [
@@ -807,6 +923,9 @@ def rebuild_with_params(params: dict) -> str:
         parts.append(f"Quality check error: {type(e).__name__}: {e}")
 
     parts.append("Parameters: " + ", ".join(f"{k}={v}" for k, v in params.items()))
+    note = _history_replay_note()
+    if note:
+        parts.append(note)
     stdout_text = stdout_capture.getvalue()
     if stdout_text:
         parts.append(f"Stdout:\n{stdout_text}")

@@ -8,11 +8,11 @@
 
 ## 功能特性
 
-- **CadQuery 风格代码生成** — 内置 CQ 风格链式 API（`cq.Workplane("XY").box().cut()`），LLM 生成代码更准确、更少出错。无需安装 CadQuery，内置运行时翻译层直接调用 FreeCAD Part API
+- **CadQuery 风格代码生成** — 内置 CQ 风格链式 API（`cq.Workplane("XY").box().cut()`），含阵列（`polarArray`/`rarray`）、孔（`hole`/`cboreHole`）、回转、普通方块/圆柱抽壳、圆角/倒角。LLM 生成代码更准确、更少出错。无需安装 CadQuery，内置运行时翻译层直接调用 FreeCAD Part API
 - **ReAct 智能体循环** — LLM 推理 → 生成 CQ 风格代码 → 执行 → 分析结果 → 自纠错，多轮迭代直到设计完成
 - **自然语言设计** — 用中文或英文描述零件，Agent 自动规划并生成 3D 模型
 - **5 个 Agent 工具** — 代码执行、撤销回滚、STEP/IGES/STL/OBJ 导出（导出前自动质量检查）、视口截图分析、参考图片分析
-- **参数化重放** — 代码中的命名参数（如 `OD = 200`）被自动提取并注入后续对话上下文；点击工具栏 **ƒ(x)** 编辑参数即可**确定性重建模型**（重放本会话的建模代码，零 LLM 调用，重建前自动快照、可 Undo）。状态栏实时显示当前参数表
+- **参数化重放** — 代码中任意顶层的命名参数（如 `OD = 200`，不要求写在文件开头）被自动提取并注入后续对话上下文；点击工具栏 **ƒ(x)** 编辑参数即可**确定性重建模型**（重放本会话最近的成功代码段，零 LLM 调用，重建前自动快照、可 Undo）。状态栏实时显示当前参数表
 - **多文档零件创建** — 在多个文档中分别创建零件（每文档单零件）；装配组合暂不支持，多 solid 零件组会按装配模式识别放行
 - **增强几何分析** — 检测圆柱、圆锥、球面、螺旋面、孔阵列、对称性、壁厚等特征
 - **CAD 质量门禁** — 每次代码执行后自动检查几何质量（固体完整性、拓扑有效性、尺寸合理性），质量不达标时阻止 Agent 结束
@@ -24,7 +24,7 @@
 - **STL/OBJ 导出** — 支持 STEP/IGES/STL/OBJ 四种导出格式，STL 适合 3D 打印。导出前自动运行质量检查
 - **智能澄清策略** — 自动假设合理默认值（间隙孔、壁厚、原点位置），仅在缺少关键尺寸时询问用户
 - **流式输出** — 实时显示 Agent 思考和代码生成过程
-- **撤销/回滚** — 每次代码执行前自动创建文档快照，支持无限撤销
+- **撤销/回滚** — 每次代码执行前自动创建文档快照。撤销栈按文档分开，全局默认最多保留 10 份（`MAX_SNAPSHOTS`）
 - **会话管理** — 多轮对话历史持久化，支持跨 FreeCAD 会话恢复
 - **双模式支持** — 自动适配 Tool Calling 和 ReAct XML 两种 LLM 调用模式
 - **Token 预算管理** — 自动裁剪历史消息，防止超出 API 上下文长度限制
@@ -142,7 +142,7 @@ CadAgent/
 │   ├── chat_renderer.py  # Markdown → HTML 渲染（含代码高亮）
 │   ├── theme.py          # 亮/暗模式主题配色
 │   └── settings_dialog.py # 设置对话框（7 个提供商预设、连接测试）
-├── tests/                # 714 个单元测试（不依赖 FreeCAD）
+├── tests/                # 748 个单元测试（不依赖 FreeCAD）
 ├── .env.example          # API 配置模板
 ├── .gitignore
 ├── LICENSE
@@ -152,12 +152,12 @@ CadAgent/
 
 ## 技术细节
 
-- **CQ 运行时翻译层** — `agent/cq.py` 提供约 320 行的 `Workplane` 类，每个方法直接调用 FreeCAD Part API。LLM 生成 CadQuery 风格链式代码，`box()`→`Part.makeBox()`，`cut()`→`safe_cut()`，`translate()` 返回新对象（避免 FreeCAD 的 in-place 陷阱）。拉伸语义与 CadQuery 对齐（从工作平面向 +Z 拉伸、`both=True` 对称双侧）；当前仅支持 XY 工作平面（支持 `origin` 定位与 `.workplane(offset=N)` 抬升），XZ/YZ 朝向需求请在 XY 上构建后用 `.rotate()` 定向
+- **CQ 运行时翻译层** — `agent/cq.py` 提供约 1000 行的 `Workplane` 翻译层，每个方法直接调用 FreeCAD Part API。LLM 生成 CadQuery 风格链式代码，`box()`→`Part.makeBox()`，`cut()`→`safe_cut()`，`translate()` 返回新对象（避免 FreeCAD 的 in-place 陷阱）。拉伸语义与 CadQuery 对齐（从工作平面向 +Z 拉伸、`both=True` 对称双侧）。另有 `polarArray`/`rarray`、`hole`/`cboreHole`、闭合轮廓 `revolve`、仅限普通方块/圆柱的 `shell`，以及按边分类的 `fillet`/`chamfer`。当前仅支持 XY 工作平面（支持 `origin` 定位与 `.workplane(offset=N)` 抬升），XZ/YZ 朝向需求请在 XY 上构建后用 `.rotate()` 定向
 - **双层架构**：AgentLoop 纯逻辑状态机与 UI 线程编排分离，可独立测试
 - **线程安全**：LLM API 调用在后台 QThread 中执行，FreeCAD API 操作（工具执行）通过 Signal/Slot 回到主线程
 - **纯标准库**：HTTP 请求使用 `urllib`，无外部 Python 包依赖（不安装 CadQuery）
 - **兼容性**：自动检测模型是否支持 Tool Calling，不支持时回退到 ReAct XML 标签模式；代码错误提示同时支持 CQ 风格和 FreeCAD 原生 API
-- **714 个自动化测试**：覆盖核心模块（react_parser、token_budget、chat_renderer、config、session、session_store、code_fixes、agent_loop、tool_dispatch、tool_quality_integration、quality、parametric、cq_workplane、snapshot、paths 等），另含 35 项真实 FreeCAD 运行时行为回归脚本（`scripts/verify_freecad_behavior.py`）
+- **748 个自动化测试**：覆盖核心模块（react_parser、token_budget、chat_renderer、config、session、session_store、code_fixes、agent_loop、tool_dispatch、tool_quality_integration、quality、parametric、cq_workplane、snapshot、paths 等），另含 42 项真实 FreeCAD 运行时行为回归脚本（`scripts/verify_freecad_behavior.py`，S8 新增项尚未在本机重跑）
 
 ## 数据存储位置
 

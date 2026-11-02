@@ -165,6 +165,47 @@ def test_auto_detect_final_answer():
     assert action.from_stream is True
 
 
+def test_auto_final_answer_with_document_is_not_success():
+    """S8-R5: an open document and no execute_code cannot finish successfully."""
+    loop, ctrl = _make_loop(context="existing solid")
+    loop.start("change the part")
+    data = _llm_response(content="Done.", finish_reason="stop")
+    action = loop.handle_stream_done(data, False)
+    assert action.kind == LoopActionKind.CALL_LLM
+    assert loop.mode == "tool_calling"
+    assert action.success is False
+    user_text = "\n".join(
+        m["content"] for m in ctrl.session.get_messages() if m["role"] == "user"
+    )
+    assert "execute_code" in user_text
+
+
+def test_react_switch_keeps_first_checklist():
+    """S8-R6: switching to ReAct on the first reply still has the checklist."""
+    loop, ctrl = _make_loop(context="doc")
+    loop.start("test")
+    data = _llm_response(
+        content='<tool name="execute_code"><parameter name="code">pass</parameter></tool>',
+        finish_reason="stop",
+    )
+    loop.handle_stream_done(data, False)
+    system = ctrl.session.get_messages()[0]["content"]
+    assert loop.mode == "react"
+    assert "FIRST EXECUTION CHECKLIST" in system
+    assert "TOOL CALLING FORMAT" in system
+
+
+def test_prepare_injects_quality_guidance_into_system_prompt():
+    """S8-R6: the next LLM call sees the quality-failure snippet."""
+    loop, ctrl = _make_loop(mode="tool_calling", context="doc")
+    loop._last_quality_passed = False
+    loop._iteration = 2
+    action = loop.prepare_llm_call()
+    assert action.kind == LoopActionKind.CALL_LLM
+    system = ctrl.session.get_messages()[0]["content"]
+    assert "QUALITY REPAIR GUIDANCE" in system
+
+
 # ---- handle_stream_done() react mode ----
 
 def test_react_with_tool_tags():
@@ -552,11 +593,18 @@ class TestProgressiveContextInjection:
         assert "cylinder(H, R)" in ctx
 
     def test_second_iteration_excludes_checklist(self):
-        """Iteration 1+ should NOT include the first-execution checklist."""
+        """After the first model call (iteration 2+), the checklist is gone."""
+        loop, _ = _make_loop(context="some doc")
+        loop._iteration = 2
+        ctx = loop._build_context()
+        assert "FIRST EXECUTION CHECKLIST" not in ctx
+
+    def test_iteration_one_keeps_checklist(self):
+        """The first prepare_llm_call and a same-turn ReAct switch see iteration 1."""
         loop, _ = _make_loop(context="some doc")
         loop._iteration = 1
         ctx = loop._build_context()
-        assert "FIRST EXECUTION CHECKLIST" not in ctx
+        assert "FIRST EXECUTION CHECKLIST" in ctx
 
     def test_quality_failure_includes_repair_guidance(self):
         """When quality fails, context should include repair guidance."""
@@ -747,6 +795,38 @@ class TestErrorDedupWithRepairHint:
         assert len(tool_results) >= 1
         last_result = tool_results[-1]["content"]
         assert "WARNING: REPEATED ERROR" not in last_result
+
+    def test_prefixed_error_uses_source_for_repair_hint(self):
+        """S8-R4: ERROR: NameError plus the real source, not the short description."""
+        import json
+        loop, ctrl = _make_loop(mode="tool_calling")
+        loop.prepare_llm_call()
+        args = json.dumps({
+            "code": "box = makeBox(10, 20, 30)",
+            "description": "box",
+        })
+        result = "ERROR: NameError: name 'makeBox' is not defined"
+
+        def _ex():
+            return ToolExecution(
+                tool_name="execute_code",
+                tool_args=args,
+                tool_id="tc_1",
+                description="box",
+                result=result,
+                is_error=True,
+            )
+
+        loop.handle_tool_results([_ex()])
+        ctrl.session.add_assistant_message({
+            "role": "assistant", "content": "", "tool_calls": [_tool_call()],
+        })
+        loop.prepare_llm_call()
+        loop.handle_tool_results([_ex()])
+        tool_results = [m for m in ctrl.session.get_messages() if m["role"] == "tool"]
+        last_result = tool_results[-1]["content"]
+        assert "WARNING: REPEATED ERROR" in last_result
+        assert "Part.makeBox" in last_result
 
 
 # ---- S2-A11: escape hatch counts CONSECUTIVE blocks ----

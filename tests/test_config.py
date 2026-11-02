@@ -60,9 +60,10 @@ class TestConstants:
         assert config.MAX_ITERATIONS == 20
         assert isinstance(config.MAX_ITERATIONS, int)
 
-    def test_max_snapshots_default(self):
+    def test_max_code_history_default(self):
         config = _reload_isolated()
-        assert config.MAX_SNAPSHOTS == 10
+        assert config.MAX_CODE_HISTORY == 50
+        assert isinstance(config.MAX_CODE_HISTORY, int)
 
     def test_max_context_tokens_default(self):
         config = _reload_isolated()

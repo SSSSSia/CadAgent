@@ -15,6 +15,7 @@ Usage:
 """
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -167,8 +168,11 @@ class AgentLoop:
         if self._context:
             parts.append(f"\nCURRENT DOCUMENT CONTEXT:\n{self._context}")
 
-        # --- Phase-aware: first iteration checklist ---
-        if self._iteration == 0:
+        # --- Phase-aware: first execution checklist ---
+        # iteration 0 is start(); the first prepare_llm_call and a same-turn
+        # ReAct switch both observe iteration 1. Keep the checklist through
+        # that first model call (S8-R6).
+        if self._iteration <= 1:
             parts.append(REF_FIRST_ITERATION)
 
         # --- Phase-aware: quality failure guidance ---
@@ -216,6 +220,7 @@ class AgentLoop:
         self._drain_steering()
 
         self._iteration += 1
+        self._refresh_system_prompt()
 
         tools = TOOL_DEFINITIONS if self._mode != "react" else None
 
@@ -280,9 +285,7 @@ class AgentLoop:
             if parsed:
                 self._mode = "react"
                 self._controller.session.last_mode = "react"
-                ctx = self._build_context()
-                react_prompt = REACT_SYSTEM_PROMPT.replace("{context}", ctx)
-                self._controller.session.set_system_prompt(react_prompt)
+                self._refresh_system_prompt()
                 return LoopAction(
                     kind=LoopActionKind.EXECUTE_TOOLS,
                     tool_calls=parsed,
@@ -291,6 +294,9 @@ class AgentLoop:
             else:
                 self._mode = "tool_calling"
                 self._controller.session.last_mode = "tool_calling"
+                allowed, reason = self._check_quality_gate()
+                if not allowed:
+                    return self._quality_gate_block(reason)
                 return LoopAction(
                     kind=LoopActionKind.FINISH,
                     success=True,
@@ -416,6 +422,17 @@ class AgentLoop:
 
         return self.prepare_llm_call()
 
+    def _refresh_system_prompt(self) -> None:
+        """Rewrite the system prompt from the current phase (S8-R6).
+
+        Tool-calling and still-auto turns use AGENT_SYSTEM_PROMPT. ReAct
+        turns use REACT_SYSTEM_PROMPT. Context snippets follow _build_context.
+        """
+        template = REACT_SYSTEM_PROMPT if self._mode == "react" else AGENT_SYSTEM_PROMPT
+        self._controller.session.set_system_prompt(
+            template.replace("{context}", self._build_context())
+        )
+
     def _check_quality_gate(self) -> tuple[bool, str]:
         """Check whether the quality gate allows FINISH with success=True.
 
@@ -534,7 +551,8 @@ class AgentLoop:
 
             # Build a lightweight exception object from the error text
             # error_hint() matches on exception type name and message string
-            err_text = ex.result
+            err_text = self._strip_tool_status(ex.result)
+            code = self._code_from_tool_args(ex.tool_args) or ex.description or ""
             # Try to extract exception type from common error prefixes
             # e.g., "NameError: name 'x' is not defined"
             exc_type = None
@@ -556,7 +574,7 @@ class AgentLoop:
                         self.__class__.__name__ = exc_type
                         Exception.__init__(self, exc_msg)
 
-                hint_text, _ = error_hint(_FakeExc(), ex.description or "")
+                hint_text, _ = error_hint(_FakeExc(), code)
                 if hint_text:
                     return f"Repair hint: {hint_text}"
         except Exception:
@@ -566,6 +584,27 @@ class AgentLoop:
         return ("Repair hint: Change ONE thing at a time — overlap distance, "
                 "boolean order, or construction method. If stuck, use "
                 "undo_last and try a different approach.")
+
+    @staticmethod
+    def _strip_tool_status(text: str) -> str:
+        """Drop a leading ERROR:/FAIL: so the exception type is visible (S8-R4)."""
+        stripped = text.lstrip()
+        for prefix in ("ERROR:", "FAIL:"):
+            if stripped.startswith(prefix):
+                return stripped[len(prefix):].lstrip()
+        return stripped
+
+    @staticmethod
+    def _code_from_tool_args(tool_args: str) -> str:
+        """Pull execute_code source out of the tool-call JSON (S8-R4)."""
+        try:
+            data = json.loads(tool_args) if tool_args else {}
+        except json.JSONDecodeError:
+            return ""
+        if isinstance(data, dict):
+            code = data.get("code", "")
+            return code if isinstance(code, str) else ""
+        return ""
 
     def handle_error(self, error_msg: str) -> LoopAction:
         return LoopAction(

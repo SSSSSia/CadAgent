@@ -54,6 +54,7 @@ class Config:
         self.TEMPERATURE: float = 0.1
         self.MAX_ITERATIONS: int = 0
         self.MAX_SNAPSHOTS: int = 0
+        self.MAX_CODE_HISTORY: int = 0
         self.MAX_CONTEXT_TOKENS: int = 0
         self.LLM_TIMEOUT: int = 0
         self.VISION_API_BASE_URL: str = ""
@@ -75,6 +76,7 @@ class Config:
         self.TEMPERATURE = _parse_float(self._cfg["TEMPERATURE"], 0.1)
         self.MAX_ITERATIONS = _parse_int(os.environ.get("MAX_ITERATIONS", ""), 20)
         self.MAX_SNAPSHOTS = _parse_int(os.environ.get("MAX_SNAPSHOTS", ""), 10)
+        self.MAX_CODE_HISTORY = _parse_int(os.environ.get("MAX_CODE_HISTORY", ""), 50)
         self.MAX_CONTEXT_TOKENS = _parse_int(os.environ.get("MAX_CONTEXT_TOKENS", ""), 24000)
         self.LLM_TIMEOUT = _parse_int(os.environ.get("LLM_TIMEOUT", ""), 180)
         self.VISION_API_BASE_URL = self._cfg.get("VISION_API_BASE_URL", "")
@@ -89,6 +91,7 @@ class Config:
         result.update({
             "MAX_ITERATIONS": self.MAX_ITERATIONS,
             "MAX_SNAPSHOTS": self.MAX_SNAPSHOTS,
+            "MAX_CODE_HISTORY": self.MAX_CODE_HISTORY,
             "MAX_CONTEXT_TOKENS": self.MAX_CONTEXT_TOKENS,
             "LLM_TIMEOUT": self.LLM_TIMEOUT,
         })
@@ -142,6 +145,7 @@ MAX_TOKENS = _default_config.MAX_TOKENS
 TEMPERATURE = _default_config.TEMPERATURE
 MAX_ITERATIONS = _default_config.MAX_ITERATIONS
 MAX_SNAPSHOTS = _default_config.MAX_SNAPSHOTS
+MAX_CODE_HISTORY = _default_config.MAX_CODE_HISTORY
 MAX_CONTEXT_TOKENS = _default_config.MAX_CONTEXT_TOKENS
 LLM_TIMEOUT = _default_config.LLM_TIMEOUT
 VISION_API_BASE_URL = _default_config.VISION_API_BASE_URL
@@ -155,7 +159,7 @@ VISION_TIMEOUT = _default_config.VISION_TIMEOUT
 def _refresh_constants():
     """Re-derive module-level constants from the default Config instance."""
     global API_BASE_URL, API_KEY, MODEL_NAME, MAX_TOKENS, TEMPERATURE
-    global MAX_ITERATIONS, MAX_SNAPSHOTS, MAX_CONTEXT_TOKENS, LLM_TIMEOUT
+    global MAX_ITERATIONS, MAX_SNAPSHOTS, MAX_CODE_HISTORY, MAX_CONTEXT_TOKENS, LLM_TIMEOUT
     global VISION_API_BASE_URL, VISION_API_KEY, VISION_MODEL_NAME
     global VISION_MAX_TOKENS, VISION_TEMPERATURE, VISION_TIMEOUT
     _default_config.refresh()
@@ -166,6 +170,7 @@ def _refresh_constants():
     TEMPERATURE = _default_config.TEMPERATURE
     MAX_ITERATIONS = _default_config.MAX_ITERATIONS
     MAX_SNAPSHOTS = _default_config.MAX_SNAPSHOTS
+    MAX_CODE_HISTORY = _default_config.MAX_CODE_HISTORY
     MAX_CONTEXT_TOKENS = _default_config.MAX_CONTEXT_TOKENS
     LLM_TIMEOUT = _default_config.LLM_TIMEOUT
     VISION_API_BASE_URL = _default_config.VISION_API_BASE_URL

@@ -29,7 +29,10 @@ WORKFLOW:
 coordinate convention (origin location, base plane), and main features. This \
 helps you avoid missing requirements. Then start building with execute_code.
 2. Each execute_code call should create or modify one stable geometric feature. \
-Avoid fillets, chamfers, sweeps, loft, and complex pipes unless explicitly requested.
+Fillets and chamfers are allowed when the user asks for one radius or length \
+on a simple solid, for example fillet(r, edges="vertical"). Sweeps, loft, and \
+complex pipes stay out unless explicitly requested. A long fillet/chamfer chain \
+on a boolean result is fragile — prefer one size on a plain solid.
 3. If code fails: READ the error, IDENTIFY root cause, CHANGE approach, retry.
 4. When user provides an image reference [image: path], use analyze_image to \
 understand the reference before modeling. Extract dimensions and key features.
@@ -63,7 +66,10 @@ CRITICAL RULES:
 - Build the simplest valid solid first. Use cq.Workplane chain API.
 - If execute_code returns FAIL or ERROR, fix geometry — do NOT summarize or claim completion.
 - Do NOT `import cadquery` — the 'cq' module is pre-injected. Use: cq.Workplane("XY")
-- All dimensions in mm. No fillet or chamfer — they cause topology errors.
+- All dimensions in mm. fillet(radius) and chamfer(length) are allowed with a \
+single size on a plain solid (edges="all", "vertical", "horizontal", or an \
+index list). Skip them on tangled boolean chains — one failed edge is skipped, \
+but a bad radius can still collapse the solid. Sweeps and loft are not available.
 - Variables PERSIST between execute_code calls — reuse Workplane objects directly.
 - For fuse/union to work, shapes MUST physically overlap by at least 0.5mm. \
 Extend one shape INTO the other.
@@ -79,6 +85,14 @@ cq API Quick Reference:
 - .cone(r1, r2, H) — cone (r1=base, r2=top)
 - .sphere(R) — sphere centered at origin
 - .torus(major_r, minor_r) — torus
+
+- .polarArray(radius, startAngle, angle, count) — circle of locations for the next sketch or hole
+- .rarray(xSpacing, ySpacing, xCount, yCount) — rectangular grid of locations
+- .hole(diameter, depth=None) — drill at each location (depth=None goes through the solid)
+- .cboreHole(diameter, cboreDiameter, cboreDepth, depth=None) — counterbored hole
+- .shell(thickness, open=None) — hollow a plain box or cylinder; open is "top", "bottom", or None
+- .fillet(radius, edges="vertical") / .chamfer(length, edges="all") — one edge at a time
+- .moveTo(x, y).lineTo(x, y).close().revolve(angleDegrees=360, axis="Y") — revolve a closed profile
 
 2D sketch → extrude (rises from the workplane along +Z, NOT centered):
 - .circle(R).extrude(H) — solid cylinder (z=0 → +H)
@@ -114,19 +128,14 @@ Example — hollow cylinder with handle:
   cq_show(body, "Cup")
 
 Example — flanged cylinder with bolt holes:
-  body = (cq.Workplane("XY").cylinder(360, 100))
-  flange_top = (cq.Workplane("XY").cylinder(20, 125).translate((0, 0, 360)))
-  body = body.union(flange_top)
-  flange_bot = (cq.Workplane("XY").cylinder(20, 125).translate((0, 0, -20)))
-  body = body.union(flange_bot)
-  inner = (cq.Workplane("XY").cylinder(400, 88).translate((0, 0, -20)))
-  body = body.cut(inner)
-  for i in range(12):
-      a = 2 * math.pi * i / 12
-      h = (cq.Workplane("XY").cylinder(20, 5)
-           .translate((115*math.cos(a), 115*math.sin(a), 360)))
-      body = body.cut(h)
+  body = cq.Workplane("XY").cylinder(360, 100)
+  flange = (cq.Workplane("XY").cylinder(20, 125)
+            .translate((0, 0, 360))
+            .polarArray(115, 0, 360, 12)
+            .hole(10))
+  body = body.union(flange)
   cq_show(body, "Housing")
+  # Fallback when polarArray does not fit: a for-loop of cylinder().cut() at cos/sin points.
 
 {context}"""
 

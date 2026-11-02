@@ -163,3 +163,10 @@ class TestSharedPromptSections:
         assert "AVAILABLE TOOLS:" not in REACT_SYSTEM_PROMPT
         assert "TOOL CALLING FORMAT" in REACT_SYSTEM_PROMPT
         assert "TOOL CALLING FORMAT" not in AGENT_SYSTEM_PROMPT
+
+    def test_s8_primitives_are_taught_in_both_prompts(self):
+        for prompt in (AGENT_SYSTEM_PROMPT, REACT_SYSTEM_PROMPT):
+            assert "polarArray" in prompt
+            assert "cboreHole" in prompt
+            assert "fillet(radius" in prompt
+            assert "Sweeps, loft" in prompt

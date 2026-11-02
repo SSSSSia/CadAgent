@@ -11,7 +11,9 @@ _BOOL_OPS = r'(?:cut|fuse|common)'
 # CadQuery-style API names
 _CQ_METHODS = ("box", "cylinder", "cone", "sphere", "torus", "extrude", "cut",
                "union", "intersect", "translate", "rotate", "mirror", "circle",
-               "rect", "polygon", "workplane", "solid", "val")
+               "rect", "polygon", "workplane", "solid", "val", "polarArray",
+               "rarray", "hole", "cboreHole", "shell", "fillet", "chamfer",
+               "revolve", "moveTo", "lineTo", "close")
 _PART_MAKES = ("makeBox", "makeCylinder", "makeCone", "makeSphere", "makeTorus")
 
 # Matches a standalone 'import cadquery' / 'import cadquery as alias' line

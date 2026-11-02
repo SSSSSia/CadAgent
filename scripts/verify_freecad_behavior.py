@@ -20,6 +20,7 @@ resets untitled FileName instead of leaving it on the snapshot path).
 """
 from __future__ import annotations
 
+import math
 import os
 import shutil
 import sys
@@ -360,6 +361,54 @@ def part_c(workdir):
         f"own={[o.Label for o in own]} user_present={user_still}",
     )
 
+    # --- C7: 12 bolt holes from one polarArray ---
+    flange = Workplane("XY").circle(50).extrude(8)
+    holed = flange.polarArray(38, 0, 360, 12).hole(6)
+    solid_vol = math.pi * 50 * 50 * 8
+    hole_drop = 12 * math.pi * 9 * 8
+    hole_vol = holed.solid().Volume
+    on_pitch = FreeCAD.Vector(38, 0, 4)
+    _report(
+        solid_vol - hole_drop * 1.15 < hole_vol < solid_vol - hole_drop * 0.85
+        and not holed.solid().isInside(on_pitch, 1e-6, True),
+        "C7 polarArray hole() cuts 12 through-holes on a flange",
+        f"vol={hole_vol:.1f} expected_drop≈{hole_drop:.1f}",
+    )
+
+    # --- C9: closed profile revolved into a stepped bushing ---
+    bush = (Workplane("XY")
+            .moveTo(8, 0).lineTo(12, 0).lineTo(12, 40).lineTo(8, 40).close()
+            .revolve(360, axis="Y"))
+    bush_vol = bush.solid().Volume
+    bush_expected = math.pi * (144 - 64) * 40
+    _report(
+        abs(bush_vol - bush_expected) / bush_expected < 0.02,
+        "C9 revolve of a closed profile makes a bushing",
+        f"vol={bush_vol:.1f} expected≈{bush_expected:.1f}",
+    )
+
+    # --- C10: open-top box shell ---
+    opened = Workplane("XY").box(20, 30, 10).shell(1, open="top")
+    opened_vol = opened.solid().Volume
+    # The cutter crosses the top face, so only the 1mm floor stays in that footprint.
+    opened_expected = 20 * 30 * 10 - 18 * 28 * 9
+    _report(
+        abs(opened_vol - opened_expected) < 5 and opened_vol < 20 * 30 * 10,
+        "C10 open-top shell of a box",
+        f"vol={opened_vol:.2f} expected≈{opened_expected:.2f}",
+    )
+
+    # --- C11: vertical fillets change the volume ---
+    block = Workplane("XY").box(20, 20, 20)
+    before = block.solid().Volume
+    rounded = block.fillet(1, edges="vertical")
+    after = rounded.solid().Volume
+    _report(
+        after < before - 1 and "applied=" in rounded._edge_note,
+        "C11 fillet(edges='vertical') reduces box volume",
+        f"before={before:.2f} after={after:.2f} note={rounded._edge_note}",
+    )
+
     _close_all_documents()
 
 
@@ -446,6 +495,32 @@ def part_d(workdir):
         and agent_tools.get_code_history(),
         "D5 param store + code history populated by replay",
         f"params={agent_tools.get_param_store()} steps={len(agent_tools.get_code_history())}",
+    )
+
+    # D6: a parameter defined mid-segment is extracted and replayed
+    _close_all_documents()
+    mid = FreeCAD.newDocument("mid_param")
+    FreeCAD.setActiveDocument("mid_param")
+    agent_tools.clear_persistent_vars()
+    agent_tools.set_code_history([])
+    agent_tools.set_param_store({})
+    code_mid = (
+        "tag = 1" + chr(10)
+        + "OD = 30" + chr(10)
+        + "body = cq.Workplane('XY').circle(OD).extrude(10)" + chr(10)
+        + "cq_show(body, 'Disk')"
+    )
+    r_mid = agent_tools._tool_execute_code(_json.dumps({"code": code_mid}))
+    stored = agent_tools.get_param_store().get("OD")
+    r_mid_rebuild = agent_tools.rebuild_with_params({"OD": 45})
+    bb_mid = _rebuild_bbox(FreeCAD.getDocument("mid_param"))
+    _report(
+        r_mid.startswith("OK:") and stored == 30
+        and r_mid_rebuild.startswith("OK:") and bb_mid is not None
+        and abs(bb_mid.XMax - 45) < 1e-4,
+        "D6 mid-segment OD is extracted and replayed",
+        f"stored={stored} rebuild={r_mid_rebuild.splitlines()[0][:40]!r} "
+        f"XMax={_f(bb_mid.XMax) if bb_mid else '?'}",
     )
 
     cleanup_all_snapshots()

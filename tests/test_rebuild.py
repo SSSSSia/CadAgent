@@ -200,6 +200,22 @@ class TestRebuildWithParams:
         finally:
             restore_all()
 
+    def test_failed_step_restores_previous_param_store(self):
+        """S8-R3: a failed replay must not leave the new parameter table behind."""
+        tools, _docs, _takes, _restores, restore_all = self._setup_env(docs=("A", "B"))
+        tools.set_param_store({"KEEP": 3})
+        tools.set_code_history([
+            ("A", "x = 1"),
+            ("B", "1 / 0"),
+        ])
+        try:
+            result = tools.rebuild_with_params({"KEEP": 9, "NEW": 1})
+            assert result.startswith("FAIL:")
+            assert tools.get_param_store() == {"KEEP": 3}
+        finally:
+            tools.set_param_store({})
+            restore_all()
+
     def test_quality_failure_flips_header_to_fail(self):
         from core.quality import QualityIssue, QualityReport
         bad = QualityReport(
@@ -222,4 +238,72 @@ class TestRebuildWithParams:
             assert result.startswith("OK:")
             assert takes == [doc_map["Here"]]
         finally:
+            restore_all()
+
+    def test_mid_segment_param_is_replayed(self):
+        """S8-B: a column-0 assignment in the middle of a segment is substituted."""
+        tools, _docs, _takes, _r, restore_all = self._setup_env()
+        code = NL.join(["body = 1", "OD = 40", "span = OD"])
+        tools.set_code_history([("Model", code)])
+        try:
+            result = tools.rebuild_with_params({"OD": 60})
+            assert result.startswith("OK:")
+            assert tools.get_persistent_vars().get("span") == 60
+        finally:
+            restore_all()
+
+    def test_history_fifo_note_on_success_and_quality_fail(self):
+        """S8-C: keep the newest segments and say so, including a quality fail."""
+        import core.config as cfg
+        from core.quality import QualityIssue, QualityReport
+
+        tools, _docs, _takes, _r, restore_all = self._setup_env()
+        old_limit = cfg.MAX_CODE_HISTORY
+        cfg.MAX_CODE_HISTORY = 2
+        try:
+            tools.set_code_history([
+                ("Model", "a = 1"),
+                ("Model", "b = 2"),
+                ("Model", "c = 3"),
+                ("Model", "d = 4"),
+            ])
+            assert [code for _name, code in tools.get_code_history()] == ["c = 3", "d = 4"]
+            assert tools._CODE_HISTORY_DROPPED == 2
+            assert tools._UNDO_FRAMES.count(True) == 2
+            ok = tools.rebuild_with_params({})
+            assert "NOTE: Replaying the most recent 2 segment(s) of 4 total." in ok
+
+            bad = QualityReport(
+                passed=False, severity="fail",
+                issues=[QualityIssue(code="NO_SOLID", severity="fail", message="no solids")],
+                summary="FAILED")
+            import core.quality as quality_mod
+            quality_mod.analyze_document_quality = (
+                lambda doc, assembly_mode=False: bad)
+            failed = tools.rebuild_with_params({})
+            assert failed.startswith("FAIL:")
+            assert "NOTE: Replaying the most recent 2 segment(s) of 4 total." in failed
+        finally:
+            cfg.MAX_CODE_HISTORY = old_limit
+            restore_all()
+
+    def test_fifo_does_not_drop_a_leading_failure_frame(self):
+        import core.config as cfg
+
+        tools, _docs, _takes, _r, restore_all = self._setup_env()
+        old_limit = cfg.MAX_CODE_HISTORY
+        cfg.MAX_CODE_HISTORY = 2
+        try:
+            tools.set_code_history([])
+            tools._note_undo_frame(False)
+            doc = MagicMock()
+            doc.Name = "Model"
+            for code in ("a = 1", "b = 2", "c = 3"):
+                tools._record_code_history(doc, code)
+                tools._note_undo_frame(True)
+            assert [code for _name, code in tools.get_code_history()] == ["b = 2", "c = 3"]
+            assert tools._UNDO_FRAMES[0] is False
+            assert tools._CODE_HISTORY_DROPPED == 1
+        finally:
+            cfg.MAX_CODE_HISTORY = old_limit
             restore_all()

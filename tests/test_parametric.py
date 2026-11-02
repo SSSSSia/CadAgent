@@ -30,10 +30,10 @@ class TestExtractParameters:
         assert params == {"NUM_HOLES": 8}
         assert isinstance(params["NUM_HOLES"], int)
 
-    def test_stops_at_non_param(self):
+    def test_mid_code_param_is_kept(self):
         code = "OD = 200\nbody = Part.makeCylinder(OD/2, 100)\nHEIGHT = 360"
         params = _extract_parameters(code)
-        assert params == {"OD": 200}
+        assert params == {"OD": 200, "HEIGHT": 360}
 
     def test_comment_lines_skipped(self):
         code = "# Design parameters\nOD = 200\n# Second comment\nHEIGHT = 360\nbody = Part.makeBox(OD, HEIGHT, 10)"
@@ -60,7 +60,12 @@ class TestExtractParameters:
     def test_mixed_case_only_upper(self):
         code = "OD = 200\ninner_r = 50\nWALL_T = 12"
         params = _extract_parameters(code)
-        assert params == {"OD": 200}
+        assert params == {"OD": 200, "WALL_T": 12}
+
+    def test_indented_local_is_ignored(self):
+        code = "OD = 10\nfor i in range(3):\n    HEIGHT = 5\n"
+        params = _extract_parameters(code)
+        assert params == {"OD": 10}
 
     def test_negative_value(self):
         code = "OFFSET = -10\nresult = OFFSET + 20"

@@ -1,6 +1,8 @@
 """Session management mixin for AgentPanel — load, switch, save, delete."""
 from __future__ import annotations
 
+import json
+
 from PySide6 import QtWidgets
 
 from core.token_budget import token_summary
@@ -39,7 +41,6 @@ class _PanelSessionMixin:
             if self._live_threads():
                 self._refresh_session_list()
                 return
-            from PySide6 import QtWidgets
             reply = QtWidgets.QMessageBox.question(
                 self, "New Session",
                 "Start a new session? The current conversation is saved "
@@ -52,9 +53,6 @@ class _PanelSessionMixin:
                 return
             # Bug 2 fix: use _sync_all_state to clear all three layers
             # (previously only cleared persistent_vars, missing snapshots & params)
-            if self._live_threads():
-                self._refresh_session_list()
-                return
             self._store.save_if_not_empty(self._session)
             from core.session import ChatSession
             self._session = ChatSession()
@@ -142,7 +140,6 @@ class _PanelSessionMixin:
                         desc = ""
                         if name == "execute_code":
                             try:
-                                import json
                                 desc = json.loads(fn.get("arguments", "{}")).get("description", "")
                             except (json.JSONDecodeError, KeyError):
                                 pass

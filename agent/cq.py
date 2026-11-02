@@ -79,6 +79,9 @@ class Workplane:
         origin: tuple[float, float, float] = (0, 0, 0),
         shapes: list | None = None,
         pending: list | None = None,
+        locations: list | None = None,
+        profile: list | None = None,
+        primitive: str | None = None,
     ):
         if not isinstance(plane, str) or plane.upper() != "XY":
             raise NotImplementedError(self._XY_ONLY_MSG.format(plane=plane))
@@ -86,16 +89,24 @@ class Workplane:
         self._origin = tuple(origin) if origin else (0, 0, 0)
         self._shapes: list = shapes if shapes is not None else []
         self._pending: list = pending if pending is not None else []
+        # (x, y, rotation_degrees) pending points from polarArray/rarray
+        self._locations: list = list(locations) if locations is not None else []
+        # line-profile ops for revolve(): move/line/arc/close
+        self._profile: list = list(profile) if profile is not None else []
+        # "box" / "cylinder" while the solid is still that plain primitive
+        self._primitive: str | None = primitive
+        self._edge_note: str = ""
 
-    # -- Clone helper -------------------------------------------------------
-
-    def _copy(self, shapes: list | None = None) -> Workplane:
+    def _copy(self, shapes: list | None = None, keep_primitive: bool = True) -> Workplane:
         """Return a new Workplane with the same plane/origin and new shapes."""
         return Workplane(
             plane=self._plane,
             origin=self._origin,
             shapes=shapes if shapes is not None else list(self._shapes),
-            pending=list(self._pending),  # carry forward pending 2D ops
+            pending=list(self._pending),
+            locations=list(self._locations),
+            profile=list(self._profile),
+            primitive=self._primitive if keep_primitive else None,
         )
 
     def _place(self, shape):
@@ -133,50 +144,135 @@ class Workplane:
     # -- 2D sketch operations (accumulate pending) --------------------------
 
     def circle(self, radius: float, forConstruction: bool = False) -> Workplane:
-        """Add a circle to the pending sketch list."""
+        """Add a circle at each pending location (or the origin)."""
+        cloned = self._copy()
         if forConstruction:
-            return self
-        self._pending.append(("circle", radius))
-        return self
+            return cloned
+        if radius <= 0:
+            raise ValueError(f"Circle radius must be positive: {radius}")
+        cloned._stamp(("circle", radius))
+        return cloned
 
     def rect(self, L: float, W: float, centered: bool = True) -> Workplane:
-        """Add a rectangle to the pending sketch list."""
-        self._pending.append(("rect", L, W, centered))
-        return self
+        """Add a rectangle at each pending location (or the origin)."""
+        cloned = self._copy()
+        if L <= 0 or W <= 0:
+            raise ValueError(f"rect dimensions must be positive: L={L}, W={W}")
+        cloned._stamp(("rect", L, W, centered))
+        return cloned
 
     def polygon(self, n: int, radius: float, centered: bool = True) -> Workplane:
-        """Add a regular polygon to the pending sketch list."""
-        self._pending.append(("polygon", n, radius, centered))
-        return self
+        """Add a regular polygon at each pending location (or the origin)."""
+        cloned = self._copy()
+        if n < 3 or radius <= 0:
+            raise ValueError(f"polygon needs n>=3 and R>0, got n={n}, R={radius}")
+        cloned._stamp(("polygon", n, radius, centered))
+        return cloned
 
-    # -- Unimplemented CadQuery sketch methods (clear error instead of AttributeError) --
+    def _stamp(self, op: tuple) -> None:
+        """Append *op* once per location. Origin-only ops stay  unpositioned."""
+        locs = self._locations or [(0.0, 0.0, 0.0)]
+        for x, y, rot in locs:
+            if x or y or rot:
+                self._pending.append(op + (x, y, rot))
+            else:
+                self._pending.append(op)
+        self._locations = []
 
-    def moveTo(self, *args, **kwargs):
-        raise NotImplementedError(
-            "moveTo/lineTo/threePointArc sketch paths are not supported. "
-            "Use circle(), rect(), polygon() + extrude() for 2D-to-3D, or "
-            "combine primitive solids (box, cylinder, torus) with .union()/.cut()."
-        )
+    def polarArray(
+        self,
+        radius: float,
+        startAngle: float,
+        angle: float,
+        count: int,
+        fill: bool = True,
+        rotate: bool = True,
+    ) -> Workplane:
+        """Record CadQuery-style polar locations for the next sketch or hole.
 
-    def lineTo(self, *args, **kwargs):
-        raise NotImplementedError(
-            "lineTo sketch paths are not supported. "
-            "Use circle(), rect(), polygon() + extrude() for 2D-to-3D, or "
-            "combine primitive solids (box, cylinder, torus) with .union()/.cut()."
-        )
+        *angle* is degrees. With fill=True a full 360 is split into *count*
+        steps (the endpoint is not duplicated); a partial span includes both
+        ends. fill=False steps by *angle* each time. rotate=True stores the
+        local rotation so non-round profiles follow the radius.
+        """
+        if count <= 0:
+            raise ValueError(f"polarArray count must be positive, got {count}")
+        if radius < 0:
+            raise ValueError(f"polarArray radius must be >= 0, got {radius}")
+        cloned = self._copy()
+        span = math.radians(angle)
+        start = math.radians(startAngle)
+        if fill:
+            if abs(abs(span) - 2 * math.pi) < 1e-9:
+                step = span / count
+            else:
+                step = span / (count - 1) if count > 1 else 0.0
+        else:
+            step = span
+        locs = []
+        for i in range(count):
+            a = start + step * i
+            rot = math.degrees(a) if rotate else 0.0
+            locs.append((radius * math.cos(a), radius * math.sin(a), rot))
+        cloned._locations = locs
+        return cloned
 
-    def threePointArc(self, *args, **kwargs):
-        raise NotImplementedError(
-            "threePointArc sketch paths are not supported. "
-            "Use torus() + .cut() for curved handles, or "
-            "make_arc_handle(cup_radius, handle_r, arc_r, z_center)."
-        )
+    def rarray(
+        self,
+        xSpacing: float,
+        ySpacing: float,
+        xCount: int,
+        yCount: int,
+        center: bool = True,
+    ) -> Workplane:
+        """Record a rectangular grid of locations (CadQuery rarray)."""
+        if xCount < 1 or yCount < 1:
+            raise ValueError(
+                f"rarray counts must be >= 1, got xCount={xCount}, yCount={yCount}"
+            )
+        cloned = self._copy()
+        pts = []
+        for i in range(xCount):
+            for j in range(yCount):
+                pts.append((i * xSpacing, j * ySpacing, 0.0))
+        if center:
+            ox = (xCount - 1) * xSpacing / 2.0
+            oy = (yCount - 1) * ySpacing / 2.0
+            pts = [(x - ox, y - oy, rot) for x, y, rot in pts]
+        cloned._locations = pts
+        return cloned
 
-    def close(self, *args, **kwargs):
-        raise NotImplementedError(
-            "close() sketch paths are not supported. "
-            "Use circle(), rect(), polygon() + extrude() for closed profiles."
-        )
+    def moveTo(self, x: float, y: float) -> Workplane:
+        """Start a revolve profile at (x, y) on the XY plane."""
+        cloned = self._copy()
+        cloned._profile.append(("move", float(x), float(y)))
+        return cloned
+
+    def lineTo(self, x: float, y: float) -> Workplane:
+        """Add a straight segment of the revolve profile."""
+        if not self._profile:
+            raise ValueError("lineTo() needs moveTo() first.")
+        cloned = self._copy()
+        cloned._profile.append(("line", float(x), float(y)))
+        return cloned
+
+    def threePointArc(self, point1, point2) -> Workplane:
+        """Arc from the current point through point1 to point2."""
+        if not self._profile:
+            raise ValueError("threePointArc() needs moveTo() first.")
+        cloned = self._copy()
+        x1, y1 = point1
+        x2, y2 = point2
+        cloned._profile.append(("arc", float(x1), float(y1), float(x2), float(y2)))
+        return cloned
+
+    def close(self) -> Workplane:
+        """Close the revolve profile back to the last moveTo."""
+        if not self._profile:
+            raise ValueError("close() needs a profile. Call moveTo() first.")
+        cloned = self._copy()
+        cloned._profile.append(("close",))
+        return cloned
 
     def newObject(self, *args, **kwargs):
         raise NotImplementedError(
@@ -200,6 +296,10 @@ class Workplane:
         - Single rect    → Part.makeBox
         - Single polygon → extruded regular polygon
         """
+        if self._profile:
+            raise ValueError(
+                "A line profile is pending. Use revolve(), not extrude()."
+            )
         if not self._pending:
             raise ValueError("No pending 2D operations to extrude. "
                              "Add circle(), rect(), or polygon() first.")
@@ -208,7 +308,10 @@ class Workplane:
         self._pending = []  # consumed
 
         shape = _resolve_extrude(pending, height, both)
-        return self._copy(shapes=[self._place(shape)])
+        result = self._copy(shapes=[self._place(shape)], keep_primitive=False)
+        result._pending = []
+        result._primitive = _extrude_primitive(pending)
+        return result
 
     # -- Primitive solids (direct 3D, no pending) ----------------------------
 
@@ -226,7 +329,9 @@ class Workplane:
         offset = _center_offset([L, W, H], centered)
         if offset.x != 0 or offset.y != 0 or offset.z != 0:
             shape.translate(offset)
-        return self._copy(shapes=[self._place(shape)])
+        result = self._copy(shapes=[self._place(shape)])
+        result._primitive = "box"
+        return result
 
     def cylinder(
         self,
@@ -249,7 +354,9 @@ class Workplane:
         offset = _center_offset([2 * radius, 2 * radius, height], centered)
         if offset.x != 0 or offset.y != 0 or offset.z != 0:
             shape.translate(offset)
-        return self._copy(shapes=[self._place(shape)])
+        result = self._copy(shapes=[self._place(shape)])
+        result._primitive = "cylinder"
+        return result
 
     def cone(
         self,
@@ -292,21 +399,21 @@ class Workplane:
         other_solid = other.solid() if isinstance(other, Workplane) else other
         my_solid = self.solid()
         result = safe_cut(my_solid, other_solid)
-        return self._copy(shapes=[result])
+        return self._copy(shapes=[result], keep_primitive=False)
 
     def union(self, other) -> Workplane:
         """Merge *other* (Workplane or FreeCAD shape) with this workplane."""
         other_solid = other.solid() if isinstance(other, Workplane) else other
         my_solid = self.solid()
         result = safe_fuse(my_solid, other_solid)
-        return self._copy(shapes=[result])
+        return self._copy(shapes=[result], keep_primitive=False)
 
     def intersect(self, other) -> Workplane:
         """Boolean intersection of this workplane with *other*."""
         other_solid = other.solid() if isinstance(other, Workplane) else other
         my_solid = self.solid()
         result = my_solid.common(other_solid)
-        return self._copy(shapes=[result])
+        return self._copy(shapes=[result], keep_primitive=False)
 
     # -- Transformations (return new Workplane, original unchanged) ----------
 
@@ -318,7 +425,7 @@ class Workplane:
         """
         new_shape = self.solid().copy()
         new_shape.translate(_fc_vec(vec[0], vec[1], vec[2]))
-        return self._copy(shapes=[new_shape])
+        return self._copy(shapes=[new_shape], keep_primitive=False)
 
     def rotate(
         self,
@@ -336,7 +443,7 @@ class Workplane:
             _fc_vec(*axis),
             angle_degrees,
         )
-        return self._copy(shapes=[new_shape])
+        return self._copy(shapes=[new_shape], keep_primitive=False)
 
     def mirror(
         self,
@@ -367,7 +474,148 @@ class Workplane:
 
         new_shape = self.solid().copy()
         new_shape.mirror(base, normal)
-        return self._copy(shapes=[new_shape])
+        return self._copy(shapes=[new_shape], keep_primitive=False)
+
+    # -- Holes, shell, edge dress, revolve (S8) -----------------------------
+
+    def hole(self, diameter: float, depth: float | None = None) -> Workplane:
+        """Drill a round hole at each pending location (or the origin).
+
+        depth=None cuts through the solid's Z span. A finite depth drills
+        along -Z from the workplane origin.
+        """
+        if diameter <= 0:
+            raise ValueError(f"hole diameter must be positive: {diameter}")
+        return self._drill(diameter / 2.0, depth, None, None)
+
+    def cboreHole(
+        self,
+        diameter: float,
+        cboreDiameter: float,
+        cboreDepth: float,
+        depth: float | None = None,
+    ) -> Workplane:
+        """Drill a counterbored hole at each pending location."""
+        if diameter <= 0 or cboreDiameter <= 0 or cboreDepth <= 0:
+            raise ValueError(
+                "cboreHole sizes must be positive: "
+                f"diameter={diameter}, cboreDiameter={cboreDiameter}, "
+                f"cboreDepth={cboreDepth}"
+            )
+        if cboreDiameter <= diameter:
+            raise ValueError(
+                "cboreDiameter must be larger than diameter: "
+                f"{cboreDiameter} <= {diameter}"
+            )
+        return self._drill(diameter / 2.0, depth, cboreDiameter / 2.0, cboreDepth)
+
+    def _drill(self, radius, depth, cbore_radius, cbore_depth) -> Workplane:
+        host = self.solid()
+        locs = list(self._locations) or [(0.0, 0.0, 0.0)]
+        ox, oy, oz = self._origin
+        result = host
+        for x, y, _rot in locs:
+            cutter = _make_drill(host, radius, depth, ox + x, oy + y, oz)
+            result = safe_cut(result, cutter)
+            if cbore_radius is not None:
+                cbore = _make_drill(
+                    host, cbore_radius, cbore_depth, ox + x, oy + y, oz,
+                    finite=True,
+                )
+                result = safe_cut(result, cbore)
+        out = self._copy(shapes=[result], keep_primitive=False)
+        out._locations = []
+        return out
+
+    def shell(self, thickness: float, open: str | None = None) -> Workplane:
+        """Hollow a plain box or cylinder by subtracting an inner cutter.
+
+        open=None keeps a closed cavity. "top" / "bottom" let the cutter
+        cross that face. Other solids are rejected.
+        """
+        if thickness <= 0:
+            raise ValueError(f"shell thickness must be positive: {thickness}")
+        if open not in (None, "top", "bottom"):
+            raise ValueError("shell open must be None, 'top', or 'bottom'")
+        if self._primitive not in ("box", "cylinder"):
+            raise ValueError(
+                "shell() only supports a plain box or cylinder. "
+                "Holes, booleans, and other solids are not shelled."
+            )
+        solid = self.solid()
+        if self._primitive == "box":
+            cutter = _box_shell_cutter(solid.BoundBox, thickness, open)
+        else:
+            cutter = _cylinder_shell_cutter(solid.BoundBox, thickness, open)
+        out = self._copy(shapes=[safe_cut(solid, cutter)], keep_primitive=False)
+        return out
+
+    def fillet(self, radius: float, edges="all") -> Workplane:
+        """Round edges one at a time. Failures are skipped and counted."""
+        return self._dress_edges("fillet", radius, edges)
+
+    def chamfer(self, length: float, edges="all") -> Workplane:
+        """Chamfer edges one at a time. Failures are skipped and counted."""
+        return self._dress_edges("chamfer", length, edges)
+
+    def _dress_edges(self, kind: str, size: float, edges) -> Workplane:
+        if size <= 0:
+            raise ValueError(f"{kind} size must be positive: {size}")
+        shape = self.solid().copy()
+        targets = _select_edges(shape, edges)
+        if not targets:
+            raise ValueError(f"No edges matched selector {edges!r}.")
+        applied = 0
+        skipped = 0
+        mids = [_edge_midpoint(edge) for edge in targets]
+        for mid in mids:
+            edge = _closest_edge(shape, mid)
+            if edge is None:
+                skipped += 1
+                continue
+            try:
+                if kind == "fillet":
+                    shape = shape.makeFillet(size, [edge])
+                else:
+                    shape = shape.makeChamfer(size, [edge])
+                applied += 1
+            except Exception:
+                skipped += 1
+        if applied == 0:
+            raise ValueError(
+                f"{kind} applied to 0 edges (skipped {skipped}). "
+                "Try a smaller size or a narrower edge selector."
+            )
+        out = self._copy(shapes=[shape], keep_primitive=False)
+        out._edge_note = f"{kind} applied={applied} skipped={skipped}"
+        return out
+
+    def revolve(
+        self,
+        angleDegrees: float = 360,
+        axisStart=None,
+        axisEnd=None,
+        axis: str = "Y",
+    ) -> Workplane:
+        """Revolve the closed line profile around an axis.
+
+        Default axis is Y through the workplane origin. Pass axisStart and
+        axisEnd together to revolve around an arbitrary segment.
+        """
+        if not angleDegrees:
+            raise ValueError("revolve angle must be non-zero")
+        if not self._profile:
+            raise ValueError(
+                "revolve() needs a profile. Call moveTo(), lineTo(), and close()."
+            )
+        if not any(op[0] == "close" for op in self._profile):
+            raise ValueError("Profile is not closed. Call close() before revolve().")
+        wire = _profile_wire(self._profile, self._origin)
+        base, direction = _revolve_axis(axisStart, axisEnd, axis, self._origin)
+        shape = wire.revolve(base, direction, float(angleDegrees))
+        out = self._copy(shapes=[shape], keep_primitive=False)
+        out._profile = []
+        return out
 
     # -- Workplane offset ---------------------------------------------------
 
@@ -388,6 +636,9 @@ class Workplane:
             origin=(ox, oy, oz + offset),
             shapes=list(self._shapes),
             pending=list(self._pending),
+            locations=list(self._locations),
+            profile=list(self._profile),
+            primitive=self._primitive,
         )
 
     # -- Repr ----------------------------------------------------------------
@@ -413,23 +664,29 @@ def _extrude_pending_op(op: tuple, height: float, both: bool):
 
     if op[0] == "circle":
         R = op[1]
+        x, y, _rot = _pose(op, 2)
         if R <= 0:
             raise ValueError(f"Circle radius must be positive: {R}")
         shape = Part.makeCylinder(R, total_h)
-        shape.translate(_fc_vec(0, 0, z0))
+        shape.translate(_fc_vec(x, y, z0))
         return shape
 
     if op[0] == "rect":
-        _, L, W, centered = op
+        _, L, W, centered = op[:4]
+        x, y, rot = _pose(op, 4)
         if L <= 0 or W <= 0:
             raise ValueError(f"rect dimensions must be positive: L={L}, W={W}")
         shape = Part.makeBox(L, W, total_h)
         dx, dy = (-L / 2, -W / 2) if centered else (0.0, 0.0)
-        shape.translate(_fc_vec(dx, dy, z0))
+        shape.translate(_fc_vec(dx, dy, 0))
+        if rot:
+            shape.rotate(_fc_vec(0, 0, 0), _fc_vec(0, 0, 1), rot)
+        shape.translate(_fc_vec(x, y, z0))
         return shape
 
     if op[0] == "polygon":
-        _, n, R, centered = op
+        _, n, R, _centered = op[:4]
+        x, y, rot = _pose(op, 4)
         if n < 3 or R <= 0:
             raise ValueError(f"polygon needs n>=3 and R>0, got n={n}, R={R}")
         # Vertices sit on a circle of radius R around the origin, so the
@@ -446,7 +703,9 @@ def _extrude_pending_op(op: tuple, height: float, both: bool):
             edges.append(edge)
         face = Part.Face(Part.Wire(edges))
         shape = face.extrude(_fc_vec(0, 0, total_h))
-        shape.translate(_fc_vec(0, 0, z0))
+        if rot:
+            shape.rotate(_fc_vec(0, 0, 0), _fc_vec(0, 0, 1), rot)
+        shape.translate(_fc_vec(x, y, z0))
         return shape
 
     raise ValueError(f"Unsupported pending 2D operation: {op[0]}")
@@ -469,25 +728,31 @@ def _resolve_extrude(
     if height <= 0:
         raise ValueError(f"extrude height must be positive: {height}")
 
-    # --- Hollow cylinder: two concentric circles ---
+    # --- Hollow cylinder: two circles that share a center ---
     if len(pending) == 2:
         op1, op2 = pending[0], pending[1]
-        if (op1[0] == "circle" and op2[0] == "circle"):
-            r1 = max(op1[1], op2[1])  # outer
-            r2 = min(op1[1], op2[1])  # inner
-            if r1 <= r2:
-                raise ValueError(
-                    f"Hollow cylinder requires R1 > R2, got R1={r1}, R2={r2}"
-                )
-            if both:
-                # Open tube spanning -H..+H
-                outer = Part.makeCylinder(r1, 2 * height)
-                outer.translate(_fc_vec(0, 0, -height))
-                inner = Part.makeCylinder(r2, 2 * height + 0.01)
-                inner.translate(_fc_vec(0, 0, -(height + 0.005)))
-                return safe_cut(outer, inner)
-            # Open tube spanning 0..H
-            return make_hollow_cylinder(r1, r2, height, bottom=0)
+        if op1[0] == "circle" and op2[0] == "circle":
+            c1, c2 = _circle_xy(op1), _circle_xy(op2)
+            if _same_xy(c1, c2):
+                r1 = max(op1[1], op2[1])  # outer
+                r2 = min(op1[1], op2[1])  # inner
+                if r1 <= r2:
+                    raise ValueError(
+                        f"Hollow cylinder requires R1 > R2, got R1={r1}, R2={r2}"
+                    )
+                if both:
+                    # Open tube spanning -H..+H
+                    outer = Part.makeCylinder(r1, 2 * height)
+                    outer.translate(_fc_vec(0, 0, -height))
+                    inner = Part.makeCylinder(r2, 2 * height + 0.01)
+                    inner.translate(_fc_vec(0, 0, -(height + 0.005)))
+                    shape = safe_cut(outer, inner)
+                else:
+                    # Open tube spanning 0..H
+                    shape = make_hollow_cylinder(r1, r2, height, bottom=0)
+                if c1[0] or c1[1]:
+                    shape.translate(_fc_vec(c1[0], c1[1], 0))
+                return shape
 
     # --- Single op (circle / rect / polygon) ---
     if len(pending) == 1:
@@ -499,6 +764,239 @@ def _resolve_extrude(
     for s in shapes[1:]:
         result = safe_fuse(result, s)
     return result
+
+
+def _extrude_primitive(pending: list[tuple]) -> str | None:
+    """Tag a single circle/rect extrusion so shell() can accept it."""
+    if len(pending) != 1:
+        return None
+    kind = pending[0][0]
+    if kind == "circle":
+        return "cylinder"
+    if kind == "rect":
+        return "box"
+    return None
+
+
+def _pose(op: tuple, base_len: int) -> tuple[float, float, float]:
+    """Return (x, y, rotation_degrees) stored after the base op fields."""
+    extra = op[base_len:]
+    x = float(extra[0]) if len(extra) >= 1 else 0.0
+    y = float(extra[1]) if len(extra) >= 2 else 0.0
+    rot = float(extra[2]) if len(extra) >= 3 else 0.0
+    return x, y, rot
+
+
+def _circle_xy(op: tuple) -> tuple[float, float]:
+    x, y, _rot = _pose(op, 2)
+    return x, y
+
+
+def _same_xy(a: tuple[float, float], b: tuple[float, float]) -> bool:
+    return abs(a[0] - b[0]) < 1e-9 and abs(a[1] - b[1]) < 1e-9
+
+
+_DRILL_OVERLAP = 0.05
+
+
+def _make_drill(host, radius, depth, x, y, origin_z, finite=False):
+    """Cylinder cutter. Through-holes span the host Z range plus a sliver."""
+    if depth is None and not finite:
+        bb = host.BoundBox
+        z0 = bb.ZMin - _DRILL_OVERLAP
+        height = (bb.ZMax - bb.ZMin) + 2 * _DRILL_OVERLAP
+    else:
+        if depth is None or depth <= 0:
+            raise ValueError(f"hole depth must be positive: {depth}")
+        z0 = origin_z - float(depth)
+        height = float(depth)
+    shape = Part.makeCylinder(radius, height)
+    shape.translate(_fc_vec(x, y, z0))
+    return shape
+
+
+_SHELL_OVERLAP = 0.05
+
+
+def _box_shell_cutter(bb, thickness, open_side):
+    dx = bb.XMax - bb.XMin
+    dy = bb.YMax - bb.YMin
+    dz = bb.ZMax - bb.ZMin
+    if dx <= 2 * thickness or dy <= 2 * thickness or dz <= thickness:
+        raise ValueError(
+            f"shell thickness {thickness} does not fit this box "
+            f"({dx:.4g} x {dy:.4g} x {dz:.4g})"
+        )
+    if open_side is None and dz <= 2 * thickness:
+        raise ValueError(
+            f"closed shell thickness {thickness} does not fit box height {dz:.4g}"
+        )
+    ix = dx - 2 * thickness
+    iy = dy - 2 * thickness
+    x0 = bb.XMin + thickness
+    y0 = bb.YMin + thickness
+    if open_side is None:
+        iz = dz - 2 * thickness
+        z0 = bb.ZMin + thickness
+    elif open_side == "top":
+        iz = dz - thickness + _SHELL_OVERLAP
+        z0 = bb.ZMin + thickness
+    else:
+        iz = dz - thickness + _SHELL_OVERLAP
+        z0 = bb.ZMin - _SHELL_OVERLAP
+    shape = Part.makeBox(ix, iy, iz)
+    shape.translate(_fc_vec(x0, y0, z0))
+    return shape
+
+
+def _cylinder_shell_cutter(bb, thickness, open_side):
+    radius = min(bb.XMax - bb.XMin, bb.YMax - bb.YMin) / 2.0
+    height = bb.ZMax - bb.ZMin
+    if radius <= thickness or height <= thickness:
+        raise ValueError(
+            f"shell thickness {thickness} does not fit this cylinder "
+            f"(R={radius:.4g}, H={height:.4g})"
+        )
+    if open_side is None and height <= 2 * thickness:
+        raise ValueError(
+            f"closed shell thickness {thickness} does not fit cylinder height {height:.4g}"
+        )
+    inner_r = radius - thickness
+    cx = (bb.XMin + bb.XMax) / 2.0
+    cy = (bb.YMin + bb.YMax) / 2.0
+    if open_side is None:
+        iz = height - 2 * thickness
+        z0 = bb.ZMin + thickness
+    elif open_side == "top":
+        iz = height - thickness + _SHELL_OVERLAP
+        z0 = bb.ZMin + thickness
+    else:
+        iz = height - thickness + _SHELL_OVERLAP
+        z0 = bb.ZMin - _SHELL_OVERLAP
+    shape = Part.makeCylinder(inner_r, iz)
+    # makeCylinder's axis is Z through the origin; shift it to the solid's axis.
+    shape.translate(_fc_vec(cx, cy, z0))
+    return shape
+
+
+def _edge_span(edge):
+    bb = edge.BoundBox
+    return (
+        abs(bb.XMax - bb.XMin),
+        abs(bb.YMax - bb.YMin),
+        abs(bb.ZMax - bb.ZMin),
+    )
+
+
+def _edge_class(edge) -> str:
+    dx, dy, dz = _edge_span(edge)
+    if dz > dx and dz > dy:
+        return "vertical"
+    if dz <= 0.25 * max(dx, dy):
+        return "horizontal"
+    return "other"
+
+
+def _edge_midpoint(edge):
+    bb = edge.BoundBox
+    return (
+        (bb.XMin + bb.XMax) / 2.0,
+        (bb.YMin + bb.YMax) / 2.0,
+        (bb.ZMin + bb.ZMax) / 2.0,
+    )
+
+
+def _select_edges(shape, selector):
+    all_edges = list(getattr(shape, "Edges", []) or [])
+    if selector == "all":
+        return all_edges
+    if selector == "vertical":
+        return [edge for edge in all_edges if _edge_class(edge) == "vertical"]
+    if selector == "horizontal":
+        return [edge for edge in all_edges if _edge_class(edge) == "horizontal"]
+    if isinstance(selector, (list, tuple)):
+        chosen = []
+        for index in selector:
+            if isinstance(index, bool) or not isinstance(index, int):
+                raise ValueError(f"edge index must be an int, got {index!r}")
+            if index < 0 or index >= len(all_edges):
+                raise ValueError(
+                    f"edge index {index} out of range (0..{len(all_edges) - 1})"
+                )
+            chosen.append(all_edges[index])
+        return chosen
+    raise ValueError(
+        "edges must be 'all', 'vertical', 'horizontal', or a list of indices"
+    )
+
+
+def _closest_edge(shape, mid):
+    best = None
+    best_d = None
+    for edge in getattr(shape, "Edges", []) or []:
+        ex, ey, ez = _edge_midpoint(edge)
+        dist = (ex - mid[0]) ** 2 + (ey - mid[1]) ** 2 + (ez - mid[2]) ** 2
+        if best_d is None or dist < best_d:
+            best = edge
+            best_d = dist
+    return best
+
+
+def _profile_wire(profile, origin):
+    ox, oy, oz = origin
+    start = None
+    current = None
+    edges = []
+    for op in profile:
+        kind = op[0]
+        if kind == "move":
+            current = (ox + op[1], oy + op[2], oz)
+            start = current
+        elif kind == "line":
+            if current is None:
+                raise ValueError("lineTo() needs moveTo() first.")
+            nxt = (ox + op[1], oy + op[2], oz)
+            edges.append(Part.makeLine(_fc_vec(*current), _fc_vec(*nxt)))
+            current = nxt
+        elif kind == "arc":
+            if current is None:
+                raise ValueError("threePointArc() needs moveTo() first.")
+            mid = (ox + op[1], oy + op[2], oz)
+            end = (ox + op[3], oy + op[4], oz)
+            edges.append(Part.Arc(
+                _fc_vec(*current), _fc_vec(*mid), _fc_vec(*end),
+            ).toShape())
+            current = end
+        elif kind == "close":
+            if current is None or start is None:
+                raise ValueError("close() needs a profile.")
+            if (abs(current[0] - start[0]) > 1e-9
+                    or abs(current[1] - start[1]) > 1e-9
+                    or abs(current[2] - start[2]) > 1e-9):
+                edges.append(Part.makeLine(_fc_vec(*current), _fc_vec(*start)))
+            current = start
+        else:
+            raise ValueError(f"Unknown profile operation: {kind}")
+    if not edges:
+        raise ValueError("Profile has no edges.")
+    return Part.Wire(edges)
+
+
+def _revolve_axis(axis_start, axis_end, axis, origin):
+    if axis_start is not None or axis_end is not None:
+        if axis_start is None or axis_end is None:
+            raise ValueError("axisStart and axisEnd must be given together.")
+        sx, sy, sz = axis_start
+        ex, ey, ez = axis_end
+        if abs(ex - sx) + abs(ey - sy) + abs(ez - sz) < 1e-12:
+            raise ValueError("revolve axis has zero length")
+        return _fc_vec(sx, sy, sz), _fc_vec(ex - sx, ey - sy, ez - sz)
+    name = (axis or "Y").upper()
+    dirs = {"X": (1.0, 0.0, 0.0), "Y": (0.0, 1.0, 0.0), "Z": (0.0, 0.0, 1.0)}
+    if name not in dirs:
+        raise ValueError("revolve axis must be 'X', 'Y', or 'Z'")
+    ox, oy, oz = origin
+    return _fc_vec(ox, oy, oz), _fc_vec(*dirs[name])
 
 
 # ---------------------------------------------------------------------------

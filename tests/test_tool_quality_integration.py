@@ -326,12 +326,13 @@ class TestExecuteCodeMissingCodeKey:
 class TestUndoLast:
     """_tool_undo_last: snapshot restore + stale-var cleanup messaging."""
 
-    def _run(self, restore_result, prepare=None):
+    def _run(self, restore_result, prepare=None, doc_name="Doc"):
         import core.snapshot as snapshot_mod
         from tests.helpers import install_sys_modules, restore_sys_modules
 
         tools, mock_fc, _ = _load_tools()
         mock_doc = MagicMock()
+        mock_doc.Name = doc_name
         mock_doc.Document = None  # healthy doc: no foreign Document ref
         body = MagicMock()
         body.Name = "Body"
@@ -348,15 +349,18 @@ class TestUndoLast:
         try:
             result = tools._tool_undo_last("{}")
             snapshot = dict(tools._EXEC_NAMESPACE)
-            return result, snapshot
+            history = tools.get_code_history()
+            return result, snapshot, history
         finally:
             restore_sys_modules(saved)
             snapshot_mod.restore_latest_snapshot = orig_restore
             tools.clear_persistent_vars()
+            tools.set_code_history([])
 
     def test_success_without_stale_vars(self):
-        result, _ns = self._run("SUCCESS: Document restored.")
+        result, _ns, _history = self._run("SUCCESS: Document restored.")
         assert result == "SUCCESS: Document restored."
+        assert "doc" not in _ns
 
     def test_success_with_stale_vars_reports_cleanup(self):
         def prepare(tools):
@@ -365,15 +369,26 @@ class TestUndoLast:
             dead.Document = MagicMock(name="other_doc")  # not the active doc
             tools._EXEC_NAMESPACE["old_body"] = dead
 
-        result, ns = self._run("SUCCESS: Document restored.", prepare)
+        result, ns, _history = self._run("SUCCESS: Document restored.", prepare)
         assert "Cleared stale variables: old_body" in result
         assert "Objects in restored doc: Body" in result
         assert "doc.getObject('Name')" in result  # re-reference guidance
         assert "H" in ns  # primitives kept
+        assert "doc" not in ns
 
     def test_error_result_passed_through(self):
-        result, _ = self._run("ERROR: No snapshot available.")
+        result, _ns, _history = self._run("ERROR: No snapshot available.")
         assert result == "ERROR: No snapshot available."
+
+    def test_undo_pops_history_only_for_matching_document(self):
+        """S8-R2: undo drops the last segment when its document matches."""
+        def prepare(tools):
+            tools.set_code_history([("Doc", "x = 1"), ("Other", "y = 2")])
+
+        _result, _ns, history = self._run(
+            "SUCCESS: Document restored.", prepare, doc_name="Other",
+        )
+        assert history == [("Doc", "x = 1")]
 
 
 class TestCleanStaleNamespaceVars:
@@ -663,6 +678,101 @@ class TestCodeHistoryRecording:
             tools.set_code_history([])
         assert result is not None and result.startswith("OK:")
         assert history == [("Fixed", "good = 1")]
+
+    def test_quality_fail_records_nothing(self):
+        """S8-R2: a FAIL quality report must not enter replay history."""
+        import core.quality as quality_mod
+        from core.quality import QualityIssue, QualityReport
+        from tests.helpers import install_sys_modules, restore_sys_modules
+
+        tools, mock_fc, _ = _load_tools()
+        mock_doc = MagicMock()
+        mock_doc.Name = "TestDoc"
+        mock_doc.Objects = []
+        mock_fc.ActiveDocument = mock_doc
+        bad = QualityReport(
+            passed=False, severity="fail",
+            issues=[QualityIssue(code="NO_SOLID", severity="fail", message="no solid")],
+            summary="FAILED",
+        )
+        orig = quality_mod.analyze_document_quality
+        quality_mod.analyze_document_quality = lambda doc, assembly_mode=False: bad
+        tools.clear_persistent_vars()
+        tools.set_code_history([])
+        saved = install_sys_modules({"FreeCAD": mock_fc})
+        try:
+            result = tools._tool_execute_code(json.dumps({"code": "x = 1"}))
+            history = tools.get_code_history()
+        finally:
+            restore_sys_modules(saved)
+            quality_mod.analyze_document_quality = orig
+            tools.clear_persistent_vars()
+            tools.set_code_history([])
+        assert result.startswith("FAIL:")
+        assert history == []
+
+    def test_quality_fail_undo_keeps_earlier_success(self):
+        """S8-R2: undoing a failed attempt must not drop the previous success."""
+        import core.quality as quality_mod
+        import core.snapshot as snapshot_mod
+        from core.quality import QualityIssue, QualityReport
+        from tests.helpers import install_sys_modules, restore_sys_modules
+
+        tools, mock_fc, _ = _load_tools()
+        mock_doc = MagicMock()
+        mock_doc.Name = "TestDoc"
+        mock_doc.Objects = []
+        mock_fc.ActiveDocument = mock_doc
+        reports = [
+            QualityReport(passed=True, severity="ok", issues=[], summary="PASSED"),
+            QualityReport(
+                passed=False, severity="fail",
+                issues=[QualityIssue(code="NO_SOLID", severity="fail", message="no solid")],
+                summary="FAILED",
+            ),
+        ]
+
+        def _analyze(doc, assembly_mode=False):
+            return reports.pop(0)
+
+        orig_q = quality_mod.analyze_document_quality
+        orig_restore = snapshot_mod.restore_latest_snapshot
+        quality_mod.analyze_document_quality = _analyze
+        snapshot_mod.restore_latest_snapshot = lambda: "SUCCESS: Document restored."
+        tools.clear_persistent_vars()
+        tools.set_code_history([])
+        saved = install_sys_modules({"FreeCAD": mock_fc})
+        try:
+            ok = tools._tool_execute_code(json.dumps({"code": "a = 1"}))
+            bad = tools._tool_execute_code(json.dumps({"code": "b = 2"}))
+            tools._tool_undo_last("{}")
+            history = tools.get_code_history()
+        finally:
+            restore_sys_modules(saved)
+            quality_mod.analyze_document_quality = orig_q
+            snapshot_mod.restore_latest_snapshot = orig_restore
+            tools.clear_persistent_vars()
+            tools.set_code_history([])
+        assert ok.startswith("OK:")
+        assert bad.startswith("FAIL:")
+        assert history == [("TestDoc", "a = 1")]
+
+
+class TestExecNamespaceDocBinding:
+    """S8-R1: a stashed doc must not override the document resolved for this call."""
+
+    def test_persisted_doc_does_not_override_target(self):
+        tools, _fc, _ = _load_tools()
+        tools.clear_persistent_vars()
+        try:
+            stale = MagicMock(name="stale_doc")
+            target = MagicMock(name="target_doc")
+            tools._EXEC_NAMESPACE["doc"] = stale
+            namespace = tools._build_exec_namespace(target)
+            assert namespace["doc"] is target
+            assert "doc" not in tools._EXEC_NAMESPACE
+        finally:
+            tools.clear_persistent_vars()
 
     def test_set_and_get_history_round_trip(self):
         tools, _, _ = _load_tools()

@@ -81,10 +81,73 @@ class _MockShape:
         return _MockShape(shape_type="Solid", solids=[self], volume=0)
 
     def rotate(self, center, axis, angle):
-        pass  # no-op in mock
+        self.rotated = getattr(self, "rotated", 0) + angle
 
     def mirror(self, base, normal):
         pass  # no-op in mock
+
+    @property
+    def BoundBox(self):
+        return _MockBBox(self.bounds)
+
+    @property
+    def Edges(self):
+        return _box_edges(self.bounds)
+
+    def makeFillet(self, radius, edges):
+        return self._dress(radius)
+
+    def makeChamfer(self, length, edges):
+        return self._dress(length)
+
+    def _dress(self, size):
+        spans = (
+            self.bounds[3] - self.bounds[0],
+            self.bounds[4] - self.bounds[1],
+            self.bounds[5] - self.bounds[2],
+        )
+        positive = [span for span in spans if span > 1e-9]
+        if size <= 0 or not positive or size * 2 >= min(positive):
+            raise RuntimeError("edge dress size too large")
+        dressed = self.copy()
+        dressed.volume = max(0.0, self.volume - size)
+        return dressed
+
+
+@dataclass
+class _MockBBox:
+    bounds: tuple
+
+    def __post_init__(self):
+        x0, y0, z0, x1, y1, z1 = self.bounds
+        self.XMin, self.YMin, self.ZMin = x0, y0, z0
+        self.XMax, self.YMax, self.ZMax = x1, y1, z1
+        self.XLength = x1 - x0
+        self.YLength = y1 - y0
+        self.ZLength = z1 - z0
+
+
+@dataclass
+class _MockEdge:
+    bounds: tuple
+
+    @property
+    def BoundBox(self):
+        return _MockBBox(self.bounds)
+
+
+def _box_edges(bounds):
+    """4 vertical edges plus 8 horizontal edges of an axis-aligned box."""
+    x0, y0, z0, x1, y1, z1 = bounds
+    edges = []
+    for x, y in ((x0, y0), (x1, y0), (x1, y1), (x0, y1)):
+        edges.append(_MockEdge((x, y, z0, x, y, z1)))
+    for z in (z0, z1):
+        edges.append(_MockEdge((x0, y0, z, x1, y0, z)))
+        edges.append(_MockEdge((x0, y1, z, x1, y1, z)))
+        edges.append(_MockEdge((x0, y0, z, x0, y1, z)))
+        edges.append(_MockEdge((x1, y0, z, x1, y1, z)))
+    return edges
 
 
 @dataclass
@@ -195,7 +258,7 @@ def _make_fc_mock():
 
     class _Wire:
         def __init__(self, edges):
-            pass
+            self.edges = list(edges)
 
         def isClosed(self):
             return True
@@ -203,7 +266,23 @@ def _make_fc_mock():
         def makePipe(self, profile):
             return _MockShape(shape_type="Solid", volume=100)
 
+        def revolve(self, base, direction, angle):
+            return _MockShape(
+                shape_type="Solid",
+                volume=abs(float(angle)) * 10,
+                bounds=(-10, -10, -10, 10, 10, 10),
+            )
+
     part.Wire = _Wire
+
+    class _Arc:
+        def __init__(self, p1, p2, p3):
+            self.points = (p1, p2, p3)
+
+        def toShape(self):
+            return _MockShape(shape_type="Edge", bounds=(0, 0, 0, 1, 0, 0))
+
+    part.Arc = _Arc
 
     class _Face:
         def __init__(self, wire):
@@ -398,6 +477,21 @@ def test_polygon_pending():
     wp = Workplane("XY").polygon(6, 30)
     assert len(wp._pending) == 1
     assert wp._pending[0] == ("polygon", 6, 30, True)
+
+
+def test_sketch_branches_do_not_share_pending():
+    """S8-R7: circle/rect return copies, so two chains do not share wires."""
+    base = Workplane("XY")
+    circled = base.circle(5)
+    rected = base.rect(2, 3)
+    assert base._pending == []
+    assert circled is not base
+    assert rected is not base
+    assert circled._pending == [("circle", 5)]
+    assert rected._pending == [("rect", 2, 3, True)]
+    assert Workplane("XY").circle(4).circle(2)._pending == [
+        ("circle", 4), ("circle", 2),
+    ]
 
 
 # ---- Extrude ----
@@ -799,3 +893,181 @@ def test_resolve_extrude_negative_height():
 
 def teardown_module():
     restore_sys_modules(_ORIG_MODULES)
+
+
+# ---------------------------------------------------------------------------
+# S8 primitives: arrays, holes, revolve, shell, fillet
+# ---------------------------------------------------------------------------
+
+def _pending_xy(op):
+    return op[2], op[3]
+
+
+def test_polar_full_turn_does_not_repeat_the_start():
+    wp = Workplane("XY").polarArray(10, 0, 360, 4).circle(1)
+    pts = [_pending_xy(op) for op in wp._pending]
+    expect = [(10, 0), (0, 10), (-10, 0), (0, -10)]
+    assert len(pts) == 4
+    for got, exp in zip(pts, expect):
+        assert math.isclose(got[0], exp[0], abs_tol=1e-9)
+        assert math.isclose(got[1], exp[1], abs_tol=1e-9)
+    assert wp._locations == []
+
+
+def test_polar_partial_span_includes_both_ends():
+    wp = Workplane("XY").polarArray(10, 0, 180, 3).circle(1)
+    pts = [_pending_xy(op) for op in wp._pending]
+    assert math.isclose(pts[0][0], 10, abs_tol=1e-9)
+    assert math.isclose(pts[-1][0], -10, abs_tol=1e-9)
+    assert math.isclose(pts[1][1], 10, abs_tol=1e-9)
+
+
+def test_polar_fill_false_steps_by_angle():
+    wp = Workplane("XY").polarArray(10, 0, 90, 3, fill=False).circle(1)
+    pts = [_pending_xy(op) for op in wp._pending]
+    assert math.isclose(pts[1][0], 0, abs_tol=1e-9)
+    assert math.isclose(pts[1][1], 10, abs_tol=1e-9)
+    assert math.isclose(pts[2][0], -10, abs_tol=1e-9)
+
+
+def test_rarray_is_centered():
+    wp = Workplane("XY").rarray(10, 20, 2, 2).circle(1)
+    pts = sorted((round(op[2], 6), round(op[3], 6)) for op in wp._pending)
+    assert pts == [(-5.0, -10.0), (-5.0, 10.0), (5.0, -10.0), (5.0, 10.0)]
+
+
+def test_array_branches_do_not_share_locations():
+    base = Workplane("XY").polarArray(10, 0, 360, 4)
+    smaller = base.circle(1)
+    larger = base.circle(2)
+    assert len(base._locations) == 4
+    assert len(smaller._pending) == 4
+    assert len(larger._pending) == 4
+    assert smaller._pending[0][1] == 1
+    assert larger._pending[0][1] == 2
+
+
+def test_offset_circles_fuse_instead_of_becoming_a_tube():
+    wp = (Workplane("XY").circle(10)
+          .polarArray(30, 0, 0, 1).circle(2)
+          .extrude(5))
+    expected = math.pi * 100 * 5 + math.pi * 4 * 5
+    assert math.isclose(wp.solid().volume, expected, rel_tol=1e-9)
+    assert wp._primitive is None
+
+
+def test_same_center_circles_stay_hollow():
+    plain = Workplane("XY").circle(10).circle(4).extrude(5)
+    expected = math.pi * (100 - 16) * 5
+    assert math.isclose(plain.solid().volume, expected, rel_tol=1e-6)
+    shifted = (Workplane("XY")
+               .polarArray(15, 0, 0, 1).circle(10)
+               .polarArray(15, 0, 0, 1).circle(4)
+               .extrude(5))
+    assert math.isclose(shifted.solid().volume, expected, rel_tol=1e-6)
+    assert math.isclose(shifted.solid().bounds[0], 15, abs_tol=1e-6)
+
+
+def test_hole_through_and_finite_depth():
+    solid = Workplane("XY").box(10, 10, 10)
+    through = solid.hole(2)
+    assert math.isclose(through.solid().volume, 1000 - math.pi * 10.1, rel_tol=1e-9)
+    assert through._primitive is None
+    finite = solid.hole(2, depth=4)
+    assert math.isclose(finite.solid().volume, 1000 - math.pi * 4, rel_tol=1e-9)
+
+
+def test_cbore_hole_cuts_both_diameters():
+    solid = Workplane("XY").box(10, 10, 10)
+    try:
+        solid.cboreHole(4, 4, 2)
+        assert False, "counterbore must be larger than the hole"
+    except ValueError:
+        pass
+    drilled = solid.cboreHole(2, 4, 2)
+    removed = math.pi * 10.1 + math.pi * 4 * 2
+    assert math.isclose(drilled.solid().volume, 1000 - removed, rel_tol=1e-9)
+
+
+def test_polar_array_drills_every_location():
+    solid = Workplane("XY").box(40, 40, 10)
+    drilled = solid.polarArray(12, 0, 360, 4).hole(2)
+    removed = 4 * math.pi * 10.1
+    assert math.isclose(drilled.solid().volume, 16000 - removed, rel_tol=1e-9)
+
+
+def test_shell_closed_and_open_box():
+    closed = Workplane("XY").box(10, 10, 10).shell(1)
+    opened = Workplane("XY").box(10, 10, 10).shell(1, open="top")
+    assert math.isclose(closed.solid().volume, 1000 - 512, rel_tol=1e-9)
+    assert opened.solid().volume < closed.solid().volume
+    assert Workplane("XY").cylinder(10, 4)._primitive == "cylinder"
+
+
+def test_shell_rejects_other_solids():
+    try:
+        Workplane("XY").sphere(5).shell(1)
+        assert False, "sphere is not a shell target"
+    except ValueError as exc:
+        assert "box or cylinder" in str(exc)
+    cut = Workplane("XY").box(10, 10, 10).cut(Workplane("XY").box(2, 2, 2))
+    try:
+        cut.shell(1)
+        assert False, "a boolean result is not a plain box"
+    except ValueError:
+        pass
+
+
+def test_fillet_and_chamfer_count_edges():
+    box = Workplane("XY").box(10, 20, 30)
+    filleted = box.fillet(1, edges="vertical")
+    assert filleted.solid().volume == box.solid().volume - 4
+    assert "applied=4" in filleted._edge_note
+    chamfered = box.chamfer(1, edges="horizontal")
+    assert "applied=8" in chamfered._edge_note
+    one = box.fillet(1, edges=[0])
+    assert "applied=1" in one._edge_note
+
+
+def test_fillet_rejects_a_size_that_fits_no_edge():
+    try:
+        Workplane("XY").box(10, 20, 30).fillet(6, edges="vertical")
+        assert False, "every edge should skip"
+    except ValueError as exc:
+        assert "0 edges" in str(exc)
+
+
+def test_revolve_closed_profile_and_arc():
+    shaft = (Workplane("XY")
+             .moveTo(5, 0).lineTo(10, 0).lineTo(10, 20).lineTo(5, 20).close()
+             .revolve(360))
+    assert shaft.solid().volume == 3600
+    assert shaft._profile == []
+    partial = (Workplane("XY")
+               .moveTo(6, 0)
+               .threePointArc((8, 5), (6, 10))
+               .lineTo(4, 10).lineTo(4, 0).close()
+               .revolve(90, axisStart=(0, 0, 0), axisEnd=(0, 1, 0)))
+    assert partial.solid().volume == 900
+
+
+def test_revolve_unclosed_profile_raises():
+    try:
+        Workplane("XY").moveTo(5, 0).lineTo(10, 0).revolve()
+        assert False, "an open profile cannot revolve"
+    except ValueError as exc:
+        assert "close" in str(exc).lower()
+
+
+def test_profile_branches_do_not_share_points():
+    base = Workplane("XY")
+    first = base.moveTo(1, 2)
+    second = base.moveTo(3, 4)
+    assert base._profile == []
+    assert first._profile != second._profile
+
+
+def test_plain_extrude_keeps_a_shell_tag():
+    assert Workplane("XY").rect(4, 4).extrude(3)._primitive == "box"
+    assert Workplane("XY").circle(4).extrude(3)._primitive == "cylinder"
+    assert Workplane("XY").box(1, 1, 1)._primitive == "box"
