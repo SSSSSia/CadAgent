@@ -6,6 +6,8 @@ from tests.helpers import load_module
 _mod = load_module("code_fixes", "agent", "code_fixes.py")
 pre_validate_code = _mod.pre_validate_code
 error_hint = _mod.error_hint
+unsupported_cq_call = _mod.unsupported_cq_call
+vessel_floor_warning = _mod.vessel_floor_warning
 
 
 # ---- pre_validate_code ----
@@ -229,11 +231,10 @@ def test_sweep_not_exist_hint():
 
 def test_not_implemented_plane_hint():
     err = NotImplementedError(
-        "Workplane plane 'XZ' is not supported — only 'XY' is."
+        "Workplane plane 'front' is not supported. Use 'XY', 'XZ', or 'YZ'."
     )
-    hint, fixed = error_hint(err, "body = cq.Workplane('XZ').circle(10).extrude(5)")
-    assert "XY" in hint
-    assert "rotate" in hint
+    hint, fixed = error_hint(err, "body = cq.Workplane('front').circle(10).extrude(5)")
+    assert "XZ" in hint and "YZ" in hint
     assert "workplane(offset" in hint
     assert fixed is None
 
@@ -446,3 +447,61 @@ class TestSyntaxGate:
         hint, fixed = error_hint(err, code)
         assert fixed is None
         assert hint
+
+
+def test_unsupported_loft_names_cone_and_not_makeloft():
+    msg = unsupported_cq_call("body.loft()")
+    assert msg.startswith("ERROR:")
+    assert "cone" in msg
+    assert "makeLoft" not in msg
+
+
+def test_unsupported_edges_top():
+    msg = unsupported_cq_call('solid.fillet(2, edges="top")')
+    assert "edges='top'" in msg
+    assert "vertical" in msg
+
+
+def test_workplane_offset_is_allowed():
+    code = 'cq.Workplane("XY").workplane(offset=5).circle(1).extrude(2)'
+    assert unsupported_cq_call(code) is None
+
+
+def test_open_mug_tube_is_rejected():
+    code = (
+        'body = cq.Workplane("XY").circle(40).circle(37).extrude(100)\n'
+        'cq_show(body, "Simple Mug")\n'
+    )
+    note = vessel_floor_warning(code, "创建简化版的马克杯")
+    assert note is not None
+    assert "both ends" in note
+
+
+def test_mug_with_floor_and_arc_handle_is_accepted():
+    code = (
+        "floor = cq.Workplane('XY').circle(outer_r).extrude(FLOOR)\n"
+        "wall = cq.Workplane('XY').circle(outer_r).circle(inner_r).extrude(95)\n"
+        "handle = make_arc_handle(cup_radius=outer_r, handle_r=6, arc_r=18, z_center=50)\n"
+        'cq_show(mug, "Mug")\n'
+    )
+    assert vessel_floor_warning(code, "mug") is None
+
+
+def test_box_handle_on_a_mug_is_rejected():
+    code = (
+        "floor = cq.Workplane('XY').circle(40).extrude(5)\n"
+        "wall = cq.Workplane('XY').circle(40).circle(37).extrude(95)\n"
+        "handle = make_box_handle(cup_radius=40, width=12, depth=20, height=70, z=15)\n"
+        'cq_show(mug, "Mug")\n'
+    )
+    note = vessel_floor_warning(code, "mug")
+    assert note is not None
+    assert "make_arc_handle" in note
+
+
+def test_workplane_loft_hint_does_not_suggest_makeloft():
+    err = AttributeError("'Workplane' object has no attribute 'loft'")
+    hint, fixed = error_hint(err, "body.loft()")
+    assert "cone" in hint
+    assert "makeLoft" not in hint
+    assert fixed is None

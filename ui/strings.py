@@ -79,8 +79,9 @@ _EN = {
         "are still injected into the Agent's context."
     ),
     "params_none": (
-        "No named parameters extracted yet. Define them in your code "
-        "(e.g. OD = 200) and they will appear here."
+        "This run did not declare named dimensions, so there is nothing to edit. "
+        "They appear here when the code assigns them at the start of a line, "
+        "for example OD = 80."
     ),
     "param_col": "Parameter",
     "value_col": "Value",
@@ -195,7 +196,7 @@ _ZH = {
     "tool_export_step": "导出",
     "params_title": "参数",
     "params_no_history": "本会话还没有可重放的代码。参数仍会注入 Agent 的上下文。",
-    "params_none": "还没有提取到命名参数。在代码里写成 OD = 200 这样的赋值后，会出现在这里。",
+    "params_none": "这次建模没有写出可改的尺寸。需要在代码行首写成 OD = 80 这样的赋值，参数才会出现在这里。",
     "param_col": "参数",
     "value_col": "数值",
     "params_hint": "重建会用新数值重放本会话的建模代码（不调用 LLM）。之前的状态可以撤销。",

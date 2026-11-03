@@ -36,6 +36,90 @@ def _fc_vec(x: float, y: float, z: float) -> FreeCAD.Vector:
     return FreeCAD.Vector(x, y, z)
 
 
+# CadQuery named planes. Local +X/+Y lie in the plane; local +Z is the
+# extrude normal. The rotate entry must match _rotate_vec (right-handed).
+#   XY: (x, y, z) -> (x, y, z)     normal +Z
+#   XZ: (x, y, z) -> (x, -z, y)    normal -Y
+#   YZ: (x, y, z) -> (z, x, y)     normal +X
+_PLANE_NORMAL = {
+    "XY": (0.0, 0.0, 1.0),
+    "XZ": (0.0, -1.0, 0.0),
+    "YZ": (1.0, 0.0, 0.0),
+}
+_PLANE_ROTATE = {
+    "XY": None,
+    "XZ": ((1.0, 0.0, 0.0), 90.0),
+    "YZ": ((1.0, 1.0, 1.0), 120.0),
+}
+
+
+def _rotate_vec(x: float, y: float, z: float, plane: str) -> tuple[float, float, float]:
+    """Map a local-frame vector into global axes. No origin shift."""
+    if plane == "XY":
+        return (x, y, z)
+    if plane == "XZ":
+        return (x, -z, y)
+    if plane == "YZ":
+        return (z, x, y)
+    raise ValueError(f"Unknown workplane '{plane}'")
+
+
+def _to_local(
+    x: float, y: float, z: float, plane: str, origin: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    """Inverse of rotate-then-translate by *origin*."""
+    x -= origin[0]
+    y -= origin[1]
+    z -= origin[2]
+    if plane == "XY":
+        return (x, y, z)
+    if plane == "XZ":
+        return (x, z, -y)
+    if plane == "YZ":
+        return (y, z, x)
+    raise ValueError(f"Unknown workplane '{plane}'")
+
+
+def _orient_shape(shape, plane: str, origin: tuple[float, float, float]):
+    """Rotate a local-XY shape onto *plane*, then translate to *origin*."""
+    spec = _PLANE_ROTATE[plane]
+    if spec is not None:
+        axis, angle = spec
+        shape.rotate(_fc_vec(0, 0, 0), _fc_vec(*axis), angle)
+    ox, oy, oz = origin
+    if ox or oy or oz:
+        shape.translate(_fc_vec(ox, oy, oz))
+    return shape
+
+
+class _AxisBox:
+    """BoundBox stand-in so shell cutters can run in local coordinates."""
+
+    def __init__(self, xmin, ymin, zmin, xmax, ymax, zmax):
+        self.XMin = xmin
+        self.YMin = ymin
+        self.ZMin = zmin
+        self.XMax = xmax
+        self.YMax = ymax
+        self.ZMax = zmax
+
+
+def _local_bbox(shape, plane: str, origin: tuple[float, float, float]) -> _AxisBox:
+    """Axis-aligned box of *shape* expressed in the workplane's local frame."""
+    bb = shape.BoundBox
+    xs: list[float] = []
+    ys: list[float] = []
+    zs: list[float] = []
+    for x in (bb.XMin, bb.XMax):
+        for y in (bb.YMin, bb.YMax):
+            for z in (bb.ZMin, bb.ZMax):
+                lx, ly, lz = _to_local(x, y, z, plane, origin)
+                xs.append(lx)
+                ys.append(ly)
+                zs.append(lz)
+    return _AxisBox(min(xs), min(ys), min(zs), max(xs), max(ys), max(zs))
+
+
 def _center_offset(dims: list[float], centered: tuple[bool, ...]) -> FreeCAD.Vector:
     """Calculate FreeCAD.Vector offset so that a shape appears centered.
 
@@ -61,16 +145,9 @@ class Workplane:
     Internal state:
         _shapes  — list[FreeCAD TopoShape] (the actual geometry)
         _pending — list of 2-D sketch operations waiting for extrude()
-        _plane   — reference plane name (only "XY" is supported)
-        _origin  — workplane origin; base geometry is created relative to it
+        _plane   — "XY", "XZ", or "YZ" (CadQuery named planes)
+        _origin  — global workplane origin; base geometry is created there
     """
-
-    _XY_ONLY_MSG = (
-        "Workplane plane '{plane}' is not supported — only 'XY' is. "
-        "Build the shape on cq.Workplane('XY'), then orient it with "
-        ".rotate((0,0,0), (1,0,0), 90) and position it with "
-        ".translate((x, y, z))."
-    )
 
     def __init__(
         self,
@@ -82,9 +159,18 @@ class Workplane:
         profile: list | None = None,
         primitive: str | None = None,
     ):
-        if not isinstance(plane, str) or plane.upper() != "XY":
-            raise NotImplementedError(self._XY_ONLY_MSG.format(plane=plane))
-        self._plane = "XY"
+        if not isinstance(plane, str):
+            raise NotImplementedError(
+                f"Workplane plane {plane!r} is not supported. "
+                "Use 'XY', 'XZ', or 'YZ'."
+            )
+        name = plane.upper()
+        if name not in _PLANE_NORMAL:
+            raise NotImplementedError(
+                f"Workplane plane '{plane}' is not supported. "
+                "Use 'XY', 'XZ', or 'YZ'."
+            )
+        self._plane = name
         self._origin = tuple(origin) if origin else (0, 0, 0)
         self._shapes: list = shapes if shapes is not None else []
         self._pending: list = pending if pending is not None else []
@@ -115,10 +201,7 @@ class Workplane:
         extrude). Boolean/transform results already carry absolute
         coordinates and must not be shifted again.
         """
-        ox, oy, oz = self._origin
-        if ox or oy or oz:
-            shape.translate(_fc_vec(ox, oy, oz))
-        return shape
+        return _orient_shape(shape, self._plane, self._origin)
 
     # -- Solid access -------------------------------------------------------
 
@@ -480,8 +563,8 @@ class Workplane:
     def hole(self, diameter: float, depth: float | None = None) -> Workplane:
         """Drill a round hole at each pending location (or the origin).
 
-        depth=None cuts through the solid's Z span. A finite depth drills
-        along -Z from the workplane origin.
+        depth=None cuts through the solid along the plane normal. A finite
+        depth drills along -normal from the workplane.
         """
         if diameter <= 0:
             raise ValueError(f"hole diameter must be positive: {diameter}")
@@ -511,15 +594,16 @@ class Workplane:
     def _drill(self, radius, depth, cbore_radius, cbore_depth) -> Workplane:
         host = self.solid()
         locs = list(self._locations) or [(0.0, 0.0, 0.0)]
-        ox, oy, oz = self._origin
         result = host
         for x, y, _rot in locs:
-            cutter = _make_drill(host, radius, depth, ox + x, oy + y, oz)
+            cutter = _make_drill(
+                host, radius, depth, x, y, self._plane, self._origin,
+            )
             result = safe_cut(result, cutter)
             if cbore_radius is not None:
                 cbore = _make_drill(
-                    host, cbore_radius, cbore_depth, ox + x, oy + y, oz,
-                    finite=True,
+                    host, cbore_radius, cbore_depth, x, y,
+                    self._plane, self._origin, finite=True,
                 )
                 result = safe_cut(result, cbore)
         out = self._copy(shapes=[result], keep_primitive=False)
@@ -542,10 +626,12 @@ class Workplane:
                 "Holes, booleans, and other solids are not shelled."
             )
         solid = self.solid()
+        local_bb = _local_bbox(solid, self._plane, self._origin)
         if self._primitive == "box":
-            cutter = _box_shell_cutter(solid.BoundBox, thickness, open)
+            cutter = _box_shell_cutter(local_bb, thickness, open)
         else:
-            cutter = _cylinder_shell_cutter(solid.BoundBox, thickness, open)
+            cutter = _cylinder_shell_cutter(local_bb, thickness, open)
+        _orient_shape(cutter, self._plane, self._origin)
         out = self._copy(shapes=[safe_cut(solid, cutter)], keep_primitive=False)
         return out
 
@@ -561,7 +647,7 @@ class Workplane:
         if size <= 0:
             raise ValueError(f"{kind} size must be positive: {size}")
         shape = self.solid().copy()
-        targets = _select_edges(shape, edges)
+        targets = _select_edges(shape, edges, _PLANE_NORMAL[self._plane])
         if not targets:
             raise ValueError(f"No edges matched selector {edges!r}.")
         applied = 0
@@ -609,8 +695,11 @@ class Workplane:
             )
         if not any(op[0] == "close" for op in self._profile):
             raise ValueError("Profile is not closed. Call close() before revolve().")
-        wire = _profile_wire(self._profile, self._origin)
-        base, direction = _revolve_axis(axisStart, axisEnd, axis, self._origin)
+        wire = _profile_wire(self._profile, (0.0, 0.0, 0.0))
+        _orient_shape(wire, self._plane, self._origin)
+        base, direction = _revolve_axis(
+            axisStart, axisEnd, axis, self._origin, self._plane,
+        )
         shape = wire.revolve(base, direction, float(angleDegrees))
         out = self._copy(shapes=[shape], keep_primitive=False)
         out._profile = []
@@ -619,20 +708,19 @@ class Workplane:
     # -- Workplane offset ---------------------------------------------------
 
     def workplane(self, offset: float = 0) -> Workplane:
-        """Create a new workplane offset along the plane normal (+Z).
+        """Create a new workplane offset along the plane normal.
 
-        The offset shifts the sketch origin: subsequent sketch + extrude
-        calls build geometry starting at the raised plane. Negative offsets
-        go along -Z. Existing shapes and pending sketches are carried
+        XY moves +Z, XZ moves -Y, YZ moves +X. Negative offsets go the
+        other way. Existing shapes and pending sketches are carried
         forward unchanged.
         """
         if offset == 0:
             return self._copy()
-        # Offset along the plane normal (+Z for the only supported XY plane)
+        nx, ny, nz = _PLANE_NORMAL[self._plane]
         ox, oy, oz = self._origin
         return Workplane(
             plane=self._plane,
-            origin=(ox, oy, oz + offset),
+            origin=(ox + nx * offset, oy + ny * offset, oz + nz * offset),
             shapes=list(self._shapes),
             pending=list(self._pending),
             locations=list(self._locations),
@@ -798,20 +886,20 @@ def _same_xy(a: tuple[float, float], b: tuple[float, float]) -> bool:
 _DRILL_OVERLAP = 0.05
 
 
-def _make_drill(host, radius, depth, x, y, origin_z, finite=False):
-    """Cylinder cutter. Through-holes span the host Z range plus a sliver."""
+def _make_drill(host, radius, depth, x, y, plane, origin, finite=False):
+    """Cylinder cutter along the plane normal, through *host* or to *depth*."""
     if depth is None and not finite:
-        bb = host.BoundBox
-        z0 = bb.ZMin - _DRILL_OVERLAP
-        height = (bb.ZMax - bb.ZMin) + 2 * _DRILL_OVERLAP
+        local = _local_bbox(host, plane, origin)
+        z0 = local.ZMin - _DRILL_OVERLAP
+        height = (local.ZMax - local.ZMin) + 2 * _DRILL_OVERLAP
     else:
         if depth is None or depth <= 0:
             raise ValueError(f"hole depth must be positive: {depth}")
-        z0 = origin_z - float(depth)
+        z0 = -float(depth)
         height = float(depth)
     shape = Part.makeCylinder(radius, height)
     shape.translate(_fc_vec(x, y, z0))
-    return shape
+    return _orient_shape(shape, plane, origin)
 
 
 _SHELL_OVERLAP = 0.05
@@ -887,11 +975,19 @@ def _edge_span(edge):
     )
 
 
-def _edge_class(edge) -> str:
+def _edge_class(edge, normal=(0.0, 0.0, 1.0)) -> str:
+    """'vertical' is parallel to the plane normal; on XY that is global Z."""
     dx, dy, dz = _edge_span(edge)
-    if dz > dx and dz > dy:
+    nx, ny, nz = normal
+    if abs(ny) > 0.5:
+        along, a, b = dy, dx, dz
+    elif abs(nx) > 0.5:
+        along, a, b = dx, dy, dz
+    else:
+        along, a, b = dz, dx, dy
+    if along > a and along > b:
         return "vertical"
-    if dz <= 0.25 * max(dx, dy):
+    if along <= 0.25 * max(a, b):
         return "horizontal"
     return "other"
 
@@ -905,14 +1001,16 @@ def _edge_midpoint(edge):
     )
 
 
-def _select_edges(shape, selector):
+def _select_edges(shape, selector, normal=(0.0, 0.0, 1.0)):
     all_edges = list(getattr(shape, "Edges", []) or [])
     if selector == "all":
         return all_edges
     if selector == "vertical":
-        return [edge for edge in all_edges if _edge_class(edge) == "vertical"]
+        return [edge for edge in all_edges if _edge_class(edge, normal) == "vertical"]
     if selector == "horizontal":
-        return [edge for edge in all_edges if _edge_class(edge) == "horizontal"]
+        return [
+            edge for edge in all_edges if _edge_class(edge, normal) == "horizontal"
+        ]
     if isinstance(selector, (list, tuple)):
         chosen = []
         for index in selector:
@@ -981,7 +1079,7 @@ def _profile_wire(profile, origin):
     return Part.Wire(edges)
 
 
-def _revolve_axis(axis_start, axis_end, axis, origin):
+def _revolve_axis(axis_start, axis_end, axis, origin, plane="XY"):
     if axis_start is not None or axis_end is not None:
         if axis_start is None or axis_end is None:
             raise ValueError("axisStart and axisEnd must be given together.")
@@ -994,8 +1092,8 @@ def _revolve_axis(axis_start, axis_end, axis, origin):
     dirs = {"X": (1.0, 0.0, 0.0), "Y": (0.0, 1.0, 0.0), "Z": (0.0, 0.0, 1.0)}
     if name not in dirs:
         raise ValueError("revolve axis must be 'X', 'Y', or 'Z'")
-    ox, oy, oz = origin
-    return _fc_vec(ox, oy, oz), _fc_vec(*dirs[name])
+    dx, dy, dz = _rotate_vec(*dirs[name], plane)
+    return _fc_vec(*origin), _fc_vec(dx, dy, dz)
 
 
 # ---------------------------------------------------------------------------

@@ -105,6 +105,11 @@ QUALITY_FIX_MAP: dict[str, str] = {
         "No active document. Create one: "
         "doc = FreeCAD.newDocument('Model')"
     ),
+    "OPEN_VESSEL": (
+        "A cup needs a floor. Union a solid .circle(outer_r).extrude(floor_h) "
+        "under the wall, or use .cylinder(H, R).shell(wall, open='top'). "
+        "Use make_arc_handle for a mug handle."
+    ),
     "MULTIPLE_OBJECTS": (
         "Multiple shape objects in document — this is a warning, not a "
         "failure. cq_show() automatically cleans up previous objects. "

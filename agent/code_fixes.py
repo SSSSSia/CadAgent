@@ -21,6 +21,90 @@ _CADQ_IMPORT_RE = re.compile(r"^[ \t]*import cadquery(\s+as\s+\w+)?[ \t]*$",
                              re.MULTILINE)
 
 
+def unsupported_cq_call(code: str) -> str | None:
+    """Reject CadQuery calls this runtime does not implement.
+
+    Returning the error before exec avoids a wasted round and a hint that
+    points at Part.makeLoft.
+    """
+    missing = (
+        (
+            "loft",
+            "A tapered solid is .cone(r1, r2, H): r1 is the base radius, "
+            "r2 the top radius, H the height.",
+        ),
+        (
+            "faces",
+            "Hollow a plain cylinder with .shell(thickness, open='top'), "
+            "or subtract a cutter with .cut(other).",
+        ),
+        (
+            "cutThruAll",
+            "Use .hole(diameter) or .cut(other).",
+        ),
+    )
+    for name, hint in missing:
+        if re.search(rf"\.{name}\s*\(", code):
+            return (
+                f"ERROR: .{name}() is not implemented.\n"
+                f"Hint: {hint}\n"
+                "Do not call this method again."
+            )
+    if re.search(r"""edges\s*=\s*['"]top['"]""", code):
+        return (
+            "ERROR: fillet/chamfer has no edges='top' selector.\n"
+            "Hint: edges must be 'all', 'vertical', 'horizontal', "
+            "or a list of indices."
+        )
+    return None
+
+
+_VESSEL_RE = re.compile(r"马克杯|杯子|水杯|茶杯|碗|mug|\bcup\b|\bpot\b", re.I)
+_HOLLOW_WALL_RE = re.compile(
+    r"\.circle\s*\([^)]*\)(?:\s|#.*\n)*\.circle\s*\(|make_hollow_cylinder\s*\("
+)
+_SOLID_DISK_RE = re.compile(
+    r"\.circle\s*\([^)]*\)(?:\s|#.*\n)*\.extrude\s*\("
+)
+_SHELL_TOP_RE = re.compile(r"\.shell\s*\([^)]*open\s*=\s*['\"]top['\"]")
+_FLAT_GRIP_RE = re.compile(r"方手柄|扁平|flat grip|box handle|矩形手柄", re.I)
+
+
+def vessel_floor_warning(code: str, description: str = "") -> str | None:
+    """Tell the model a labeled cup is still an open tube or a slab handle.
+
+    The quality gate only checks that one solid exists. A hollow extrude
+    passes that and still cannot hold liquid.
+    """
+    labels = "\n".join(re.findall(r"""['"]([^'"]*)['"]""", code))
+    blob = f"{description}\n{labels}"
+    if not _VESSEL_RE.search(blob):
+        return None
+    notes = []
+    hollow = _HOLLOW_WALL_RE.search(code) is not None
+    shelled = _SHELL_TOP_RE.search(code) is not None
+    if hollow and not shelled:
+        rest = _HOLLOW_WALL_RE.sub(" ", code)
+        has_floor = _SOLID_DISK_RE.search(rest) is not None or ".cylinder(" in code
+        if not has_floor:
+            notes.append(
+                "This is a tube open at both ends, so it cannot hold liquid. "
+                "Add a floor with one .circle(outer_r).extrude(floor_h) "
+                "unioned under the wall, or start from "
+                ".cylinder(H, R).shell(wall, open='top'). "
+                "A second hollow extrude is a flange, not a bottom."
+            )
+    if "make_box_handle" in code and "make_arc_handle" not in code:
+        if not _FLAT_GRIP_RE.search(blob):
+            notes.append(
+                "make_box_handle is a rectangular slab. "
+                "A mug handle is make_arc_handle unless a flat grip was requested."
+            )
+    if not notes:
+        return None
+    return " ".join(notes)
+
+
 def pre_validate_code(code: str) -> tuple[bool, str]:
     """Validate code syntax via compile(). Returns (ok, error_msg)."""
     try:
@@ -151,14 +235,13 @@ def error_hint(error: Exception, code: str) -> tuple[str, str | None]:
             )
 
     elif e_type == "NotImplementedError":
-        # cq.Workplane('XZ'/'YZ') and other unsupported CQ features (S5-A2)
+        # Unknown workplane name (XY / XZ / YZ are implemented).
         if "plane" in e_str.lower() or "origin" in e_str.lower():
             hints.append(
-                "Hint: Only cq.Workplane('XY') is supported. Build the shape "
-                "on XY, then orient it with .rotate((0,0,0), (1,0,0), 90) and "
-                "position it with .translate((x, y, z)). To raise the sketch "
-                "plane along +Z use cq.Workplane('XY', origin=(x,y,z)) or "
-                ".workplane(offset=N)."
+                "Hint: Workplane planes are 'XY', 'XZ', and 'YZ'. "
+                "Extrude follows the plane normal (XY +Z, XZ -Y, YZ +X). "
+                ".workplane(offset=N) moves along that normal, and "
+                "origin=(x, y, z) is in global coordinates."
             )
         else:
             hints.append(
@@ -260,12 +343,32 @@ def error_hint(error: Exception, code: str) -> tuple[str, str | None]:
             if attr_match and type_match:
                 attr = attr_match.group(1)
                 obj_type = type_match.group(1)
-                hints.append(
-                    f"Hint: {obj_type} has no method '{attr}'. "
-                    "Check FreeCAD Part API. Common gotchas: "
-                    "makePipe/revolve need Wire not Edge, "
-                    "makeLoft needs list of Wires."
-                )
+                if attr == "loft":
+                    hints.append(
+                        "Hint: There is no loft(). A tapered solid is "
+                        ".cone(r1, r2, H): r1 is the base radius, r2 the top "
+                        "radius, H the height."
+                    )
+                elif attr in ("faces", "cutThruAll"):
+                    hints.append(
+                        "Hint: There is no "
+                        f".{attr}(). Use .shell(thickness, open='top'), "
+                        ".hole(diameter), or .cut(other)."
+                    )
+                elif obj_type == "Workplane":
+                    hints.append(
+                        f"Hint: Workplane has no method '{attr}'. "
+                        "Use the documented cq methods "
+                        "(cylinder, cone, circle, extrude, shell, cut, union, "
+                        "fillet). Do not switch to Part.makeLoft."
+                    )
+                else:
+                    hints.append(
+                        f"Hint: {obj_type} has no method '{attr}'. "
+                        "Check FreeCAD Part API. Common gotchas: "
+                        "makePipe/revolve need Wire not Edge, "
+                        "makeLoft needs list of Wires."
+                    )
             else:
                 hints.append(
                     "Hint: Check API names: Part.makeBox, Part.makeCylinder, "

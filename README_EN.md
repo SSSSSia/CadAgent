@@ -1,6 +1,6 @@
 # CadAgent — FreeCAD CAD Agent Workbench
 
-**v1.2.0**
+**v1.3.0**
 
 [中文](README.md)
 
@@ -136,7 +136,7 @@ CadAgent/
 │   ├── chat_renderer.py  # Markdown → HTML rendering (with syntax highlighting)
 │   ├── theme.py          # Light/dark mode theme colors
 │   └── settings_dialog.py # Settings dialog (7 provider presets, connection test)
-├── tests/                # 758 unit tests (no FreeCAD dependency)
+├── tests/                # 776 unit tests (no FreeCAD dependency)
 ├── .env.example          # API config template
 ├── .gitignore
 ├── LICENSE
@@ -146,12 +146,12 @@ CadAgent/
 
 ## Technical Details
 
-- **CQ Runtime Translation Layer** — `agent/cq.py` is about 1000 lines. Each `Workplane` method calls the FreeCAD Part API directly. LLMs write CadQuery-style chain code; `box()`→`Part.makeBox()`, `cut()`→`safe_cut()`, `translate()` returns new objects (avoiding FreeCAD's in-place mutation trap). Extrude semantics match CadQuery (rises from the workplane along +Z, `both=True` extrudes symmetrically). Also included: `polarArray`/`rarray`, `hole`/`cboreHole`, `revolve` of a closed profile, `shell` limited to a plain box or cylinder, and `fillet`/`chamfer` with an edge selector. Only the XY workplane is currently supported (`origin` placement and `.workplane(offset=N)` work) — for XZ/YZ orientations, build on XY then orient with `.rotate()`
+- **CQ Runtime Translation Layer** — `agent/cq.py` is about 1000 lines. Each `Workplane` method calls the FreeCAD Part API directly. LLMs write CadQuery-style chain code; `box()`→`Part.makeBox()`, `cut()`→`safe_cut()`, `translate()` returns new objects (avoiding FreeCAD's in-place mutation trap). Extrude follows the workplane normal (`both=True` extrudes symmetrically). `XY` is +Z, `XZ` is −Y, and `YZ` is +X. `origin` is global, and `.workplane(offset=N)` moves along that normal. Also included: `polarArray`/`rarray`, `hole`/`cboreHole`, `revolve` of a closed profile, `shell` limited to a plain box or cylinder, and `fillet`/`chamfer` with an edge selector.
 - **Dual-Layer Architecture** — AgentLoop (pure-logic state machine) separated from UI thread orchestration, independently testable
 - **Thread Safety** — LLM API calls run in a background QThread; FreeCAD API operations (tool execution) return to the main thread via Signal/Slot
 - **Standard Library Only** — HTTP requests use `urllib` — no external Python package dependencies (CadQuery not installed)
 - **Compatibility** — Automatically detects whether the model supports Tool Calling, falls back to ReAct XML tag mode; error hints support both CQ-style and native FreeCAD API patterns
-- **758 Automated Tests** — Covering core modules (react_parser, token_budget, chat_renderer, config, session, session_store, code_fixes, agent_loop, tool_dispatch, tool_quality_integration, quality, parametric, cq_workplane, snapshot, llm_client, strings, paths, etc.), plus a 42-check real-FreeCAD behavior regression script (`scripts/verify_freecad_behavior.py`; the S8 cases have not been re-run on a FreeCAD build)
+- **776 Automated Tests** — Covering core modules (react_parser, token_budget, chat_renderer, config, session, session_store, code_fixes, agent_loop, tool_dispatch, tool_quality_integration, quality, parametric, cq_workplane, snapshot, llm_client, strings, paths, etc.), plus the real-FreeCAD behavior script (`scripts/verify_freecad_behavior.py`, including XZ/YZ orientation checks)
 
 ## Security Notes
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import queue
 import socket
 import threading
 import time
@@ -13,8 +14,10 @@ import core.config as _config
 _MAX_RETRIES = 2
 _RETRY_BACKOFF = 2.0
 _RETRY_MAX_SLEEP = 30.0
-# urllib cannot abort a blocked read. Each slice is short enough that Stop
-# unblocks the socket within about a second (S9-B).
+# urllib cannot abort a blocked read. A one-second socket timeout poisons
+# the response: the next read raises "cannot read from timed out object".
+# The body is read on a side thread; Stop closes the socket, which unblocks
+# that read within about a second (S9-B).
 _READ_SLICE_S = 1.0
 
 # Shared by every in-flight chat call. The panel sets it from the Stop button.
@@ -119,10 +122,15 @@ def _interruptible_sleep(seconds: float, cancel_event) -> None:
 
 
 def _open_cancellable(request, deadline: float, cancel_event):
-    """Open the HTTP response, polling so a stop lands within one slice.
+    """Open the HTTP response without aborting a slow first byte.
 
-    A socket timeout is not a failed attempt: the overall deadline is still
-    LLM_TIMEOUT. HTTP 429/5xx keep the existing retry budget.
+    urllib's timeout covers the whole request. A one-second timeout here
+    drops the connection while a reasoning model is still thinking, then
+    the next loop opens a new request and the panel spins until
+    LLM_TIMEOUT. The open therefore uses the remaining deadline. Stop
+    during the body is handled by ``_iter_lines``, which shortens the
+    socket timeout after the headers arrive. HTTP 429/5xx keep the
+    existing retry budget.
     """
     last_error = None
     attempt = 0
@@ -134,9 +142,8 @@ def _open_cancellable(request, deadline: float, cancel_event):
             if last_error is not None:
                 raise last_error
             raise TimeoutError("LLM request timed out")
-        slice_timeout = min(_READ_SLICE_S, remaining)
         try:
-            return urllib.request.urlopen(request, timeout=slice_timeout)
+            return urllib.request.urlopen(request, timeout=remaining)
         except urllib.error.HTTPError as e:
             if e.code != 429 and e.code < 500:
                 raise
@@ -170,38 +177,86 @@ def _open_cancellable(request, deadline: float, cancel_event):
 
 
 def _response_socket(resp):
-    fp = getattr(resp, "fp", None)
-    raw = getattr(fp, "raw", None) if fp is not None else None
-    if raw is None:
-        return None
-    return getattr(raw, "_sock", None) or getattr(raw, "sock", None)
+    """Find the socket behind urllib's addinfourl / HTTPResponse wrappers.
+
+    A one-level ``fp.raw._sock`` lookup misses the real chain
+    (addinfourl.fp is an HTTPResponse, whose fp is a makefile). Without
+    the socket, the body read keeps the long open timeout and Stop cannot
+    land between chunks.
+    """
+    obj = resp
+    seen: set[int] = set()
+    while obj is not None and id(obj) not in seen:
+        seen.add(id(obj))
+        sock = getattr(obj, "_sock", None) or getattr(obj, "sock", None)
+        if sock is not None and hasattr(sock, "settimeout"):
+            return sock
+        nxt = getattr(obj, "raw", None)
+        if nxt is None:
+            nxt = getattr(obj, "fp", None)
+        obj = nxt
+    return None
 
 
-def _iter_lines(resp, deadline: float, cancel_event):
-    """Yield response lines, waking every slice to notice a stop."""
+def _close_quietly(resp) -> None:
     sock = _response_socket(resp)
     if sock is not None:
         try:
-            sock.settimeout(_READ_SLICE_S)
+            sock.shutdown(socket.SHUT_RDWR)
         except Exception:
             pass
+    try:
+        resp.close()
+    except Exception:
+        pass
+
+
+def _iter_lines(resp, deadline: float, cancel_event):
+    """Yield response lines. Stop closes the socket instead of timing it out.
+
+    SocketIO remembers the first timeout and then raises
+    ``OSError: cannot read from timed out object`` on every later read.
+    A model pause longer than one second used to hit that. The socket
+    timeout stays at the deadline; a side thread blocks in readline, and
+    Stop or the deadline closes the response to wake it.
+    """
+    lines: queue.Queue = queue.Queue()
+
+    def _reader():
+        try:
+            while True:
+                line = resp.readline()
+                lines.put(line)
+                if not line:
+                    return
+        except Exception as exc:
+            lines.put(exc)
+
+    threading.Thread(target=_reader, name="cadagent-llm-read", daemon=True).start()
     while True:
-        if _cancel_is_set(cancel_event):
-            raise LlmCancelled()
-        if time.monotonic() > deadline:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            _close_quietly(resp)
             raise TimeoutError("LLM request timed out")
         try:
-            line = resp.readline()
-        except (TimeoutError, socket.timeout):
+            item = lines.get(timeout=min(_READ_SLICE_S, remaining))
+        except queue.Empty:
+            if _cancel_is_set(cancel_event):
+                _close_quietly(resp)
+                raise LlmCancelled()
             continue
-        except (urllib.error.URLError, OSError) as e:
-            reason = getattr(e, "reason", e)
-            if isinstance(reason, (TimeoutError, socket.timeout)):
-                continue
-            raise
-        if not line:
+        if isinstance(item, BaseException):
+            if _cancel_is_set(cancel_event):
+                raise LlmCancelled()
+            raise item
+        if not item:
+            if _cancel_is_set(cancel_event):
+                raise LlmCancelled()
             return
-        yield line
+        yield item
+        if _cancel_is_set(cancel_event):
+            _close_quietly(resp)
+            raise LlmCancelled()
 
 
 def _make_request(payload: dict) -> urllib.request.Request:

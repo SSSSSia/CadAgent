@@ -1,6 +1,6 @@
 # CadAgent — FreeCAD CAD Agent 工作台
 
-**v1.2.0**
+**v1.3.0**
 
 [English](README_EN.md)
 
@@ -145,7 +145,7 @@ CadAgent/
 │   ├── chat_renderer.py  # Markdown → HTML 渲染（含代码高亮）
 │   ├── theme.py          # 亮/暗模式主题配色
 │   └── settings_dialog.py # 设置对话框（7 个提供商预设、连接测试）
-├── tests/                # 758 个单元测试（不依赖 FreeCAD）
+├── tests/                # 776 个单元测试（不依赖 FreeCAD）
 ├── .env.example          # API 配置模板
 ├── .gitignore
 ├── LICENSE
@@ -155,12 +155,12 @@ CadAgent/
 
 ## 技术细节
 
-- **CQ 运行时翻译层** — `agent/cq.py` 提供约 1000 行的 `Workplane` 翻译层，每个方法直接调用 FreeCAD Part API。LLM 生成 CadQuery 风格链式代码，`box()`→`Part.makeBox()`，`cut()`→`safe_cut()`，`translate()` 返回新对象（避免 FreeCAD 的 in-place 陷阱）。拉伸语义与 CadQuery 对齐（从工作平面向 +Z 拉伸、`both=True` 对称双侧）。另有 `polarArray`/`rarray`、`hole`/`cboreHole`、闭合轮廓 `revolve`、仅限普通方块/圆柱的 `shell`，以及按边分类的 `fillet`/`chamfer`。当前仅支持 XY 工作平面（支持 `origin` 定位与 `.workplane(offset=N)` 抬升），XZ/YZ 朝向需求请在 XY 上构建后用 `.rotate()` 定向
+- **CQ 运行时翻译层** — `agent/cq.py` 提供约 1000 行的 `Workplane` 翻译层，每个方法直接调用 FreeCAD Part API。LLM 生成 CadQuery 风格链式代码，`box()`→`Part.makeBox()`，`cut()`→`safe_cut()`，`translate()` 返回新对象（避免 FreeCAD 的 in-place 陷阱）。拉伸沿工作平面法向，`both=True` 为对称双侧。`XY` 的法向是 +Z，`XZ` 是 −Y，`YZ` 是 +X；`origin` 用全局坐标，`.workplane(offset=N)` 沿该法向移动。另有 `polarArray`/`rarray`、`hole`/`cboreHole`、闭合轮廓 `revolve`、仅限普通方块/圆柱的 `shell`，以及按边分类的 `fillet`/`chamfer`。
 - **双层架构**：AgentLoop 纯逻辑状态机与 UI 线程编排分离，可独立测试
 - **线程安全**：LLM API 调用在后台 QThread 中执行，FreeCAD API 操作（工具执行）通过 Signal/Slot 回到主线程
 - **纯标准库**：HTTP 请求使用 `urllib`，无外部 Python 包依赖（不安装 CadQuery）
 - **兼容性**：自动检测模型是否支持 Tool Calling，不支持时回退到 ReAct XML 标签模式；代码错误提示同时支持 CQ 风格和 FreeCAD 原生 API
-- **758 个自动化测试**：覆盖核心模块（react_parser、token_budget、chat_renderer、config、session、session_store、code_fixes、agent_loop、tool_dispatch、tool_quality_integration、quality、parametric、cq_workplane、snapshot、llm_client、strings、paths 等），另含 42 项真实 FreeCAD 运行时行为回归脚本（`scripts/verify_freecad_behavior.py`，S8 新增项尚未在本机重跑）
+- **776 个自动化测试**：覆盖核心模块（react_parser、token_budget、chat_renderer、config、session、session_store、code_fixes、agent_loop、tool_dispatch、tool_quality_integration、quality、parametric、cq_workplane、snapshot、llm_client、strings、paths 等），另含真实 FreeCAD 运行时行为回归脚本（`scripts/verify_freecad_behavior.py`，含 XZ/YZ 朝向断言）
 
 ## 数据存储位置
 

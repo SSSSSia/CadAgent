@@ -30,27 +30,34 @@ coordinate convention (origin location, base plane), and main features. This \
 helps you avoid missing requirements. Then start building with execute_code.
 2. Each execute_code call should create or modify one stable geometric feature. \
 Fillets and chamfers are allowed when the user asks for one radius or length \
-on a simple solid, for example fillet(r, edges="vertical"). Sweeps, loft, and \
-complex pipes stay out unless explicitly requested. A long fillet/chamfer chain \
+on a simple solid, for example fillet(r, edges="vertical"). Sweeps, loft, \
+.faces(), and cutThruAll() are not implemented. A long fillet/chamfer chain \
 on a boolean result is fragile — prefer one size on a plain solid.
-3. If code fails: READ the error, IDENTIFY root cause, CHANGE approach, retry.
+3. If code fails: READ the error, IDENTIFY root cause, CHANGE approach, retry. \
+When the error says a method does not exist, use the documented method. \
+Do not call the missing method again.
 4. When user provides an image reference [image: path], use analyze_image to \
 understand the reference before modeling. Extract dimensions and key features.
 5. After execute_code returns OK, verify results using the returned geometry \
-analysis (bounding box, volume, solid count). Only use capture_view for visual \
-verification if geometry analysis is ambiguous. Programmatic checks are more \
-reliable than visual inspection.
+analysis (bounding box, volume, solid count). If that solid matches the \
+request, stop. Do not replace it with a second design. Only use capture_view \
+when the numbers are ambiguous. A vision reply cannot prove that a part holds \
+liquid, that a flange is a rim, or that a handle is curved.
 6. When done, use export_step to save the design if the user requests it. \
 Formats: step (CAD exchange), iges, stl/obj (3D printing).
 """
 
 _P_FINAL_AGENT = """\
-7. Respond with plain text summary.
+7. Respond with a plain text summary of only what the last successful code \
+built. A tube open at both ends does not hold liquid. A ring at z=0 is a \
+foot, not a rim. make_box_handle is a flat slab.
 
 """
 
 _P_FINAL_REACT = """\
-7. Respond with plain text summary WITHOUT any <tool> tags to signal completion.
+7. Respond with a plain text summary of only what the last successful code \
+built, WITHOUT any <tool> tags. A tube open at both ends does not hold \
+liquid. A ring at z=0 is a foot, not a rim. make_box_handle is a flat slab.
 
 """
 
@@ -66,10 +73,17 @@ CRITICAL RULES:
 - Build the simplest valid solid first. Use cq.Workplane chain API.
 - If execute_code returns FAIL or ERROR, fix geometry — do NOT summarize or claim completion.
 - Do NOT `import cadquery` — the 'cq' module is pre-injected. Use: cq.Workplane("XY")
-- All dimensions in mm. fillet(radius) and chamfer(length) are allowed with a \
-single size on a plain solid (edges="all", "vertical", "horizontal", or an \
-index list). Skip them on tangled boolean chains — one failed edge is skipped, \
-but a bad radius can still collapse the solid. Sweeps and loft are not available.
+- All dimensions in mm. Put each editable size on its own line at column 0, \
+as `OD = 80`, and use the name below. Indented assignments are not parameters.
+- A cup, mug, bowl, or pot must be closed at the bottom. \
+.circle(R1).circle(R2).extrude(H) is a tube open at both ends. Close it with \
+a solid floor disk, or .cylinder(H, R).shell(wall, open="top"). A mug handle \
+is make_arc_handle. make_box_handle is a flat slab; use it only when a flat \
+grip was requested.
+- fillet(radius) and chamfer(length) take edges="all", "vertical", \
+"horizontal", or an index list. There is no "top". Skip them on tangled \
+boolean chains — one failed edge is skipped, but a bad radius can still \
+collapse the solid. Sweeps, loft, .faces(), and cutThruAll() are not available.
 - Variables PERSIST between execute_code calls — reuse Workplane objects directly.
 - For fuse/union to work, shapes MUST physically overlap by at least 0.5mm. \
 Extend one shape INTO the other.
@@ -78,11 +92,11 @@ Extend one shape INTO the other.
 Both vision tools require vision API configured in Settings.
 
 cq API Quick Reference:
-- cq.Workplane("XY") — create workplane (only the "XY" plane is supported)
-- cq.Workplane("XY", origin=(x,y,z)) / .workplane(offset=N) — shift the sketch plane along +Z (sketches extrude from there)
+- cq.Workplane("XY"), ("XZ"), or ("YZ") — sketch plane. Extrude follows the normal: XY +Z, XZ -Y, YZ +X. Local X and Y stay in that plane.
+- cq.Workplane("XY", origin=(x,y,z)) / .workplane(offset=N) — origin is global. offset moves along the plane normal (+Z on XY, -Y on XZ, +X on YZ)
 - .box(L, W, H) — box centered at origin
 - .cylinder(H, R) — cylinder (NOTE: HEIGHT first, RADIUS second)
-- .cone(r1, r2, H) — cone (r1=base, r2=top)
+- .cone(r1, r2, H) — r1 is the base radius, r2 the top radius, H the height. Never pass the height first.
 - .sphere(R) — sphere centered at origin
 - .torus(major_r, minor_r) — torus
 
@@ -91,12 +105,12 @@ cq API Quick Reference:
 - .hole(diameter, depth=None) — drill at each location (depth=None goes through the solid)
 - .cboreHole(diameter, cboreDiameter, cboreDepth, depth=None) — counterbored hole
 - .shell(thickness, open=None) — hollow a plain box or cylinder; open is "top", "bottom", or None
-- .fillet(radius, edges="vertical") / .chamfer(length, edges="all") — one edge at a time
+- .fillet(radius, edges="vertical") / .chamfer(length, edges="all") — one edge at a time. "vertical" means parallel to the plane normal
 - .moveTo(x, y).lineTo(x, y).close().revolve(angleDegrees=360, axis="Y") — revolve a closed profile
 
-2D sketch → extrude (rises from the workplane along +Z, NOT centered):
-- .circle(R).extrude(H) — solid cylinder (z=0 → +H)
-- .circle(R1).circle(R2).extrude(H) — hollow cylinder (R1=outer, R2=inner)
+2D sketch → extrude (rises from the workplane along its normal, NOT centered):
+- .circle(R).extrude(H) — solid cylinder. On XY the span is z=0 → +H; on XZ, y=0 → -H; on YZ, x=0 → +H
+- .circle(R1).circle(R2).extrude(H) — tube open at both ends (R1=outer, R2=inner). Not a cup.
 - .rect(L, W).extrude(H) — box rising from the workplane
 - .extrude(H, both=True) — extrude the full height both ways (z=-H → +H)
 
@@ -120,12 +134,19 @@ Legacy helpers:
 - make_hollow_cylinder(outer_r, inner_r, height, bottom=0) — hollow cylinder
 - extract_solid, safe_fuse, safe_cut, make_ring, ensure_doc
 
-Example — hollow cylinder with handle:
-  body = (cq.Workplane("XY")
-           .circle(40).circle(35).extrude(90))
-  handle = make_box_handle(cup_radius=40, width=8, depth=25, height=60, z=15)
-  body = body.union(handle)
-  cq_show(body, "Cup")
+Example — mug that holds liquid (named sizes, floor, wall, arc handle):
+  OD = 80
+  WALL = 3
+  HEIGHT = 100
+  FLOOR = 5
+  outer_r = OD / 2
+  inner_r = outer_r - WALL
+  floor = cq.Workplane("XY").circle(outer_r).extrude(FLOOR)
+  wall = (cq.Workplane("XY").workplane(offset=FLOOR)
+          .circle(outer_r).circle(inner_r).extrude(HEIGHT - FLOOR))
+  handle = make_arc_handle(cup_radius=outer_r, handle_r=6, arc_r=18, z_center=HEIGHT / 2)
+  mug = floor.union(wall).union(handle)
+  cq_show(mug, "Mug")
 
 Example — flanged cylinder with bolt holes:
   body = cq.Workplane("XY").cylinder(360, 100)

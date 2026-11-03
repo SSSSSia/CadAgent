@@ -132,7 +132,7 @@ class TestSseParsing:
 
 
 class _SliceResponse:
-    """First lines come back immediately; the next read times out and cancels."""
+    """Returns scripted lines, then sets the cancel flag."""
 
     def __init__(self, lines, cancel_after, flag):
         self._lines = list(lines)
@@ -143,12 +143,12 @@ class _SliceResponse:
 
     def readline(self):
         self._reads += 1
-        if self._reads > self._cancel_after:
-            self._flag.set()
-            raise TimeoutError("slice")
         if not self._lines:
             return b""
-        return self._lines.pop(0)
+        line = self._lines.pop(0)
+        if self._reads >= self._cancel_after:
+            self._flag.set()
+        return line
 
     def close(self):
         self.closed = True
@@ -216,3 +216,160 @@ class TestCancelSlices:
             raise AssertionError("should have cancelled")
         except llm.LlmCancelled:
             pass
+
+    def test_open_timeout_is_the_remaining_deadline(self, monkeypatch):
+        """A one-second urlopen timeout drops the request before the first byte."""
+        seen = []
+
+        def fake_urlopen(req, timeout=None):
+            seen.append(timeout)
+            return io.BytesIO(b"")
+
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+        llm._open_cancellable(object(), time.monotonic() + 30, threading.Event())
+        assert len(seen) == 1
+        assert seen[0] > 5
+
+    def test_slow_first_byte_is_a_single_request(self):
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        class Handler(BaseHTTPRequestHandler):
+            hits = 0
+
+            def do_POST(self):
+                type(self).hits += 1
+                time.sleep(1.5)
+                body = b"data: [DONE]\n\n"
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, fmt, *args):
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        port = server.server_address[1]
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/v1/chat/completions",
+                data=b"{}",
+                headers={"Content-Type": "application/json"},
+            )
+            started = time.monotonic()
+            resp = llm._open_cancellable(
+                req, started + 8, threading.Event(),
+            )
+            elapsed = time.monotonic() - started
+            assert elapsed >= 1.4
+            assert Handler.hits == 1
+            assert resp.status == 200
+            assert llm._response_socket(resp) is not None
+            resp.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_pause_between_chunks_stays_readable(self):
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        class Handler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def do_POST(self):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Transfer-Encoding", "chunked")
+                self.end_headers()
+                first = b'data: {"choices":[{"delta":{"content":"A"}}]}\n\n'
+                second = (
+                    b'data: {"choices":[{"delta":{"content":"B"}}]}\n\n'
+                    b"data: [DONE]\n\n"
+                )
+                self.wfile.write(b"%x\r\n%s\r\n" % (len(first), first))
+                self.wfile.flush()
+                time.sleep(1.5)
+                self.wfile.write(b"%x\r\n%s\r\n" % (len(second), second))
+                self.wfile.write(b"0\r\n\r\n")
+                self.wfile.flush()
+
+            def log_message(self, fmt, *args):
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        port = server.server_address[1]
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/v1/chat/completions",
+                data=b"{}",
+                headers={"Content-Type": "application/json"},
+            )
+            started = time.monotonic()
+            resp = urllib.request.urlopen(req, timeout=8)
+            lines = [
+                line.decode()
+                for line in llm._iter_lines(resp, started + 8, threading.Event())
+            ]
+            resp.close()
+            assert any('"A"' in line for line in lines)
+            assert any('"B"' in line for line in lines)
+            assert time.monotonic() - started >= 1.4
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_cancel_during_pause(self):
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        class Handler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def do_POST(self):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Transfer-Encoding", "chunked")
+                self.end_headers()
+                first = b'data: {"choices":[{"delta":{"content":"A"}}]}\n\n'
+                self.wfile.write(b"%x\r\n%s\r\n" % (len(first), first))
+                self.wfile.flush()
+                time.sleep(8)
+                self.wfile.write(b"0\r\n\r\n")
+                self.wfile.flush()
+
+            def log_message(self, fmt, *args):
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        port = server.server_address[1]
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        flag = threading.Event()
+
+        def cancel_soon():
+            time.sleep(0.3)
+            flag.set()
+
+        threading.Thread(target=cancel_soon, daemon=True).start()
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/v1/chat/completions",
+                data=b"{}",
+                headers={"Content-Type": "application/json"},
+            )
+            started = time.monotonic()
+            resp = urllib.request.urlopen(req, timeout=12)
+            try:
+                list(llm._iter_lines(resp, started + 12, flag))
+                raise AssertionError("should have cancelled")
+            except llm.LlmCancelled:
+                pass
+            finally:
+                resp.close()
+            assert time.monotonic() - started < 2.5
+        finally:
+            server.shutdown()
+            server.server_close()

@@ -62,7 +62,6 @@ class TestPromptForbiddenContent:
         ("Pre-imported: FreeCAD, Part, math, Gui", "old alias-based pre-import list"),
         ("import FreeCADGui as Gui", "import alias for FreeCADGui"),
         ("rim.translate(Vector(", "bare Vector in example code"),
-        ('also "XZ", "YZ"', "workplane plane claims — only XY is supported"),
     ]
 
     @pytest.mark.parametrize("name,prompt", list(ALL_PROMPTS.items()))
@@ -135,6 +134,11 @@ class TestCQSemanticsDocumented:
     def test_workplane_origin_documented(self, name, prompt):
         assert "workplane(offset=N)" in prompt
 
+    @pytest.mark.parametrize("name,prompt", list(AGENT_PROMPTS.items()))
+    def test_named_planes_documented(self, name, prompt):
+        assert "XZ -Y" in prompt
+        assert "YZ +X" in prompt
+
 
 class TestSharedPromptSections:
     """S6-A13: both prompts assemble from shared section constants.
@@ -168,3 +172,7 @@ class TestSharedPromptSections:
             assert "cboreHole" in prompt
             assert "fillet(radius" in prompt
             assert "Sweeps, loft" in prompt
+            assert "open at both ends" in prompt
+            assert "OD = 80" in prompt
+            assert "make_arc_handle(cup_radius=outer_r" in prompt
+            assert 'There is no "top"' in prompt

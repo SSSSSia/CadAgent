@@ -20,8 +20,10 @@ import Part
 import math
 
 from core.text_utils import strip_markdown
-from core.logger import log_info, log_warning, log_error, log_quiet
-from agent.code_fixes import pre_validate_code, error_hint
+from core.logger import log_info, log_warning, log_quiet
+from agent.code_fixes import (
+    error_hint, pre_validate_code, unsupported_cq_call, vessel_floor_warning,
+)
 from agent.cad_helpers import (
     extract_solid, safe_fuse, safe_cut,
     make_hollow_cylinder, make_ring, make_box_handle, make_arc_handle,
@@ -464,6 +466,9 @@ def _tool_execute_code(args_json: str) -> str:
             f"Hint: Check for missing colons, unmatched brackets, or incorrect indentation.\n"
             f"Code that failed:\n{code}"
         )
+    missing = unsupported_cq_call(code)
+    if missing:
+        return missing
 
     # Auto-create document when none exists and code uses doc.XXX or cq_show()
     doc_is_none = (target_doc is None) and (FreeCAD.ActiveDocument is None)
@@ -519,6 +524,14 @@ def _tool_execute_code(args_json: str) -> str:
                 f"Quality check error: {type(e).__name__}: {e}",
             ]
 
+        floor = vessel_floor_warning(code, description)
+        if floor and parts and parts[0].startswith("OK:"):
+            if "tube open" in floor:
+                title = "FAIL: Code executed but the solid cannot hold liquid."
+            else:
+                title = "FAIL: Code executed but the handle is a flat slab."
+            parts[0] = f"{title}\n{floor}\n" + parts[0]
+
         # Rich document state feedback — critical for LLM to verify and plan
         try:
             from core.doc_analyzer import analyze_document
@@ -567,7 +580,7 @@ def _tool_execute_code(args_json: str) -> str:
         # are available in subsequent execute_code calls
         _save_user_vars(namespace)
         tb = traceback.format_exc()
-        log_error(f"execute_code FAILED: {type(e).__name__}: {e}\n{tb}")
+        log_warning(f"execute_code FAILED: {type(e).__name__}: {e}\n{tb}")
         hint, fixed_code = error_hint(e, code)
 
         # Phase 5: Auto-fix retry for high-confidence mechanical errors.

@@ -275,7 +275,7 @@ def part_b(workdir):
 
 
 # ---------------------------------------------------------------------------
-# Part C — CQ semantics gate (S5: XY-only planes, extrude direction, cq_show)
+# Part C — CQ semantics gate (S5 extrude direction, S10 plane orientation, cq_show)
 # ---------------------------------------------------------------------------
 
 def part_c(workdir):
@@ -289,15 +289,51 @@ def part_c(workdir):
     import Part
     print("\nPart C — CQ semantics (S5)")
 
-    # --- C1: non-XY planes must raise honestly ---
-    raised = 0
-    for plane in ("XZ", "YZ"):
-        try:
-            Workplane(plane)
-        except NotImplementedError:
-            raised += 1
-    _report(raised == 2, "C1 XZ/YZ planes raise NotImplementedError",
-            f"raised={raised}/2")
+    # --- C1: XZ/YZ extrude along the CadQuery plane normal ---
+    bb_xz = Workplane("XZ").circle(10).extrude(20).solid().BoundBox
+    _report(
+        abs(bb_xz.YMin + 20) < 1e-6 and abs(bb_xz.YMax) < 1e-6
+        and abs(bb_xz.XMin + 10) < 1e-6 and abs(bb_xz.XMax - 10) < 1e-6
+        and abs(bb_xz.ZMin + 10) < 1e-6 and abs(bb_xz.ZMax - 10) < 1e-6,
+        "C1a XZ circle extrude spans y=-H..0, x/z=±R",
+        f"X=[{bb_xz.XMin:.3f},{bb_xz.XMax:.3f}] "
+        f"Y=[{bb_xz.YMin:.3f},{bb_xz.YMax:.3f}] "
+        f"Z=[{bb_xz.ZMin:.3f},{bb_xz.ZMax:.3f}]",
+    )
+    bb_yz = Workplane("YZ").circle(10).extrude(20).solid().BoundBox
+    _report(
+        abs(bb_yz.XMin) < 1e-6 and abs(bb_yz.XMax - 20) < 1e-6
+        and abs(bb_yz.YMin + 10) < 1e-6 and abs(bb_yz.YMax - 10) < 1e-6
+        and abs(bb_yz.ZMin + 10) < 1e-6 and abs(bb_yz.ZMax - 10) < 1e-6,
+        "C1b YZ circle extrude spans x=0..+H, y/z=±R",
+        f"X=[{bb_yz.XMin:.3f},{bb_yz.XMax:.3f}] "
+        f"Y=[{bb_yz.YMin:.3f},{bb_yz.YMax:.3f}] "
+        f"Z=[{bb_yz.ZMin:.3f},{bb_yz.ZMax:.3f}]",
+    )
+    bb_box = Workplane("XZ").box(10, 20, 30).solid().BoundBox
+    _report(
+        abs(bb_box.XMin + 5) < 1e-6 and abs(bb_box.XMax - 5) < 1e-6
+        and abs(bb_box.YMin + 15) < 1e-6 and abs(bb_box.YMax - 15) < 1e-6
+        and abs(bb_box.ZMin + 10) < 1e-6 and abs(bb_box.ZMax - 10) < 1e-6,
+        "C1c XZ box maps L→X, W→Z, H→Y",
+        f"X=[{bb_box.XMin:.3f},{bb_box.XMax:.3f}] "
+        f"Y=[{bb_box.YMin:.3f},{bb_box.YMax:.3f}] "
+        f"Z=[{bb_box.ZMin:.3f},{bb_box.ZMax:.3f}]",
+    )
+    bb_off = (Workplane("XZ").workplane(offset=10).circle(5).extrude(8)
+              .solid().BoundBox)
+    _report(
+        abs(bb_off.YMin + 18) < 1e-6 and abs(bb_off.YMax + 10) < 1e-6
+        and abs(bb_off.XLength - 10) < 1e-6 and abs(bb_off.ZLength - 10) < 1e-6,
+        "C1d XZ workplane(offset=10) extrude spans y=-18..-10",
+        f"Y=[{bb_off.YMin:.3f},{bb_off.YMax:.3f}]",
+    )
+    unknown = False
+    try:
+        Workplane("front")
+    except NotImplementedError:
+        unknown = True
+    _report(unknown, "C1e unknown plane name still raises", "")
 
     # --- C2: extrude rises from the workplane ---
     bb2 = Workplane("XY").circle(10).extrude(20).solid().BoundBox
@@ -444,7 +480,7 @@ def part_d(workdir):
     code1 = (
         "OD = 40" + chr(10) + "ID = 35" + chr(10) + "H = 90" + chr(10) +
         "body = cq.Workplane('XY').circle(OD).circle(ID).extrude(H)" + chr(10) +
-        "cq_show(body, 'Cup')"
+        "cq_show(body, 'Sleeve')"
     )
     r1 = agent_tools._tool_execute_code(_json.dumps({"code": code1}))
     bb1 = _rebuild_bbox(doc)

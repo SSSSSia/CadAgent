@@ -531,6 +531,8 @@ class AgentLoop:
             "negative volume": "NEGATIVE_VOLUME",
             "dimension": "DIMENSION_SUSPICIOUS",
             "no active document": "NO_DOCUMENT",
+            "cannot hold liquid": "OPEN_VESSEL",
+            "flat slab": "OPEN_VESSEL",
         }
         for phrase, code in nl_map.items():
             if phrase in summary_lower and code in QUALITY_FIX_MAP:

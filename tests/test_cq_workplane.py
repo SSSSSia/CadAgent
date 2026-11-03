@@ -80,6 +80,28 @@ class _MockShape:
         return _MockShape(shape_type="Solid", solids=[self], volume=0)
 
     def rotate(self, center, axis, angle):
+        """Right-handed rotation of the bbox corners. Matches FreeCAD."""
+        ang = math.radians(angle)
+        ax, ay, az = axis.x, axis.y, axis.z
+        norm = math.sqrt(ax * ax + ay * ay + az * az) or 1.0
+        ax, ay, az = ax / norm, ay / norm, az / norm
+        c, s = math.cos(ang), math.sin(ang)
+        cx, cy, cz = center.x, center.y, center.z
+        x0, y0, z0, x1, y1, z1 = self.bounds
+        corners = []
+        for x in (x0, x1):
+            for y in (y0, y1):
+                for z in (z0, z1):
+                    vx, vy, vz = x - cx, y - cy, z - cz
+                    dot = ax * vx + ay * vy + az * vz
+                    rx = vx * c + (ay * vz - az * vy) * s + ax * dot * (1 - c)
+                    ry = vy * c + (az * vx - ax * vz) * s + ay * dot * (1 - c)
+                    rz = vz * c + (ax * vy - ay * vx) * s + az * dot * (1 - c)
+                    corners.append((rx + cx, ry + cy, rz + cz))
+        xs = [p[0] for p in corners]
+        ys = [p[1] for p in corners]
+        zs = [p[2] for p in corners]
+        self.bounds = (min(xs), min(ys), min(zs), max(xs), max(ys), max(zs))
         self.rotated = getattr(self, "rotated", 0) + angle
 
     def mirror(self, base, normal):
@@ -269,6 +291,12 @@ def _make_fc_mock():
         def makePipe(self, profile):
             return _MockShape(shape_type="Solid", volume=100)
 
+        def rotate(self, center, axis, angle):
+            return None
+
+        def translate(self, vec):
+            return None
+
         def revolve(self, base, direction, angle):
             return _MockShape(
                 shape_type="Solid",
@@ -381,15 +409,19 @@ def test_workplane_constructor_defaults():
     assert wp._pending == []
 
 
-def test_workplane_constructor_rejects_non_xy_planes():
-    """S5-A2: non-XY planes must fail honestly, not silently build on XY."""
-    for plane in ("XZ", "YZ", "xz", "front"):
+def test_workplane_constructor_accepts_named_planes():
+    """S10 / Phase 11.1: XY, XZ, and YZ are real CadQuery planes."""
+    assert Workplane("xz")._plane == "XZ"
+    assert Workplane("YZ")._plane == "YZ"
+
+
+def test_workplane_constructor_rejects_unknown_planes():
+    for plane in ("front", "ZX", ""):
         try:
             Workplane(plane=plane)
             assert False, f"Should have raised NotImplementedError for {plane!r}"
         except NotImplementedError as e:
             assert "XY" in str(e)
-            assert "rotate" in str(e)  # guidance for reorientation
 
 
 def test_workplane_constructor_rejects_non_string_plane():
@@ -404,6 +436,45 @@ def test_workplane_constructor_accepts_xy_with_origin():
     wp = Workplane("xy", origin=(1, 2, 3))
     assert wp._plane == "XY"
     assert wp._origin == (1, 2, 3)
+
+
+def test_xz_box_maps_height_onto_negative_y():
+    b = Workplane("XZ").box(10, 20, 30).solid().bounds
+    assert b == pytest.approx((-5, -15, -10, 5, 15, 10))
+
+
+def test_yz_box_maps_height_onto_positive_x():
+    b = Workplane("YZ").box(10, 20, 30).solid().bounds
+    assert b == pytest.approx((-15, -5, -10, 15, 5, 10))
+
+
+def test_xz_offset_extrude_follows_normal():
+    wp = Workplane("XZ").workplane(offset=10)
+    assert wp._origin == pytest.approx((0.0, -10.0, 0.0))
+    b = wp.rect(4, 6).extrude(8).solid().bounds
+    assert b == pytest.approx((-2, -18, -3, 2, -10, 3))
+
+
+def test_yz_origin_is_global():
+    b = Workplane("YZ", origin=(1, 2, 3)).box(10, 20, 30).solid().bounds
+    assert b == pytest.approx((-14, -3, -7, 16, 7, 13))
+
+
+def test_xz_closed_shell_uses_normal_extent():
+    """Global Z is the in-plane width here; thickness is checked on the normal."""
+    try:
+        Workplane("XZ").box(20, 30, 10).shell(6)
+        assert False, "normal extent 10 cannot take a closed shell of 6"
+    except ValueError as exc:
+        assert "does not fit" in str(exc)
+
+
+def test_xz_revolve_uses_local_axis():
+    shaft = (Workplane("XZ")
+             .moveTo(5, 0).lineTo(10, 0).lineTo(10, 20).lineTo(5, 20).close()
+             .revolve(360))
+    assert shaft.solid().volume == 3600
+    assert shaft._profile == []
 
 
 # ---- Primitives ----
@@ -690,7 +761,7 @@ class TestPromptExamplesExecutable:
 
     @pytest.mark.parametrize("prompt_name", ["AGENT_SYSTEM_PROMPT", "REACT_SYSTEM_PROMPT"])
     @pytest.mark.parametrize("title", [
-        "Example — hollow cylinder with handle:",
+        "Example — mug that holds liquid (named sizes, floor, wall, arc handle):",
         "Example — flanged cylinder with bolt holes:",
     ])
     def test_example_executes(self, prompt_name, title):
@@ -709,6 +780,7 @@ class TestPromptExamplesExecutable:
             "cq": _cq_mod,
             "math": math,
             "make_box_handle": _mock_cad_helpers.make_box_handle,
+            "make_arc_handle": _mock_cad_helpers.make_arc_handle,
             "cq_show": _mock_cad_helpers.cq_show,
         }
         exec(code, ns)

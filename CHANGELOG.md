@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.3.0 (2026-11-03)
+
+`Workplane("XZ")` and `Workplane("YZ")` now build geometry on those planes.
+A sketch extrudes along the CadQuery normal: XY +Z, XZ −Y, YZ +X. `origin`
+stays in global coordinates, and `.workplane(offset)` moves along that normal.
+Holes, shell, and the default revolve axis use the same frame.
+
+- **Planes**: box, cylinder, cone, sphere, torus, and extrude are oriented
+  with the plane. Unknown names such as `"front"` still raise.
+- **Streaming**: LLM reads no longer mark the socket timed-out, so a slow
+  first byte does not abort the turn. Stop still closes the socket.
+- **Chat**: a failed tool is one line in the panel. Expected execute
+  failures are not FreeCAD `PrintError` popups.
+- **Vessels**: a labeled cup or bowl that is only an open tube does not
+  pass as finished. `.loft()`, `.faces()`, and `.cutThruAll()` are rejected
+  before execution.
+- Tests: 776 (mock suite). The FreeCAD behavior script is 44 checks,
+  including the new plane orientation cases, and passed on FreeCAD 1.1.1.
+
 ## v1.2.0 (2026-11-03)
 
 Modeling primitives and the engineering pass. CadQuery-style code can now
