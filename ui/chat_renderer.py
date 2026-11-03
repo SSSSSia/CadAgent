@@ -125,7 +125,8 @@ def markdown_to_html(md_text: str, colors: dict | None = None) -> str:
                 if in_list:
                     out.append(f'</{ltag}>')
                 out.append('<ol style="margin:4px 0 4px 20px;">')
-                in_list = True; ltag = 'ol'
+                in_list = True
+                ltag = 'ol'
             out.append(f'<li>{ol.group(2)}</li>')
             continue
         ul = re.match(r'^[-*]\s+(.+)$', s)
@@ -134,7 +135,8 @@ def markdown_to_html(md_text: str, colors: dict | None = None) -> str:
                 if in_list:
                     out.append(f'</{ltag}>')
                 out.append('<ul style="margin:4px 0 4px 20px;">')
-                in_list = True; ltag = 'ul'
+                in_list = True
+                ltag = 'ul'
             out.append(f'<li>{ul.group(1)}</li>')
             continue
         if in_list:

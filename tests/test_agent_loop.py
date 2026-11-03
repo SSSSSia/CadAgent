@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from core.session import ChatSession
 from agent.controller import AgentController
-from agent.loop import AgentLoop, LoopAction, LoopActionKind, ToolExecution
+from agent.loop import AgentLoop, LoopActionKind, ToolExecution
 import core.config as _config
 
 

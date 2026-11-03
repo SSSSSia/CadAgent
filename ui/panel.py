@@ -24,14 +24,17 @@ from core.session import ChatSession
 from core.doc_analyzer import analyze_document
 from core.session_store import SessionStore
 from agent.tools import dispatch_tool
-import core.config as _config
-from core.llm_client import call_llm_streaming
+from core.llm_client import (
+    LlmCancelled, call_llm_streaming, clear_llm_cancel, interrupted_result,
+    request_llm_cancel,
+)
 from core.logger import log_info, log_warning, log_error
 
 from ui.panel_ui import _PanelUIMixin
 from ui.panel_stream import _PanelStreamMixin
 from ui.panel_session import _PanelSessionMixin
 from ui.panel_status import _PanelStatusMixin
+from ui.strings import t
 
 
 class _LlmCallThread(QtCore.QThread):
@@ -54,7 +57,7 @@ class _LlmCallThread(QtCore.QThread):
 
             for chunk in call_llm_streaming(self.messages, tools=self.tools):
                 if self.isInterruptionRequested():
-                    break
+                    raise LlmCancelled()
 
                 choices = chunk.get("choices", [])
                 if not choices:
@@ -130,6 +133,9 @@ class _LlmCallThread(QtCore.QThread):
                 "choices": [{"message": msg, "finish_reason": finish_reason}]
             })
 
+        except LlmCancelled:
+            tool_calls = [tc_map[i] for i in sorted(tc_map)] if tc_map else []
+            self.streamDone.emit(interrupted_result(content, tool_calls or None))
         except Exception as e:
             self.error.emit(f"{type(e).__name__}: {e}")
 
@@ -251,7 +257,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             if self._loop.queue_steering(text):
                 self._append_user_msg(text)
                 self.text_input.clear()
-                self._append_system_msg("Queued — sent to the model at the next step.")
+                self._append_system_msg(t("queued"))
                 return
 
         # Per-turn reset FIRST — stale streaming cursor state from a previous
@@ -343,7 +349,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         else:
             color = c.token_ok
         tag = " [trimmed]" if trimmed else ""
-        self.token_label.setText(f"Tokens: {used} / {budget}{tag}")
+        self.token_label.setText(t("tokens", used=used, budget=budget, tag=tag))
         self.token_label.setStyleSheet(f"color:{color}; font-size:10px;")
         self._update_params_label()
 
@@ -379,6 +385,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             self._start_streaming_bubble()
 
         self._update_token_label(action.token_used, action.token_budget, action.token_trimmed)
+        clear_llm_cancel()
         thread = _LlmCallThread(action.messages, action.tools, parent=self)
         thread.chunkReady.connect(self._on_stream_chunk)
         thread.streamDone.connect(self._on_stream_done)
@@ -391,7 +398,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
 
     def _live_threads(self) -> list:
         """Threads that are still running."""
-        return [t for t in self._llm_threads if t.isRunning()]
+        return [thread for thread in self._llm_threads if thread.isRunning()]
 
     def _forget_thread(self, thread) -> None:
         """Drop a finished thread's reference (connected to finished)."""
@@ -403,20 +410,22 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
     def _shutdown_threads(self, wait_ms: int) -> None:
         """Interrupt all live threads and wait (bounded) for them to end.
 
-        A thread blocked inside urllib (up to LLM_TIMEOUT) can outlive the
-        wait; it stays referenced in _llm_threads so it is never destroyed
-        while running. True interruptible I/O is tracked as S3-D8.
+        A thread blocked inside urllib wakes on the next one-second read
+        slice after the cancel flag is set (S9-B).
         """
+        request_llm_cancel()
         live = self._live_threads()
-        for t in live:
-            t.requestInterruption()
-        for t in live:
-            if not t.wait(wait_ms):
+        for thread in live:
+            thread.requestInterruption()
+        for thread in live:
+            if not thread.wait(wait_ms):
                 log_warning(
                     "LLM thread did not stop within "
                     f"{wait_ms}ms; it will finish in the background"
                 )
-        self._llm_threads = [t for t in self._llm_threads if t.isRunning()]
+        self._llm_threads = [
+            thread for thread in self._llm_threads if thread.isRunning()
+        ]
 
     def _on_stream_done(self, data):
         """Streaming complete — finalize display, then route response."""
@@ -432,8 +441,6 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
                     summary="API returned empty response.",
                 ))
                 return
-            content = choices[0].get("message", {}).get("content", "")
-
             # ReAct rounds stream raw <tool> XML as plain text — strip the
             # blocks so the bubble shows only prose (S3-D15)
             if self._streaming_text and "<tool" in self._streaming_text:
@@ -529,10 +536,14 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
 
     def _finish_from_action(self, action: LoopAction):
         """Agent loop complete — show results."""
-        c = self._get_colors()
-        log_info(f"Agent finished: success={action.success}, iterations={action.iterations}, summary={action.summary[:100]}")
+        log_info(
+            "Agent finished: "
+            f"success={action.success}, iterations={action.iterations}, "
+            f"summary={action.summary[:100]}"
+        )
+        shown = t("stopped_by_user") if action.summary == "Stopped by user." else action.summary
         if not action.from_stream:
-            self._append_agent_msg(action.summary)
+            self._append_agent_msg(shown)
 
         if action.success:
             self._controller.result.success = True
@@ -563,10 +574,13 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         elapsed_str = self._format_elapsed(total_elapsed)
         turns = self._controller.session.user_turn_count()
         iters = action.iterations or self._loop.iteration if self._loop else 0
-        if action.success:
-            self._status_finish(True, f"Done  {elapsed_str}  {iters} iters  Turn {turns}")
+        fields = {"elapsed": elapsed_str, "iters": iters, "turns": turns}
+        if action.summary == "Stopped by user.":
+            self._status_finish(False, t("status_interrupted", **fields))
+        elif action.success:
+            self._status_finish(True, t("status_done", **fields))
         else:
-            self._status_finish(False, f"Failed  {elapsed_str}  {iters} iters  Turn {turns}")
+            self._status_finish(False, t("status_failed", **fields))
 
         self._set_running(False)
         self._turn_active = False
@@ -586,10 +600,11 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
     # ---- Event handlers ----
 
     def _on_stop(self):
+        request_llm_cancel()
         if self._loop:
             self._loop.request_stop()
-        for t in self._live_threads():
-            t.requestInterruption()
+        for thread in self._live_threads():
+            thread.requestInterruption()
         self._status_set("stopping")
 
     def _on_new_session(self):
@@ -598,9 +613,8 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         if self._session.user_turn_count() > 0:
             from PySide6 import QtWidgets
             reply = QtWidgets.QMessageBox.question(
-                self, "New Session",
-                "Start a new session? The current conversation is saved "
-                "and remains in the session list.",
+                self, t("new_session_title"),
+                t("new_session_body"),
                 QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
                 QtWidgets.QMessageBox.No,
             )
@@ -610,11 +624,12 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         # streamDone / chunkReady don't hit the cleared state below.
         if self._loop:
             self._loop.request_stop()
-        for t in self._live_threads():
+        request_llm_cancel()
+        for thread in self._live_threads():
             for sig, slot in (
-                (t.chunkReady, self._on_stream_chunk),
-                (t.streamDone, self._on_stream_done),
-                (t.error, self._on_llm_error),
+                (thread.chunkReady, self._on_stream_chunk),
+                (thread.streamDone, self._on_stream_done),
+                (thread.error, self._on_llm_error),
             ):
                 try:
                     sig.disconnect(slot)
@@ -627,7 +642,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         self._sync_all_state(new_session_id=self._session.session_id)
         self._reset_turn_state()
         self.chat_display.clear()
-        self._append_system_msg("New session started. Describe a part to begin.")
+        self._append_system_msg(t("new_session_started"))
         self._status_reset()
         self._set_running(False)
         self._refresh_session_list()
@@ -640,9 +655,9 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
 
         file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
             self,
-            "Select Image",
+            t("select_image"),
             "",
-            "Images (*.png *.jpg *.jpeg *.bmp);;All Files (*)"
+            t("image_filter")
         )
         if not file_path:
             return
@@ -660,18 +675,18 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         marker = f" [image: {dest_path}]"
         self.text_input.setPlainText(current_text + marker)
 
-        self._append_system_msg(f"Attached image: {dest_name}")
+        self._append_system_msg(t("attached", name=dest_name))
 
     def _on_undo(self):
         """User clicked Undo — restore document from most recent snapshot."""
         from core.snapshot import restore_latest_snapshot, snapshot_count, has_snapshot
 
         if not has_snapshot():
-            self._append_system_msg("Nothing to undo — no snapshots available.")
+            self._append_system_msg(t("nothing_to_undo"))
             return
 
         if self._live_threads():
-            self._append_system_msg("Cannot undo while agent is running.")
+            self._append_system_msg(t("cannot_undo_running"))
             return
 
         result = restore_latest_snapshot()
@@ -683,9 +698,9 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         )
 
         if not is_error:
-            self._append_system_msg(f"Undo successful. {snapshot_count()} snapshot(s) remaining.")
+            self._append_system_msg(t("undo_ok", count=snapshot_count()))
         else:
-            self._append_system_msg(f"Undo failed: {result}")
+            self._append_system_msg(t("undo_failed", detail=result))
 
     def _on_params_button(self):
         """User clicked ƒ(x) — edit parameters and rebuild deterministically (P12.2)."""
@@ -693,9 +708,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         from ui.params_dialog import ParamsDialog
 
         if self._live_threads() or self._turn_active:
-            self._append_system_msg(
-                "Cannot rebuild while the agent is running — wait for it to finish."
-            )
+            self._append_system_msg(t("cannot_rebuild_running"))
             return
 
         params = get_param_store()
@@ -718,9 +731,7 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
             result, is_error,
         )
         if not is_error:
-            self._append_system_msg(
-                "Model rebuilt with new parameters. Use Undo to roll back."
-            )
+            self._append_system_msg(t("rebuild_ok"))
         # Refresh the visible parameter table either way
         self._update_params_label()
         try:

@@ -10,7 +10,6 @@ import datetime
 import json
 import os
 import re
-import tempfile
 
 from core.logger import log_warning
 

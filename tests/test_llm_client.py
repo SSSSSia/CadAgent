@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import io
+import threading
+import time
 import urllib.error
 
 import core.llm_client as llm
@@ -16,7 +18,6 @@ class TestRetrySemantics:
     def test_429_honors_retry_after_and_closes_response(self, monkeypatch):
         sleeps, closed, calls = [], [], []
         monkeypatch.setattr(llm.time, "sleep", lambda s: sleeps.append(s))
-        orig_close = urllib.error.HTTPError.close
 
         def fake_urlopen(req, timeout=None):
             calls.append(1)
@@ -100,13 +101,17 @@ class TestRetrySemantics:
 
 class TestSseParsing:
 
-    def _collect(self, lines, monkeypatch):
+    def _collect(self, lines, monkeypatch, cancel_event=None):
         body = b"\n".join(lines) + b"\n"
         monkeypatch.setattr(llm, "_make_request", lambda payload: object())
         monkeypatch.setattr(
-            llm, "_urlopen_with_retry", lambda req, timeout: io.BytesIO(body)
+            llm, "_open_cancellable",
+            lambda request, deadline, cancel_event: io.BytesIO(body),
         )
-        return list(llm.call_llm_streaming([{"role": "user", "content": "x"}]))
+        return list(llm.call_llm_streaming(
+            [{"role": "user", "content": "x"}],
+            cancel_event=cancel_event if cancel_event is not None else threading.Event(),
+        ))
 
     def test_no_space_data_and_no_space_done(self, monkeypatch):
         out = self._collect([b'data:{"a": 1}', b'', b'data:[DONE]'], monkeypatch)
@@ -124,3 +129,90 @@ class TestSseParsing:
             monkeypatch,
         )
         assert out == [{"ok": True}]
+
+
+class _SliceResponse:
+    """First lines come back immediately; the next read times out and cancels."""
+
+    def __init__(self, lines, cancel_after, flag):
+        self._lines = list(lines)
+        self._reads = 0
+        self._cancel_after = cancel_after
+        self._flag = flag
+        self.closed = False
+
+    def readline(self):
+        self._reads += 1
+        if self._reads > self._cancel_after:
+            self._flag.set()
+            raise TimeoutError("slice")
+        if not self._lines:
+            return b""
+        return self._lines.pop(0)
+
+    def close(self):
+        self.closed = True
+
+
+class TestCancelSlices:
+
+    def test_cancel_before_open_does_not_call_network(self, monkeypatch):
+        called = []
+        monkeypatch.setattr(llm, "_make_request", lambda payload: object())
+        monkeypatch.setattr(
+            llm, "_open_cancellable",
+            lambda *args: called.append(1),
+        )
+        flag = threading.Event()
+        flag.set()
+        try:
+            list(llm.call_llm_streaming(
+                [{"role": "user", "content": "x"}], cancel_event=flag,
+            ))
+            raise AssertionError("should have cancelled")
+        except llm.LlmCancelled:
+            pass
+        assert called == []
+
+    def test_timeout_slice_keeps_partial_then_cancel(self, monkeypatch):
+        flag = threading.Event()
+        body = [
+            b'data: {"choices":[{"delta":{"content":"partial"}}]}',
+            b"data: [DONE]",
+        ]
+        resp = _SliceResponse(body, cancel_after=1, flag=flag)
+        monkeypatch.setattr(llm, "_make_request", lambda payload: object())
+        monkeypatch.setattr(
+            llm, "_open_cancellable",
+            lambda request, deadline, cancel_event: resp,
+        )
+        seen = []
+        try:
+            for chunk in llm.call_llm_streaming(
+                [{"role": "user", "content": "x"}], cancel_event=flag,
+            ):
+                seen.append(chunk)
+            raise AssertionError("should have cancelled")
+        except llm.LlmCancelled:
+            pass
+        assert seen == [{"choices": [{"delta": {"content": "partial"}}]}]
+        assert resp.closed
+        payload = llm.interrupted_result("partial")
+        assert payload["interrupted"] is True
+        assert payload["choices"][0]["message"]["content"] == "partial"
+        assert payload["choices"][0]["finish_reason"] == "interrupted"
+
+    def test_open_stops_during_retry_sleep(self, monkeypatch):
+        flag = threading.Event()
+        monkeypatch.setattr(llm.time, "sleep", lambda _s: flag.set())
+        monkeypatch.setattr(
+            "urllib.request.urlopen",
+            lambda req, timeout=None: (_ for _ in ()).throw(
+                urllib.error.URLError("refused")
+            ),
+        )
+        try:
+            llm._open_cancellable(object(), time.monotonic() + 30, flag)
+            raise AssertionError("should have cancelled")
+        except llm.LlmCancelled:
+            pass

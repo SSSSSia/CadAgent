@@ -14,7 +14,6 @@ Usage in execute_code sandbox (pre-injected):
 """
 from __future__ import annotations
 
-import copy
 import math
 import types as _types
 

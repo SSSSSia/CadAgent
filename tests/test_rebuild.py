@@ -2,7 +2,6 @@
 rebuild_with_params in agent/tools.py, and clear_cq_objects in cad_helpers."""
 from __future__ import annotations
 
-import json
 from unittest.mock import MagicMock
 
 from tests.helpers import install_sys_modules, load_tools_module, restore_sys_modules

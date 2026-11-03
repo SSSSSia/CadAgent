@@ -1,5 +1,28 @@
 # Changelog
 
+## v1.2.0 (2026-11-03)
+
+Modeling primitives and the engineering pass. CadQuery-style code can now
+array holes, revolve a closed profile, shell a plain box or cylinder, and
+fillet or chamfer selected edges. Stopping a turn no longer waits out the
+full network timeout, and the panel follows Chinese when FreeCAD (or
+`CADAGENT_LANG`) does.
+
+- **Workplane**: `polarArray` / `rarray`, `hole` / `cboreHole`, `revolve`
+  (with `moveTo` / `lineTo` / `threePointArc` / `close`), `shell` limited to
+  a plain box or cylinder, and `fillet` / `chamfer` with an edge selector.
+- **Parameters**: a column-0 `NAME = number` anywhere in a segment is
+  extracted. Successful code history keeps the newest 50 segments
+  (`MAX_CODE_HISTORY`) and says so when a rebuild drops older ones.
+- **Stop**: LLM reads use one-second socket slices. Stop keeps the partial
+  reply and marks the turn interrupted.
+- **UI language**: `ui/strings.py` (`en` / `zh`), `CADAGENT_LANG` overrides
+  the FreeCAD language preference.
+- **CI**: GitHub Actions runs compileall, ruff (E/W/F, line length 100, no
+  import sorting), and the mock pytest suite. The FreeCAD behavior script
+  stays a local gate.
+- Tests: 758 (mock suite, no FreeCAD).
+
 ## v1.1.0 (2026-10-31)
 
 Parametric regeneration (ROADMAP 12.2): the parameter contract is now a

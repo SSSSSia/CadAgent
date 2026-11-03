@@ -13,6 +13,7 @@ import zlib
 from PySide6 import QtCore, QtWidgets
 
 import core.config as _config
+from ui.strings import t
 from ui.theme import get_theme_colors
 
 
@@ -170,7 +171,7 @@ def _build_main_llm_tab(parent: SettingsDialog) -> QtWidgets.QWidget:
     layout.setSpacing(12)
 
     # --- API Configuration (includes provider preset + agent params) ---
-    api_group = QtWidgets.QGroupBox("API Configuration")
+    api_group = QtWidgets.QGroupBox(t("api_group"))
     api_form = QtWidgets.QFormLayout(api_group)
     api_form.setLabelAlignment(QtCore.Qt.AlignRight)
     api_form.setFormAlignment(QtCore.Qt.AlignLeft)
@@ -182,12 +183,12 @@ def _build_main_llm_tab(parent: SettingsDialog) -> QtWidgets.QWidget:
     for p in PROVIDER_PRESETS:
         parent.combo_provider.addItem(p["name"])
     parent.combo_provider.currentIndexChanged.connect(parent._on_provider_changed)
-    api_form.addRow("Provider:", parent.combo_provider)
+    api_form.addRow(t("provider"), parent.combo_provider)
 
     # API fields
     parent.edit_url = QtWidgets.QLineEdit()
     parent.edit_url.setPlaceholderText("https://api.example.com/v1")
-    api_form.addRow("API Base URL:", parent.edit_url)
+    api_form.addRow(t("api_url"), parent.edit_url)
 
     key_row = QtWidgets.QHBoxLayout()
     key_row.setSpacing(4)
@@ -195,35 +196,35 @@ def _build_main_llm_tab(parent: SettingsDialog) -> QtWidgets.QWidget:
     parent.edit_key.setEchoMode(QtWidgets.QLineEdit.Password)
     parent.edit_key.setPlaceholderText("sk-...")
     key_row.addWidget(parent.edit_key, 1)
-    parent.btn_toggle_key = QtWidgets.QPushButton("Show")
+    parent.btn_toggle_key = QtWidgets.QPushButton(t("show"))
     parent.btn_toggle_key.setFixedWidth(50)
     parent.btn_toggle_key.setCheckable(True)
     parent.btn_toggle_key.clicked.connect(parent._on_toggle_key)
     key_row.addWidget(parent.btn_toggle_key)
-    api_form.addRow("API Key:", key_row)
+    api_form.addRow(t("api_key"), key_row)
 
     parent.edit_model = QtWidgets.QLineEdit()
     parent.edit_model.setPlaceholderText("model-name")
-    api_form.addRow("Model Name:", parent.edit_model)
+    api_form.addRow(t("model_name"), parent.edit_model)
 
     # Agent params (merged into same group)
     parent.spin_max_tokens = QtWidgets.QSpinBox()
     parent.spin_max_tokens.setRange(256, 32768)
     parent.spin_max_tokens.setSingleStep(256)
-    parent.spin_max_tokens.setToolTip("Maximum output tokens per LLM request")
+    parent.spin_max_tokens.setToolTip(t("max_tokens_tip"))
     parent.spin_max_tokens.setFixedWidth(120)
-    api_form.addRow("Max Tokens:", parent.spin_max_tokens)
+    api_form.addRow(t("max_tokens"), parent.spin_max_tokens)
 
     parent.spin_max_iter = QtWidgets.QSpinBox()
     parent.spin_max_iter.setRange(1, 50)
-    parent.spin_max_iter.setToolTip("Maximum agent loop iterations")
+    parent.spin_max_iter.setToolTip(t("max_iters_tip"))
     parent.spin_max_iter.setFixedWidth(120)
-    api_form.addRow("Max Iterations:", parent.spin_max_iter)
+    api_form.addRow(t("max_iters"), parent.spin_max_iter)
 
     # Test Connection button inside the group
     btn_row = QtWidgets.QHBoxLayout()
     btn_row.addStretch()
-    parent.btn_test = QtWidgets.QPushButton("Test Connection")
+    parent.btn_test = QtWidgets.QPushButton(t("test_connection"))
     parent.btn_test.setFixedWidth(140)
     parent.btn_test.clicked.connect(parent._on_test_connection)
     btn_row.addWidget(parent.btn_test)
@@ -242,15 +243,13 @@ def _build_vision_tab(parent: SettingsDialog) -> QtWidgets.QWidget:
     layout.setSpacing(8)
 
     # Enable checkbox at top
-    parent.chk_vision_enabled = QtWidgets.QCheckBox("Enable Vision Model")
-    parent.chk_vision_enabled.setToolTip(
-        "Enable vision tools (capture_view, analyze_image) for visual verification"
-    )
+    parent.chk_vision_enabled = QtWidgets.QCheckBox(t("vision_enable"))
+    parent.chk_vision_enabled.setToolTip(t("vision_enable_tip"))
     parent.chk_vision_enabled.toggled.connect(parent._on_vision_enabled_toggled)
     layout.addWidget(parent.chk_vision_enabled)
 
     # Vision configuration group (always visible, content disabled when unchecked)
-    vision_group = QtWidgets.QGroupBox("Vision Model Configuration")
+    vision_group = QtWidgets.QGroupBox(t("vision_group"))
     vision_form = QtWidgets.QFormLayout(vision_group)
     vision_form.setLabelAlignment(QtCore.Qt.AlignRight)
     vision_form.setFormAlignment(QtCore.Qt.AlignLeft)
@@ -258,12 +257,8 @@ def _build_vision_tab(parent: SettingsDialog) -> QtWidgets.QWidget:
     vision_form.setVerticalSpacing(8)
 
     # "Same as main" checkbox
-    parent.chk_vision_same_as_main = QtWidgets.QCheckBox(
-        "Use same API as main model"
-    )
-    parent.chk_vision_same_as_main.setToolTip(
-        "Auto-fill Vision API URL and Key from the main API configuration"
-    )
+    parent.chk_vision_same_as_main = QtWidgets.QCheckBox(t("vision_same"))
+    parent.chk_vision_same_as_main.setToolTip(t("vision_same_tip"))
     parent.chk_vision_same_as_main.toggled.connect(
         parent._on_vision_same_as_main_toggled
     )
@@ -276,12 +271,12 @@ def _build_vision_tab(parent: SettingsDialog) -> QtWidgets.QWidget:
     parent.combo_vision_provider.currentIndexChanged.connect(
         parent._on_vision_provider_changed
     )
-    vision_form.addRow("Provider:", parent.combo_vision_provider)
+    vision_form.addRow(t("provider"), parent.combo_vision_provider)
 
     # API fields
     parent.edit_vision_url = QtWidgets.QLineEdit()
     parent.edit_vision_url.setPlaceholderText("https://api.example.com/v1")
-    vision_form.addRow("API Base URL:", parent.edit_vision_url)
+    vision_form.addRow(t("api_url"), parent.edit_vision_url)
 
     vision_key_row = QtWidgets.QHBoxLayout()
     vision_key_row.setSpacing(4)
@@ -289,7 +284,7 @@ def _build_vision_tab(parent: SettingsDialog) -> QtWidgets.QWidget:
     parent.edit_vision_key.setEchoMode(QtWidgets.QLineEdit.Password)
     parent.edit_vision_key.setPlaceholderText("sk-...")
     vision_key_row.addWidget(parent.edit_vision_key, 1)
-    parent.btn_toggle_vision_key = QtWidgets.QPushButton("Show")
+    parent.btn_toggle_vision_key = QtWidgets.QPushButton(t("show"))
     parent.btn_toggle_vision_key.setFixedWidth(50)
     parent.btn_toggle_vision_key.setCheckable(True)
     parent.btn_toggle_vision_key.clicked.connect(
@@ -298,36 +293,32 @@ def _build_vision_tab(parent: SettingsDialog) -> QtWidgets.QWidget:
         )
     )
     vision_key_row.addWidget(parent.btn_toggle_vision_key)
-    vision_form.addRow("API Key:", vision_key_row)
+    vision_form.addRow(t("api_key"), vision_key_row)
 
     parent.edit_vision_model = QtWidgets.QLineEdit()
     parent.edit_vision_model.setPlaceholderText("vision-model-name")
-    vision_form.addRow("Model Name:", parent.edit_vision_model)
+    vision_form.addRow(t("model_name"), parent.edit_vision_model)
 
     # Vision params
     parent.spin_vision_max_tokens = QtWidgets.QSpinBox()
     parent.spin_vision_max_tokens.setRange(256, 16384)
     parent.spin_vision_max_tokens.setSingleStep(256)
-    parent.spin_vision_max_tokens.setToolTip(
-        "Maximum output tokens per vision API request"
-    )
+    parent.spin_vision_max_tokens.setToolTip(t("vision_max_tokens_tip"))
     parent.spin_vision_max_tokens.setFixedWidth(120)
-    vision_form.addRow("Max Tokens:", parent.spin_vision_max_tokens)
+    vision_form.addRow(t("max_tokens"), parent.spin_vision_max_tokens)
 
     parent.spin_vision_temperature = QtWidgets.QDoubleSpinBox()
     parent.spin_vision_temperature.setRange(0.0, 2.0)
     parent.spin_vision_temperature.setSingleStep(0.1)
     parent.spin_vision_temperature.setDecimals(2)
-    parent.spin_vision_temperature.setToolTip(
-        "Temperature for vision model responses"
-    )
+    parent.spin_vision_temperature.setToolTip(t("temperature_tip"))
     parent.spin_vision_temperature.setFixedWidth(120)
-    vision_form.addRow("Temperature:", parent.spin_vision_temperature)
+    vision_form.addRow(t("temperature"), parent.spin_vision_temperature)
 
     # Test Vision API button
     test_row = QtWidgets.QHBoxLayout()
     test_row.addStretch()
-    parent.btn_test_vision = QtWidgets.QPushButton("Test Vision API")
+    parent.btn_test_vision = QtWidgets.QPushButton(t("test_vision"))
     parent.btn_test_vision.setFixedWidth(140)
     parent.btn_test_vision.clicked.connect(parent._on_test_vision_connection)
     test_row.addWidget(parent.btn_test_vision)
@@ -374,7 +365,7 @@ class SettingsDialog(QtWidgets.QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("CadAgent Settings")
+        self.setWindowTitle(t("settings_title"))
         self.setMinimumWidth(520)
         self.setMinimumHeight(300)
         self.setModal(True)
@@ -418,7 +409,7 @@ class SettingsDialog(QtWidgets.QDialog):
         main_scroll.setWidgetResizable(True)
         main_scroll.setWidget(main_page)
         main_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
-        self.tabs.addTab(main_scroll, "Main LLM")
+        self.tabs.addTab(main_scroll, t("tab_main"))
 
         # Vision Model tab (wrapped in scroll area)
         vision_page = _build_vision_tab(self)
@@ -426,7 +417,7 @@ class SettingsDialog(QtWidgets.QDialog):
         vision_scroll.setWidgetResizable(True)
         vision_scroll.setWidget(vision_page)
         vision_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
-        self.tabs.addTab(vision_scroll, "Vision Model")
+        self.tabs.addTab(vision_scroll, t("tab_vision"))
 
         layout.addWidget(self.tabs)
 
@@ -435,11 +426,11 @@ class SettingsDialog(QtWidgets.QDialog):
         btn_row.setSpacing(8)
         btn_row.addStretch()
 
-        self.btn_cancel = QtWidgets.QPushButton("Cancel")
+        self.btn_cancel = QtWidgets.QPushButton(t("cancel"))
         self.btn_cancel.clicked.connect(self.reject)
         btn_row.addWidget(self.btn_cancel)
 
-        self.btn_apply = QtWidgets.QPushButton("Apply")
+        self.btn_apply = QtWidgets.QPushButton(t("apply"))
         self.btn_apply.clicked.connect(self._on_apply)
         btn_row.addWidget(self.btn_apply)
 
@@ -595,10 +586,10 @@ class SettingsDialog(QtWidgets.QDialog):
     def _toggle_password(edit_widget, toggle_btn):
         if toggle_btn.isChecked():
             edit_widget.setEchoMode(QtWidgets.QLineEdit.Normal)
-            toggle_btn.setText("Hide")
+            toggle_btn.setText(t("hide"))
         else:
             edit_widget.setEchoMode(QtWidgets.QLineEdit.Password)
-            toggle_btn.setText("Show")
+            toggle_btn.setText(t("show"))
 
     # ---- Test connection (async) ----
 
@@ -609,11 +600,11 @@ class SettingsDialog(QtWidgets.QDialog):
         if running:
             QtWidgets.QMessageBox.information(
                 self, title,
-                "A connection test is still running. Please wait for it to finish.",
+                t("test_running"),
             )
             return
         btn.setEnabled(False)
-        btn.setText("Testing...")
+        btn.setText(t("testing"))
         self._test_btn = btn
         self._test_btn_label = btn_label
         self._test_title = title
@@ -636,7 +627,7 @@ class SettingsDialog(QtWidgets.QDialog):
         self._test_btn.setText(self._test_btn_label)
         QtWidgets.QMessageBox.information(
             self, self._test_title,
-            f"Connection successful!\n\nModel: {model_name}",
+            t("test_ok", model=model_name),
         )
 
     def _on_test_error(self, msg):
@@ -644,13 +635,13 @@ class SettingsDialog(QtWidgets.QDialog):
         self._test_btn.setText(self._test_btn_label)
         QtWidgets.QMessageBox.critical(
             self, self._test_title,
-            f"Connection failed: {msg}",
+            t("test_fail", detail=msg),
         )
 
     def _on_test_connection(self):
         url = self.edit_url.text().strip()
         if not url:
-            QtWidgets.QMessageBox.warning(self, "Test Connection", "API Base URL is empty.")
+            QtWidgets.QMessageBox.warning(self, t("test_connection"), t("url_empty"))
             return
         key = self.edit_key.text().strip()
         model = self.edit_model.text().strip()
@@ -666,7 +657,7 @@ class SettingsDialog(QtWidgets.QDialog):
             headers["Authorization"] = f"Bearer {key}"
 
         self._start_test(
-            self.btn_test, "Test Connection", "Test Connection",
+            self.btn_test, t("test_connection"), t("test_connection"),
             endpoint, headers, payload, timeout=15
         )
 
@@ -683,7 +674,7 @@ class SettingsDialog(QtWidgets.QDialog):
         url = self.edit_vision_url.text().strip()
         if not url:
             QtWidgets.QMessageBox.warning(
-                self, "Test Vision API", "Vision API Base URL is empty."
+                self, t("test_vision"), t("vision_url_empty")
             )
             return
         key = self.edit_vision_key.text().strip()
@@ -708,7 +699,7 @@ class SettingsDialog(QtWidgets.QDialog):
             headers["Authorization"] = f"Bearer {key}"
 
         self._start_test(
-            self.btn_test_vision, "Test Vision API", "Test Vision API",
+            self.btn_test_vision, t("test_vision"), t("test_vision"),
             endpoint, headers, payload, timeout=30
         )
 
@@ -718,14 +709,14 @@ class SettingsDialog(QtWidgets.QDialog):
         model = self.edit_model.text().strip()
 
         if not url:
-            QtWidgets.QMessageBox.warning(self, "Validation", "API Base URL cannot be empty.")
+            QtWidgets.QMessageBox.warning(self, t("validation"), t("url_required"))
             return
         if not key and not ("localhost" in url or "127.0.0.1" in url):
             # Local endpoints (Ollama etc.) run without an API key (S3-D13)
-            QtWidgets.QMessageBox.warning(self, "Validation", "API Key cannot be empty.")
+            QtWidgets.QMessageBox.warning(self, t("validation"), t("key_required"))
             return
         if not model:
-            QtWidgets.QMessageBox.warning(self, "Validation", "Model Name cannot be empty.")
+            QtWidgets.QMessageBox.warning(self, t("validation"), t("model_required"))
             return
 
         values = {
@@ -746,9 +737,8 @@ class SettingsDialog(QtWidgets.QDialog):
             v_model = self.edit_vision_model.text().strip()
             if not v_url or not v_key or not v_model:
                 QtWidgets.QMessageBox.warning(
-                    self, "Validation",
-                    "Vision Model is enabled but fields are incomplete.\n"
-                    "Fill all Vision fields or disable Vision Model."
+                    self, t("validation"),
+                    t("vision_incomplete"),
                 )
                 return
             values["VISION_API_BASE_URL"] = v_url

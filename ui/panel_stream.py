@@ -1,10 +1,8 @@
 """Streaming display and chat bubble helpers for AgentPanel."""
 from __future__ import annotations
 
-import time
-
 from PySide6 import QtCore
-from PySide6.QtGui import QTextCursor, QTextBlockFormat
+from PySide6.QtGui import QTextCursor
 
 from ui.chat_renderer import esc, markdown_to_html
 

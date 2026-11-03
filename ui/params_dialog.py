@@ -8,13 +8,15 @@ from __future__ import annotations
 
 from PySide6 import QtWidgets
 
+from ui.strings import t
+
 
 class ParamsDialog(QtWidgets.QDialog):
     """Edit named parameters and trigger a deterministic model rebuild."""
 
     def __init__(self, parent, params: dict, can_rebuild: bool):
         super().__init__(parent)
-        self.setWindowTitle("Parameters")
+        self.setWindowTitle(t("params_title"))
         self.setMinimumWidth(320)
         self._params = dict(params)
         self._accepted_params: dict | None = None
@@ -22,22 +24,16 @@ class ParamsDialog(QtWidgets.QDialog):
         layout = QtWidgets.QVBoxLayout(self)
 
         if not can_rebuild:
-            note = QtWidgets.QLabel(
-                "No rebuildable code history in this session yet — parameters "
-                "are still injected into the Agent's context."
-            )
+            note = QtWidgets.QLabel(t("params_no_history"))
             note.setWordWrap(True)
             layout.addWidget(note)
         elif not params:
-            note = QtWidgets.QLabel(
-                "No named parameters extracted yet. Define them at the top of "
-                "your code (e.g. OD = 200) and they will appear here."
-            )
+            note = QtWidgets.QLabel(t("params_none"))
             note.setWordWrap(True)
             layout.addWidget(note)
 
         self.table = QtWidgets.QTableWidget(len(params), 2, self)
-        self.table.setHorizontalHeaderLabels(["Parameter", "Value"])
+        self.table.setHorizontalHeaderLabels([t("param_col"), t("value_col")])
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(
@@ -56,10 +52,7 @@ class ParamsDialog(QtWidgets.QDialog):
         self.table.setColumnWidth(0, 110)
         layout.addWidget(self.table)
 
-        hint = QtWidgets.QLabel(
-            "Rebuild replays this session's modeling code with the new values "
-            "(no LLM call). The previous state stays undoable."
-        )
+        hint = QtWidgets.QLabel(t("params_hint"))
         hint.setWordWrap(True)
         hint.setStyleSheet("color: gray; font-size: 11px;")
         layout.addWidget(hint)
@@ -69,8 +62,8 @@ class ParamsDialog(QtWidgets.QDialog):
             | QtWidgets.QDialogButtonBox.StandardButton.Cancel
         )
         self._ok_button = buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Ok)
-        self._ok_button.setText("Rebuild")
-        buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Cancel).setText("Cancel")
+        self._ok_button.setText(t("rebuild"))
+        buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Cancel).setText(t("cancel"))
         self._ok_button.setEnabled(can_rebuild and bool(params))
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
@@ -90,9 +83,8 @@ class ParamsDialog(QtWidgets.QDialog):
                 value = float(raw) if "." in raw or "e" in raw.lower() else int(raw)
             except ValueError:
                 QtWidgets.QMessageBox.warning(
-                    self, "Invalid value",
-                    f"'{raw}' is not a number. Parameter {name} must be "
-                    "an integer or decimal value.",
+                    self, t("invalid_value_title"),
+                    t("invalid_value_body", raw=raw, name=name),
                 )
                 return
             result[name] = value

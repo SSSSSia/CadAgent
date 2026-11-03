@@ -5,8 +5,6 @@ helper-first, quality-gate-aware paradigm established in Phase 1-2.
 """
 from __future__ import annotations
 
-import re
-
 import pytest
 
 from tests.helpers import load_module

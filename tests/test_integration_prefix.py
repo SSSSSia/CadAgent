@@ -16,8 +16,6 @@ misjudged as a quality failure because its prefix matches no branch.
 """
 from __future__ import annotations
 
-import pytest
-
 from core.session import ChatSession
 from agent.controller import AgentController
 from agent.loop import AgentLoop, LoopActionKind, ToolExecution

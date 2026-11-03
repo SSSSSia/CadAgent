@@ -373,7 +373,6 @@ class TestImportErrorHints:
 
     def test_module_not_found_same_branch(self):
         try:
-            import importlib
             raise ModuleNotFoundError("No module named 'cadquery'")
         except ModuleNotFoundError as e:
             err = e

@@ -6,6 +6,7 @@ import time
 from PySide6 import QtCore
 
 import core.config as _config
+from ui.strings import t
 
 
 class _PanelStatusMixin:
@@ -18,15 +19,6 @@ class _PanelStatusMixin:
       stopping        → user requested stop, waiting for thread
     Terminal states (done/failed) set the label directly and stop the timer.
     """
-
-    _TOOL_DISPLAY = {
-        "execute_code": "Running code",
-        "analyze_geometry": "Analyzing geometry",
-        "validate_design": "Validating design",
-        "undo_last": "Undoing",
-        "capture_view": "Capturing viewport",
-        "analyze_image": "Analyzing image",
-    }
 
     def _setup_status(self):
         """Initialize status state and timer. Call once from _setup_ui()."""
@@ -65,7 +57,7 @@ class _PanelStatusMixin:
         """Reset to idle state."""
         self._status_set("idle")
         c = self._get_colors()
-        self.status_label.setText("Ready")
+        self.status_label.setText(t("ready"))
         self.status_label.setStyleSheet(
             f"color:{c.status_idle}; font-size:10px; font-family:'Segoe UI', sans-serif;"
         )
@@ -95,27 +87,31 @@ class _PanelStatusMixin:
         )
 
         if state == "thinking":
-            return f"Thinking... {elapsed_str}{iter_str}"
+            return t("status_thinking", elapsed=elapsed_str, iters=iter_str)
 
         if state == "executing_tool":
             tool = self._status_tool_name
             desc = self._status_tool_desc
             if desc:
                 display = desc[:40] + ("..." if len(desc) > 40 else "")
-                return f'Executing {tool} "{display}"  {elapsed_str}{iter_str}'
-            fallback = self._TOOL_DISPLAY.get(tool, tool)
-            return f"Executing {fallback}...  {elapsed_str}{iter_str}"
+                return t(
+                    "status_executing_desc",
+                    tool=tool, desc=display, elapsed=elapsed_str, iters=iter_str,
+                )
+            label_key = {
+                "execute_code": "tool_execute_code",
+                "undo_last": "tool_undo_last",
+                "capture_view": "tool_capture_view",
+                "analyze_image": "tool_analyze_image",
+                "export_step": "tool_export_step",
+            }.get(tool)
+            label = t(label_key) if label_key else tool
+            return t("status_executing", label=label, elapsed=elapsed_str, iters=iter_str)
 
         if state == "stopping":
-            # After 10s the thread is almost certainly blocked inside a
-            # network read — tell the user what the realistic wait is (S3-D8)
-            hint = (
-                f" (network read can block up to {_config.LLM_TIMEOUT}s)"
-                if elapsed > 10 else ""
-            )
-            return f"Stopping... {elapsed_str}{hint}"
+            return t("status_stopping", elapsed=elapsed_str)
 
-        return "Ready"
+        return t("ready")
 
     @staticmethod
     def _format_elapsed(seconds):

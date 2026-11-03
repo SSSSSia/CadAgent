@@ -6,9 +6,7 @@ normal quality reports are correctly forwarded.
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 from tests.helpers import load_tools_module
 
@@ -547,7 +545,7 @@ class TestExportStepIges:
         tools, mock_fc, _ = _load_tools()
         result, import_mod = self._run(tools, mock_fc, "part.step", "iges")
         assert result.startswith("ERROR")
-   
+
 
 
     def test_import_failure_falls_back_to_part_export(self):
@@ -611,11 +609,7 @@ class TestCodeHistoryRecording:
         assert history == []
 
     def test_successive_segments_append_in_order(self):
-        tools_holder = {}
-        _, tools1, h1 = self._run("A = 1")
-        # second call uses a fresh tools module instance in _run; emulate the
-        # module-level accumulation by calling twice on the same instance
-        result2 = None
+        self._run("A = 1")
         import core.quality as quality_mod
         from core.quality import QualityReport
         from tests.helpers import install_sys_modules, restore_sys_modules

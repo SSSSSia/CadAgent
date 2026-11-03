@@ -10,6 +10,7 @@ from core.quality import (
     _map_topology_issues,
     _select_main_shape,
 )
+import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -526,8 +527,6 @@ class TestIdentitySkipAndVolumeGates:
 # ===========================================================================
 # S2 exit criteria: the gate's verdict across the canonical document states
 # ===========================================================================
-
-import pytest
 
 
 def _healthy(volume=1000.0, bb=10.0):

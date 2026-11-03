@@ -1,8 +1,10 @@
 # CadAgent — FreeCAD CAD Agent Workbench
 
-**v1.1.0**
+**v1.2.0**
 
 [中文](README.md)
+
+[![CI](https://github.com/SSSSSia/CadAgent/actions/workflows/ci.yml/badge.svg)](https://github.com/SSSSSia/CadAgent/actions/workflows/ci.yml)
 
 An LLM Agent-powered FreeCAD workbench that generates and modifies 3D mechanical models through natural language descriptions.
 
@@ -23,7 +25,8 @@ An LLM Agent-powered FreeCAD workbench that generates and modifies 3D mechanical
 - **Classified Quality Feedback** — When quality gate fails, injects specific fix instructions based on failure type (NO_SOLID, MULTI_SOLID, COMPOUND_SHAPE, etc.) instead of generic "fix geometry"
 - **STL/OBJ Export** — Supports STEP/IGES/STL/OBJ export formats; STL is suitable for 3D printing. Automatic quality check before export
 - **Smart Clarification Policy** — Automatically assumes reasonable defaults (clearance holes, wall thickness, origin position), only asks user when critical dimensions are missing
-- **Streaming Output** — Real-time display of the Agent's reasoning and code generation process
+- **Streaming Output** — Real-time display of the Agent's reasoning and code generation. Stop interrupts a network read within about a second and keeps the partial reply
+- **UI language** — Follows the FreeCAD language (Chinese or English). Override with `CADAGENT_LANG`
 - **Undo/Rollback** — Automatic document snapshot before each code execution. Stacks are per document, with a global cap of 10 (`MAX_SNAPSHOTS`)
 - **Session Management** — Multi-turn conversation history persists across FreeCAD sessions
 - **Dual-Mode Support** — Automatically adapts to both Tool Calling and ReAct XML LLM calling modes
@@ -133,7 +136,7 @@ CadAgent/
 │   ├── chat_renderer.py  # Markdown → HTML rendering (with syntax highlighting)
 │   ├── theme.py          # Light/dark mode theme colors
 │   └── settings_dialog.py # Settings dialog (7 provider presets, connection test)
-├── tests/                # 748 unit tests (no FreeCAD dependency)
+├── tests/                # 758 unit tests (no FreeCAD dependency)
 ├── .env.example          # API config template
 ├── .gitignore
 ├── LICENSE
@@ -148,7 +151,7 @@ CadAgent/
 - **Thread Safety** — LLM API calls run in a background QThread; FreeCAD API operations (tool execution) return to the main thread via Signal/Slot
 - **Standard Library Only** — HTTP requests use `urllib` — no external Python package dependencies (CadQuery not installed)
 - **Compatibility** — Automatically detects whether the model supports Tool Calling, falls back to ReAct XML tag mode; error hints support both CQ-style and native FreeCAD API patterns
-- **748 Automated Tests** — Covering core modules (react_parser, token_budget, chat_renderer, config, session, session_store, code_fixes, agent_loop, tool_dispatch, tool_quality_integration, quality, parametric, cq_workplane, snapshot, paths, etc.), plus a 42-check real-FreeCAD behavior regression script (`scripts/verify_freecad_behavior.py`; the S8 cases have not been re-run on a FreeCAD build)
+- **758 Automated Tests** — Covering core modules (react_parser, token_budget, chat_renderer, config, session, session_store, code_fixes, agent_loop, tool_dispatch, tool_quality_integration, quality, parametric, cq_workplane, snapshot, llm_client, strings, paths, etc.), plus a 42-check real-FreeCAD behavior regression script (`scripts/verify_freecad_behavior.py`; the S8 cases have not been re-run on a FreeCAD build)
 
 ## Security Notes
 

@@ -207,7 +207,7 @@ def part_b(workdir):
     )
 
     # --- B4: untitled-doc restore must not leave FileName on the snapshot ---
-    entry = mgr.latest_entry()
+    _entry = mgr.latest_entry()
     restore_result = mgr.restore_latest()
     restored = FreeCAD.ActiveDocument
     _report(
@@ -499,7 +499,7 @@ def part_d(workdir):
 
     # D6: a parameter defined mid-segment is extracted and replayed
     _close_all_documents()
-    mid = FreeCAD.newDocument("mid_param")
+    _mid = FreeCAD.newDocument("mid_param")
     FreeCAD.setActiveDocument("mid_param")
     agent_tools.clear_persistent_vars()
     agent_tools.set_code_history([])

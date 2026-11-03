@@ -9,7 +9,6 @@ import math
 import textwrap
 import types
 from dataclasses import dataclass
-from typing import Any
 
 import pytest
 
@@ -160,6 +159,10 @@ class _MockVector:
 def _make_fc_mock():
     """Build a minimal FreeCAD mock module."""
     fc = types.ModuleType("FreeCAD")
+
+    class _MockObj:
+        def __init__(self, name):
+            self.Name = name
 
     class _Doc:
         Name = "MockDoc"

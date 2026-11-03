@@ -5,7 +5,6 @@ register themselves via register_tool().
 """
 from __future__ import annotations
 
-import json
 import traceback
 
 from core.logger import log_info, log_warning

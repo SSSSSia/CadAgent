@@ -267,6 +267,8 @@ class AgentLoop:
 
         self._controller.session.add_assistant_message(assistant_msg)
 
+        if finish_reason == "interrupted" or data.get("interrupted"):
+            self._stopped = True
         # User pressed stop during this stream: keep the partial answer in
         # history but finish as an interrupted turn — never present the
         # truncated text as a successful final answer (S3-D7).

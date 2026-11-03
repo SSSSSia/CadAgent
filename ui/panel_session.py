@@ -5,6 +5,8 @@ import json
 
 from PySide6 import QtWidgets
 
+from ui.strings import t
+
 from core.token_budget import token_summary
 
 
@@ -15,9 +17,9 @@ class _PanelSessionMixin:
         sessions = self._store.list_sessions()
         self.session_combo.blockSignals(True)
         self.session_combo.clear()
-        self.session_combo.addItem("(current session)")
+        self.session_combo.addItem(t("current_session"))
         for s in sessions:
-            summary_text = s.get("summary", "") or "No summary"
+            summary_text = s.get("summary", "") or t("no_summary")
             created = (s.get("created_at") or "")[:10]  # null-safe (S3-D15)
             display = f"{summary_text[:30]} | {created}"
             self.session_combo.addItem(display, s["session_id"])
@@ -42,9 +44,8 @@ class _PanelSessionMixin:
                 self._refresh_session_list()
                 return
             reply = QtWidgets.QMessageBox.question(
-                self, "New Session",
-                "Start a new session? The current conversation is saved "
-                "and remains in the session list.",
+                self, t("new_session_title"),
+                t("new_session_body"),
                 QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
                 QtWidgets.QMessageBox.No,
             )
@@ -61,7 +62,7 @@ class _PanelSessionMixin:
             self._mode = "auto"
             self._reset_turn_state()
             self.chat_display.clear()
-            self._append_system_msg("New session started. Describe a part to begin.")
+            self._append_system_msg(t("new_session_started"))
             self._status_reset()
             self._update_token_label(0, 0)
             return
@@ -69,7 +70,7 @@ class _PanelSessionMixin:
         if not session_id or session_id == self._current_session_id:
             return
         if self._live_threads():
-            self._append_system_msg("Cannot switch session while the agent is running.")
+            self._append_system_msg(t("cannot_switch"))
             self._refresh_session_list()
             return
         self._store.save_if_not_empty(self._session)
@@ -80,7 +81,7 @@ class _PanelSessionMixin:
 
         loaded = self._store.load(session_id)
         if loaded is None:
-            self._append_system_msg("Failed to load session.")
+            self._append_system_msg(t("load_failed"))
             self._refresh_session_list()
             return
         self._session = loaded
@@ -114,7 +115,7 @@ class _PanelSessionMixin:
         c = self._get_colors()
         turns = loaded.user_turn_count()
         msgs = loaded.message_count()
-        self.status_label.setText(f"Session loaded | {turns} turns | {msgs} messages")
+        self.status_label.setText(t("session_loaded", turns=turns, msgs=msgs))
         self.status_label.setStyleSheet(
             f"color:{c.status_idle}; font-size:11px; font-family:'Segoe UI', sans-serif;"
         )
@@ -153,7 +154,7 @@ class _PanelSessionMixin:
                 label = ChatSession.find_tool_name(session.messages, tool_id)
                 self._append_tool_msg(iteration, label, "", content, is_error)
         if self.chat_display.document().isEmpty():
-            self._append_system_msg("Session loaded. History restored.")
+            self._append_system_msg(t("history_restored"))
 
     def _on_delete_session(self):
         index = self.session_combo.currentIndex()
@@ -165,13 +166,13 @@ class _PanelSessionMixin:
             return
 
         if self._live_threads():
-            self._append_system_msg("Agent is running. Cannot delete session.")
+            self._append_system_msg(t("cannot_delete_running"))
             return
 
         display_text = self.session_combo.itemText(index)
         reply = QtWidgets.QMessageBox.question(
-            self, "Delete Session",
-            f"Permanently delete this session?\n\n{display_text}",
+            self, t("delete_title"),
+            t("delete_body", name=display_text),
             QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
             QtWidgets.QMessageBox.No,
         )
@@ -181,7 +182,7 @@ class _PanelSessionMixin:
         is_active = session_id == self._current_session_id
         success = self._store.delete(session_id)
         if not success:
-            self._append_system_msg("Failed to delete session.")
+            self._append_system_msg(t("delete_failed"))
             return
 
         # Bug 8 fix: clean up snapshots associated with deleted session
@@ -195,6 +196,6 @@ class _PanelSessionMixin:
             self._sync_all_state(new_session_id=self._session.session_id)
             self._reset_turn_state()
             self.chat_display.clear()
-            self._append_system_msg("Session deleted. New session started.")
+            self._append_system_msg(t("session_deleted"))
 
         self._refresh_session_list()

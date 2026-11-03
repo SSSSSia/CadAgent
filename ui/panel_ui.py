@@ -4,6 +4,7 @@ from __future__ import annotations
 from PySide6 import QtCore, QtWidgets
 
 import core.config as _config
+from ui.strings import t
 
 
 class _PanelUIMixin:
@@ -43,7 +44,7 @@ class _PanelUIMixin:
         input_row.setSpacing(4)
 
         self.text_input = QtWidgets.QTextEdit()
-        self.text_input.setPlaceholderText("Describe the part you want to design...")
+        self.text_input.setPlaceholderText(t("placeholder"))
         self.text_input.setAcceptRichText(False)
         self.text_input.setVerticalScrollBarPolicy(
             QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded
@@ -59,11 +60,11 @@ class _PanelUIMixin:
 
         self.btn_attach = QtWidgets.QPushButton("📎")
         self.btn_attach.setFixedSize(36, 36)
-        self.btn_attach.setToolTip("Attach image for vision analysis")
+        self.btn_attach.setToolTip(t("attach_tip"))
         self.btn_attach.clicked.connect(self._on_attach_image)
         input_row.addWidget(self.btn_attach)
 
-        self.btn_send = QtWidgets.QPushButton("Send")
+        self.btn_send = QtWidgets.QPushButton(t("send"))
         self.btn_send.setFixedHeight(36)
         self.btn_send.setMinimumWidth(70)
         self.btn_send.clicked.connect(self._on_send)
@@ -74,31 +75,28 @@ class _PanelUIMixin:
         ctrl_row = QtWidgets.QHBoxLayout()
         ctrl_row.setSpacing(3)
 
-        self.btn_undo = QtWidgets.QPushButton("Undo")
+        self.btn_undo = QtWidgets.QPushButton(t("undo"))
         self.btn_undo.setEnabled(False)
-        self.btn_undo.setToolTip("Undo last agent operation (restore document snapshot)")
+        self.btn_undo.setToolTip(t("undo_tip"))
         self.btn_undo.clicked.connect(self._on_undo)
         ctrl_row.addWidget(self.btn_undo)
 
         self.btn_params = QtWidgets.QPushButton("ƒ(x)")
-        self.btn_params.setToolTip(
-            "Edit parameters and rebuild the model deterministically "
-            "(no LLM call; previous state stays undoable)"
-        )
+        self.btn_params.setToolTip(t("params_tip"))
         self.btn_params.clicked.connect(self._on_params_button)
         ctrl_row.addWidget(self.btn_params)
 
-        self.btn_stop = QtWidgets.QPushButton("Stop")
+        self.btn_stop = QtWidgets.QPushButton(t("stop"))
         self.btn_stop.setEnabled(False)
         self.btn_stop.clicked.connect(self._on_stop)
         ctrl_row.addWidget(self.btn_stop)
 
-        self.btn_new_session = QtWidgets.QPushButton("New")
+        self.btn_new_session = QtWidgets.QPushButton(t("new"))
         self.btn_new_session.clicked.connect(self._on_new_session)
         ctrl_row.addWidget(self.btn_new_session)
 
-        self.btn_delete_session = QtWidgets.QPushButton("Delete")
-        self.btn_delete_session.setToolTip("Delete selected session")
+        self.btn_delete_session = QtWidgets.QPushButton(t("delete"))
+        self.btn_delete_session.setToolTip(t("delete_session_tip"))
         self.btn_delete_session.setEnabled(False)
         self.btn_delete_session.clicked.connect(self._on_delete_session)
         ctrl_row.addWidget(self.btn_delete_session)
@@ -107,7 +105,7 @@ class _PanelUIMixin:
 
         self.btn_settings = QtWidgets.QPushButton("⚙")
         self.btn_settings.setFixedSize(30, 26)
-        self.btn_settings.setToolTip("Configure CadAgent API and parameters")
+        self.btn_settings.setToolTip(t("settings_tip"))
         self.btn_settings.clicked.connect(self._on_settings)
         ctrl_row.addWidget(self.btn_settings)
 
@@ -117,15 +115,11 @@ class _PanelUIMixin:
         status_row = QtWidgets.QHBoxLayout()
         status_row.setContentsMargins(0, 2, 0, 0)
         status_row.setSpacing(0)
-        self.token_label = QtWidgets.QLabel(f"Tokens: 0 / {_config.MAX_CONTEXT_TOKENS}")
+        self.token_label = QtWidgets.QLabel(t("tokens", used=0, budget=_config.MAX_CONTEXT_TOKENS, tag=""))
         self.params_label = QtWidgets.QLabel("")
-        self.params_label.setToolTip(
-            "Named parameters extracted from executed code. They are injected "
-            "into later turns' context — to change one, tell the Agent the "
-            "new value."
-        )
+        self.params_label.setToolTip(t("params_label_tip"))
         self.params_label.setVisible(False)  # hidden until params exist
-        self.status_label = QtWidgets.QLabel("Ready")
+        self.status_label = QtWidgets.QLabel(t("ready"))
         status_row.addWidget(self.token_label)
         status_row.addWidget(self.params_label)
         status_row.addStretch()
@@ -135,9 +129,7 @@ class _PanelUIMixin:
         # Apply theme-aware styles
         self._apply_dynamic_styles()
 
-        self._append_system_msg(
-            "CadAgent ready. Describe a part and I'll create it in FreeCAD."
-        )
+        self._append_system_msg(t("welcome"))
         self._refresh_session_list()
         self._setup_status()
 

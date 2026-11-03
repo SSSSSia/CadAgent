@@ -200,7 +200,7 @@ def test_cleanup_for_session_removes_matching():
             "time": float(i),
         })
     # Add entry for session "bbb"
-    path_b = os.path.join(tmpdir, f"snap_bbb_0.FCStd")
+    path_b = os.path.join(tmpdir, "snap_bbb_0.FCStd")
     with open(path_b, "w") as f:
         f.write("snapshot b")
     m._stacks.setdefault("test_doc", []).append({
@@ -211,7 +211,7 @@ def test_cleanup_for_session_removes_matching():
         "time": 10.0,
     })
     # Add legacy entry (no session_id)
-    path_legacy = os.path.join(tmpdir, f"snap_legacy.FCStd")
+    path_legacy = os.path.join(tmpdir, "snap_legacy.FCStd")
     with open(path_legacy, "w") as f:
         f.write("legacy snapshot")
     m._stacks.setdefault("test_doc", []).append({
@@ -491,7 +491,6 @@ class TestRestoreLabelAndFilename:
     def test_take_filename_uses_short_session_hash(self):
         """Session segment of the filename is capped at 6 hex chars."""
         from unittest.mock import MagicMock
-        import re
 
         m = SnapshotManager()
         m.set_session_id("0c5b85877c95")  # 12 chars

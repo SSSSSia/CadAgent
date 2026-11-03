@@ -1,8 +1,10 @@
 # CadAgent — FreeCAD CAD Agent 工作台
 
-**v1.1.0**
+**v1.2.0**
 
 [English](README_EN.md)
+
+[![CI](https://github.com/SSSSSia/CadAgent/actions/workflows/ci.yml/badge.svg)](https://github.com/SSSSSia/CadAgent/actions/workflows/ci.yml)
 
 基于 LLM Agent 的 FreeCAD 工作台插件，通过自然语言描述生成和修改 3D 机械模型。
 
@@ -23,7 +25,8 @@
 - **分类化质量反馈** — 质量门控失败时，根据失败类型（NO_SOLID、MULTI_SOLID、COMPOUND_SHAPE 等）注入具体的修复指令，而非通用的"修复几何"
 - **STL/OBJ 导出** — 支持 STEP/IGES/STL/OBJ 四种导出格式，STL 适合 3D 打印。导出前自动运行质量检查
 - **智能澄清策略** — 自动假设合理默认值（间隙孔、壁厚、原点位置），仅在缺少关键尺寸时询问用户
-- **流式输出** — 实时显示 Agent 思考和代码生成过程
+- **流式输出** — 实时显示 Agent 思考和代码生成过程。停止会在约一秒内打断网络读取，并保留已经收到的内容
+- **界面语言** — 跟随 FreeCAD 语言（中文/英文），也可用环境变量 `CADAGENT_LANG` 覆盖
 - **撤销/回滚** — 每次代码执行前自动创建文档快照。撤销栈按文档分开，全局默认最多保留 10 份（`MAX_SNAPSHOTS`）
 - **会话管理** — 多轮对话历史持久化，支持跨 FreeCAD 会话恢复
 - **双模式支持** — 自动适配 Tool Calling 和 ReAct XML 两种 LLM 调用模式
@@ -142,7 +145,7 @@ CadAgent/
 │   ├── chat_renderer.py  # Markdown → HTML 渲染（含代码高亮）
 │   ├── theme.py          # 亮/暗模式主题配色
 │   └── settings_dialog.py # 设置对话框（7 个提供商预设、连接测试）
-├── tests/                # 748 个单元测试（不依赖 FreeCAD）
+├── tests/                # 758 个单元测试（不依赖 FreeCAD）
 ├── .env.example          # API 配置模板
 ├── .gitignore
 ├── LICENSE
@@ -157,7 +160,7 @@ CadAgent/
 - **线程安全**：LLM API 调用在后台 QThread 中执行，FreeCAD API 操作（工具执行）通过 Signal/Slot 回到主线程
 - **纯标准库**：HTTP 请求使用 `urllib`，无外部 Python 包依赖（不安装 CadQuery）
 - **兼容性**：自动检测模型是否支持 Tool Calling，不支持时回退到 ReAct XML 标签模式；代码错误提示同时支持 CQ 风格和 FreeCAD 原生 API
-- **748 个自动化测试**：覆盖核心模块（react_parser、token_budget、chat_renderer、config、session、session_store、code_fixes、agent_loop、tool_dispatch、tool_quality_integration、quality、parametric、cq_workplane、snapshot、paths 等），另含 42 项真实 FreeCAD 运行时行为回归脚本（`scripts/verify_freecad_behavior.py`，S8 新增项尚未在本机重跑）
+- **758 个自动化测试**：覆盖核心模块（react_parser、token_budget、chat_renderer、config、session、session_store、code_fixes、agent_loop、tool_dispatch、tool_quality_integration、quality、parametric、cq_workplane、snapshot、llm_client、strings、paths 等），另含 42 项真实 FreeCAD 运行时行为回归脚本（`scripts/verify_freecad_behavior.py`，S8 新增项尚未在本机重跑）
 
 ## 数据存储位置
 

@@ -1,0 +1,20 @@
+# E501 stays ignored: a lot of prompt literals and log lines already exceed
+# 100 characters, and wrapping them would be noise. New code should still
+# stay near 100.
+#
+# pytest-qt and mypy (S9-D): not adopted. The panel mixins need a live
+# FreeCAD/Qt process, and the suite keeps logic in agent/ and core/ so CI
+# can run without FreeCAD. pytest-qt would not exercise that split. mypy
+# is not enforced; a baseline would be noisy and unowned.
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [".zcode", "docs"]
+
+[tool.ruff.lint]
+# E/W/F only. Import sorting (I) stays off so a cleanup does not reshuffle
+# every import (decision 11). E501 is ignored: wrapping existing prompt and
+# log lines is noise, and the line length above is the target for new code.
+select = ["E", "W", "F"]
+ignore = ["E501"]
