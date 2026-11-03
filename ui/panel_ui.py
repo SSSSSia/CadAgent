@@ -86,6 +86,11 @@ class _PanelUIMixin:
         self.btn_params.clicked.connect(self._on_params_button)
         ctrl_row.addWidget(self.btn_params)
 
+        self.btn_mark = QtWidgets.QPushButton(t("mark"))
+        self.btn_mark.setToolTip(t("mark_tip"))
+        self.btn_mark.clicked.connect(self._on_mark)
+        ctrl_row.addWidget(self.btn_mark)
+
         self.btn_stop = QtWidgets.QPushButton(t("stop"))
         self.btn_stop.setEnabled(False)
         self.btn_stop.clicked.connect(self._on_stop)
@@ -198,7 +203,7 @@ class _PanelUIMixin:
             f"QPushButton:hover{{background:{c.button_primary};color:{c.button_text};border-color:{c.button_primary}}}"
             f"QPushButton:disabled{{color:{c.button_disabled};background:transparent;border-color:{c.border}}}"
         )
-        for btn in (self.btn_undo, self.btn_params, self.btn_stop,
+        for btn in (self.btn_undo, self.btn_params, self.btn_mark, self.btn_stop,
                     self.btn_new_session, self.btn_delete_session):
             btn.setStyleSheet(ctrl_style)
         self.btn_settings.setStyleSheet(

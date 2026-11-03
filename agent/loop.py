@@ -39,10 +39,16 @@ class LoopActionKind(Enum):
 
 
 @dataclass
-class LoopAction:
-    kind: LoopActionKind
+class LoopActionBase:
+    """Fields every action carries. Kind-specific payloads live on subclasses."""
 
-    # CALL_LLM
+    kind: LoopActionKind
+    status_state: str = ""
+    system_message: str = ""
+
+
+@dataclass
+class CallLlmAction(LoopActionBase):
     messages: list[dict] | None = None
     tools: list[dict] | None = None
     iteration: int = 0
@@ -50,18 +56,36 @@ class LoopAction:
     token_budget: int = 0
     token_trimmed: bool = False
 
-    # EXECUTE_TOOLS
+
+@dataclass
+class ExecuteToolsAction(LoopActionBase):
     tool_calls: list[dict] = field(default_factory=list)
 
-    # FINISH
+
+@dataclass
+class FinishAction(LoopActionBase):
     success: bool = False
     summary: str = ""
     from_stream: bool = False
     iterations: int = 0
 
-    # Display hints
-    status_state: str = ""
-    system_message: str = ""
+
+_ACTION_FOR_KIND = {
+    LoopActionKind.CALL_LLM: CallLlmAction,
+    LoopActionKind.EXECUTE_TOOLS: ExecuteToolsAction,
+    LoopActionKind.FINISH: FinishAction,
+}
+
+
+def LoopAction(kind: LoopActionKind, **kwargs):
+    """Build the action subclass for *kind*. Unknown fields are rejected."""
+    cls = _ACTION_FOR_KIND[kind]
+    allowed = {item.name for item in cls.__dataclass_fields__.values()}
+    unknown = set(kwargs) - allowed
+    if unknown:
+        names = ", ".join(sorted(unknown))
+        raise TypeError(f"{cls.__name__} does not accept {names}")
+    return cls(kind=kind, **kwargs)
 
 
 @dataclass

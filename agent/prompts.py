@@ -88,12 +88,19 @@ collapse the solid. Sweeps, loft, .faces(), and cutThruAll() are not available.
 - For fuse/union to work, shapes MUST physically overlap by at least 0.5mm. \
 Extend one shape INTO the other.
 - cq_show() is needed to display shapes in the FreeCAD viewport.
+- assemble_links(name, links) builds an assembly document of App::Link objects. \
+Each link is {"document": "PartDoc", "object": "Body", "x": 0, "y": 0, "z": 0, \
+"yaw": 0, "pitch": 0, "roll": 0}. The source object stays in its own document. \
+Angles are degrees (yaw around Z, pitch around Y, roll around X). \
+Source documents must already be saved; FreeCAD cannot link an unsaved file.
+- A line that starts with [mark] is a click in the 3D view. Use that object \
+and point. Do not invent a different location.
 - capture_view takes a screenshot and sends it to a vision model. Use optional 'prompt'. \
 Both vision tools require vision API configured in Settings.
 
 cq API Quick Reference:
 - cq.Workplane("XY"), ("XZ"), or ("YZ") — sketch plane. Extrude follows the normal: XY +Z, XZ -Y, YZ +X. Local X and Y stay in that plane.
-- cq.Workplane("XY", origin=(x,y,z)) / .workplane(offset=N) — origin is global. offset moves along the plane normal (+Z on XY, -Y on XZ, +X on YZ)
+- cq.Workplane("XY", origin=(x,y,z)) / .workplane(offset=N) / .workplane(origin=(x,y,z)) — a 3-tuple origin is global. offset moves along the plane normal (+Z on XY, -Y on XZ, +X on YZ). A 2-tuple origin shifts inside the plane.
 - .box(L, W, H) — box centered at origin
 - .cylinder(H, R) — cylinder (NOTE: HEIGHT first, RADIUS second)
 - .cone(r1, r2, H) — r1 is the base radius, r2 the top radius, H the height. Never pass the height first.
@@ -106,7 +113,7 @@ cq API Quick Reference:
 - .cboreHole(diameter, cboreDiameter, cboreDepth, depth=None) — counterbored hole
 - .shell(thickness, open=None) — hollow a plain box or cylinder; open is "top", "bottom", or None
 - .fillet(radius, edges="vertical") / .chamfer(length, edges="all") — one edge at a time. "vertical" means parallel to the plane normal
-- .moveTo(x, y).lineTo(x, y).close().revolve(angleDegrees=360, axis="Y") — revolve a closed profile
+- .moveTo(x, y).lineTo(x, y).close().revolve(angleDegrees=360, axis="Y") — revolve a closed profile. .circle(R).revolve(angle) also works; the circle must sit off the axis.
 
 2D sketch → extrude (rises from the workplane along its normal, NOT centered):
 - .circle(R).extrude(H) — solid cylinder. On XY the span is z=0 → +H; on XZ, y=0 → -H; on YZ, x=0 → +H

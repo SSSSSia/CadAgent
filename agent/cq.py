@@ -682,45 +682,84 @@ class Workplane:
         axisEnd=None,
         axis: str = "Y",
     ) -> Workplane:
-        """Revolve the closed line profile around an axis.
+        """Revolve a closed line profile, or one circle(), around an axis.
 
         Default axis is Y through the workplane origin. Pass axisStart and
-        axisEnd together to revolve around an arbitrary segment.
+        axisEnd together to revolve around an arbitrary segment. A pending
+        circle is already closed; a line profile still needs close().
         """
         if not angleDegrees:
             raise ValueError("revolve angle must be non-zero")
+        if self._pending and not _profile_has_edges(self._profile):
+            return self._revolve_circle(angleDegrees, axisStart, axisEnd, axis)
         if not self._profile:
             raise ValueError(
-                "revolve() needs a profile. Call moveTo(), lineTo(), and close()."
+                "revolve() needs a profile. Call moveTo(), lineTo(), and close(), "
+                "or circle() then revolve()."
             )
         if not any(op[0] == "close" for op in self._profile):
             raise ValueError("Profile is not closed. Call close() before revolve().")
         wire = _profile_wire(self._profile, (0.0, 0.0, 0.0))
+        return self._revolve_wire(wire, angleDegrees, axisStart, axisEnd, axis)
+
+    def _revolve_circle(self, angleDegrees, axisStart, axisEnd, axis) -> Workplane:
+        if len(self._pending) != 1 or self._pending[0][0] != "circle":
+            raise ValueError(
+                "revolve() accepts one circle() or a closed line profile. "
+                "rect(), polygon(), and several sketches cannot be revolved."
+            )
+        op = self._pending[0]
+        radius = float(op[1])
+        cx = float(op[3]) if len(op) > 3 else 0.0
+        cy = float(op[4]) if len(op) > 4 else 0.0
+        edge = Part.makeCircle(radius, _fc_vec(cx, cy, 0.0), _fc_vec(0.0, 0.0, 1.0))
+        wire = Part.Wire([edge])
+        return self._revolve_wire(wire, angleDegrees, axisStart, axisEnd, axis)
+
+    def _revolve_wire(self, wire, angleDegrees, axisStart, axisEnd, axis) -> Workplane:
         _orient_shape(wire, self._plane, self._origin)
         base, direction = _revolve_axis(
             axisStart, axisEnd, axis, self._origin, self._plane,
         )
         shape = wire.revolve(base, direction, float(angleDegrees))
+        if shape is None or getattr(shape, "isNull", lambda: False)():
+            raise ValueError(
+                "revolve() produced an empty solid. Keep the profile on one "
+                "side of the axis; a circle spun about its own center is empty."
+            )
         out = self._copy(shapes=[shape], keep_primitive=False)
         out._profile = []
+        out._pending = []
         return out
 
     # -- Workplane offset ---------------------------------------------------
 
-    def workplane(self, offset: float = 0) -> Workplane:
-        """Create a new workplane offset along the plane normal.
+    def workplane(self, offset: float = 0, origin=None) -> Workplane:
+        """Create a new workplane on the same named plane.
 
-        XY moves +Z, XZ moves -Y, YZ moves +X. Negative offsets go the
-        other way. Existing shapes and pending sketches are carried
-        forward unchanged.
+        offset moves along the plane normal: XY +Z, XZ -Y, YZ +X.
+        origin=(x, y, z) sets that global point. origin=(x, y) shifts
+        inside the plane and keeps the current offset. Existing shapes
+        and pending sketches are carried forward unchanged.
         """
-        if offset == 0:
-            return self._copy()
-        nx, ny, nz = _PLANE_NORMAL[self._plane]
         ox, oy, oz = self._origin
+        if origin is not None:
+            coords = _xyz(origin)
+            if len(coords) == 2:
+                dx, dy, dz = _rotate_vec(coords[0], coords[1], 0.0, self._plane)
+                ox, oy, oz = ox + dx, oy + dy, oz + dz
+            else:
+                ox, oy, oz = coords
+        if offset:
+            nx, ny, nz = _PLANE_NORMAL[self._plane]
+            ox += nx * float(offset)
+            oy += ny * float(offset)
+            oz += nz * float(offset)
+        if origin is None and not offset:
+            return self._copy()
         return Workplane(
             plane=self._plane,
-            origin=(ox + nx * offset, oy + ny * offset, oz + nz * offset),
+            origin=(ox, oy, oz),
             shapes=list(self._shapes),
             pending=list(self._pending),
             locations=list(self._locations),
@@ -1037,6 +1076,26 @@ def _closest_edge(shape, mid):
             best = edge
             best_d = dist
     return best
+
+
+def _xyz(value):
+    """2 or 3 coordinates from a tuple or a vector-like object."""
+    if hasattr(value, "x") and hasattr(value, "y"):
+        return (float(value.x), float(value.y), float(getattr(value, "z", 0.0)))
+    try:
+        coords = tuple(float(item) for item in value)
+    except TypeError as exc:
+        raise ValueError(
+            "workplane origin must be a 2-tuple or a 3-tuple"
+        ) from exc
+    if len(coords) not in (2, 3):
+        raise ValueError("workplane origin must be a 2-tuple or a 3-tuple")
+    return coords
+
+
+def _profile_has_edges(profile) -> bool:
+    """True when the line profile has a segment, not only moveTo points."""
+    return any(op[0] in ("line", "arc") for op in profile)
 
 
 def _profile_wire(profile, origin):

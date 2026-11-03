@@ -1,8 +1,8 @@
-"""User-visible strings for the panel and dialogs (S9-C).
+"""User-visible strings for the panel and dialogs (S9-C, Phase 9.2).
 
 Two flat tables, English and Chinese. ``CADAGENT_LANG`` (``en`` / ``zh``)
-wins. Otherwise the FreeCAD language preference is used. QTranslator stays
-out until the string set is worth a toolchain.
+wins. Otherwise the FreeCAD language preference is used. Chinese text is
+read from ``resources/translations/cadagent_zh.ts`` when that file loads.
 """
 from __future__ import annotations
 
@@ -22,6 +22,9 @@ _EN = {
         "Edit parameters and rebuild the model deterministically "
         "(no LLM call; previous state stays undoable)"
     ),
+    "mark": "Mark",
+    "mark_tip": "Insert the selected face or point into the message",
+    "mark_empty": "Click a face or edge in the 3D view first, then Mark.",
     "delete_session_tip": "Delete selected session",
     "settings_tip": "Configure CadAgent API and parameters",
     "params_label_tip": (
@@ -152,6 +155,9 @@ _ZH = {
     "attach_tip": "附加图片，供视觉分析",
     "undo_tip": "撤销上一次建模（恢复文档快照）",
     "params_tip": "编辑参数并确定性重建模型（不调用 LLM，之前的状态可以撤销）",
+    "mark": "标注",
+    "mark_tip": "把当前选中的面或点写进输入框",
+    "mark_empty": "先在三维视图里点一个面或边，再点标注。",
     "delete_session_tip": "删除选中的会话",
     "settings_tip": "配置 CadAgent 的 API 和参数",
     "params_label_tip": "从已执行代码里提取的命名参数，会注入后续对话。要改数值，直接告诉 Agent。",
@@ -267,10 +273,28 @@ def _freecad_language() -> str:
         return ""
 
 
+_CATALOG: dict[str, str] | None = None
+
+
+def _zh_catalog() -> dict[str, str]:
+    """English source → Chinese, from the TS file. Empty if it cannot load."""
+    global _CATALOG
+    if _CATALOG is None:
+        try:
+            from ui.catalog import load_catalog
+            _CATALOG = load_catalog()
+        except Exception:
+            _CATALOG = {}
+    return _CATALOG
+
+
 def t(key: str, **kwargs) -> str:
     """Look up a user-visible string. Missing keys fall back to English."""
-    lang = current_lang()
-    text = (_ZH if lang == "zh" else _EN).get(key) or _EN.get(key) or key
+    english = _EN.get(key) or key
+    if current_lang() == "zh":
+        text = _zh_catalog().get(english) or _ZH.get(key) or english
+    else:
+        text = english
     if kwargs:
         return text.format(**kwargs)
     return text

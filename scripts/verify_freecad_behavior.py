@@ -423,6 +423,20 @@ def part_c(workdir):
         f"vol={bush_vol:.1f} expected≈{bush_expected:.1f}",
     )
 
+    # --- C9b: workplane(origin=) plus one circle revolved into a torus ---
+    torus = (Workplane("XY")
+             .workplane(origin=(10, 0, 0))
+             .circle(2)
+             .revolve(360, axisStart=(0, 0, 0), axisEnd=(0, 1, 0)))
+    torus_vol = torus.solid().Volume
+    torus_expected = 2 * math.pi ** 2 * 10 * 4
+    _report(
+        torus.solid().isValid()
+        and abs(torus_vol - torus_expected) / torus_expected < 0.02,
+        "C9b circle().revolve after workplane(origin=) makes a torus",
+        f"vol={torus_vol:.1f} expected≈{torus_expected:.1f}",
+    )
+
     # --- C10: open-top box shell ---
     opened = Workplane("XY").box(20, 30, 10).shell(1, open="top")
     opened_vol = opened.solid().Volume
@@ -563,6 +577,53 @@ def part_d(workdir):
     _close_all_documents()
 
 
+def part_e(workdir):
+    """App::Link assembly from two saved part documents (Phase 12.1)."""
+    repo_root = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
+    from agent.assembly import assemble_links
+
+    import FreeCAD
+    import Part
+    print("\nPart E — assembly links (Phase 12.1)")
+
+    os.environ["CADAGENT_DATA_DIR"] = workdir
+    _close_all_documents()
+    part_a = FreeCAD.newDocument("AsmPartA")
+    block = part_a.addObject("Part::Feature", "Block")
+    block.Shape = Part.makeBox(10, 10, 10)
+    part_b = FreeCAD.newDocument("AsmPartB")
+    pin = part_b.addObject("Part::Feature", "Pin")
+    pin.Shape = Part.makeCylinder(2, 20)
+    part_a.recompute()
+    part_b.recompute()
+    # App::Link refuses a source document that has never been saved.
+    part_a.saveAs(os.path.join(workdir, "AsmPartA.FCStd"))
+    part_b.saveAs(os.path.join(workdir, "AsmPartB.FCStd"))
+    part_a.Label = "AsmPartA"
+    part_b.Label = "AsmPartB"
+
+    asm = assemble_links("AsmDemo", [
+        {"document": "AsmPartA", "object": "Block", "z": 5},
+        {"document": "AsmPartB", "object": "Pin", "x": 30, "yaw": 90},
+    ])
+    links = [obj for obj in asm.Objects if obj.TypeId == "App::Link"]
+    by_name = {obj.Name: obj for obj in links}
+    block_link = by_name.get("Link_Block_1")
+    pin_link = by_name.get("Link_Pin_2")
+    _report(
+        asm.Name == "AsmDemo" and block_link is not None and pin_link is not None
+        and abs(block_link.Placement.Base.z - 5) < 1e-6
+        and abs(pin_link.Placement.Base.x - 30) < 1e-6
+        and block_link.LinkedObject is block
+        and pin_link.LinkedObject is pin,
+        "E1 assembly document links both parts at the given placement",
+        f"links={sorted(by_name)}",
+    )
+    _close_all_documents()
+
+
 def _rebuild_bbox(doc):
     shapes = [
         o.Shape for o in doc.Objects
@@ -588,6 +649,7 @@ def main():
         part_b(workdir)
         part_c(workdir)
         part_d(workdir)
+        part_e(workdir)
     finally:
         _close_all_documents()
         shutil.rmtree(workdir, ignore_errors=True)

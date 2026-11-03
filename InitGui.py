@@ -5,7 +5,7 @@ import FreeCAD
 import FreeCADGui
 from FreeCADGui import Workbench
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 # FreeCAD 通过 exec() 加载 InitGui.py，此时 __file__ 不可用，Python 也不知道本插件
 # 的其他模块在哪里。必须手动定位插件目录并加入 sys.path，
@@ -81,6 +81,7 @@ class CadAgentWorkbench(Workbench):
 class _ShowPanelCmd:
     def GetResources(self):
         return {
+            "Pixmap": "CadAgentWorkbench.svg",
             "MenuText": "CadAgent",
             "ToolTip": "Open the CadAgent panel",
         }
@@ -95,6 +96,7 @@ class _ShowPanelCmd:
 class _SettingsCmd:
     def GetResources(self):
         return {
+            "Pixmap": "CadAgentWorkbench.svg",
             "MenuText": "CadAgent Settings",
             "ToolTip": "Configure CadAgent API and agent parameters",
         }

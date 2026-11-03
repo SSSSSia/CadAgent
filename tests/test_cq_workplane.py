@@ -279,7 +279,15 @@ def _make_fc_mock():
     part.makeCone = _make_cone
     part.makeSphere = _make_sphere
     part.makeTorus = _make_torus
+    def _make_circle(radius, center, normal):
+        return _MockShape(
+            shape_type="Edge", volume=0,
+            bounds=(center.x - radius, center.y - radius, center.z,
+                    center.x + radius, center.y + radius, center.z),
+        )
+
     part.makeLine = _make_line
+    part.makeCircle = _make_circle
 
     class _Wire:
         def __init__(self, edges):
@@ -1132,6 +1140,42 @@ def test_revolve_unclosed_profile_raises():
         assert False, "an open profile cannot revolve"
     except ValueError as exc:
         assert "close" in str(exc).lower()
+
+
+def test_circle_revolve_does_not_need_close():
+    spun = Workplane("XY").circle(6).revolve(
+        180, axisStart=(0, 0, 0), axisEnd=(0, 1, 0),
+    )
+    assert spun.solid().volume == 1800
+    assert spun._pending == []
+
+
+def test_move_to_then_circle_revolve_uses_the_circle():
+    spun = (Workplane("XZ")
+            .workplane(origin=(0, 0, 40))
+            .moveTo(20, 0)
+            .circle(3)
+            .revolve(180, axisStart=(0, 0, 40), axisEnd=(0, 1, 40)))
+    assert spun.solid().volume == 1800
+    assert spun._origin == pytest.approx((0.0, 0.0, 40.0))
+
+
+def test_rect_revolve_is_rejected():
+    try:
+        Workplane("XY").rect(4, 4).revolve()
+        assert False, "a rectangle is not a revolve profile"
+    except ValueError as exc:
+        assert "rect()" in str(exc)
+
+
+def test_workplane_origin_keyword_is_global_on_xz():
+    bounds = Workplane("XZ").workplane(origin=(0, 0, 10)).box(10, 20, 30).solid().bounds
+    assert bounds == pytest.approx((-5, -15, 0, 5, 15, 20))
+
+
+def test_workplane_origin_two_tuple_shifts_inside_the_plane():
+    assert Workplane("XY").workplane(origin=(4, 5))._origin == pytest.approx((4, 5, 0))
+    assert Workplane("XZ").workplane(origin=(4, 5))._origin == pytest.approx((4, 0, 5))
 
 
 def test_profile_branches_do_not_share_points():

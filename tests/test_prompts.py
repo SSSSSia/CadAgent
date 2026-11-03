@@ -139,6 +139,11 @@ class TestCQSemanticsDocumented:
         assert "XZ -Y" in prompt
         assert "YZ +X" in prompt
 
+    @pytest.mark.parametrize("name,prompt", list(AGENT_PROMPTS.items()))
+    def test_assembly_and_marks_documented(self, name, prompt):
+        assert "assemble_links" in prompt
+        assert "[mark]" in prompt
+
 
 class TestSharedPromptSections:
     """S6-A13: both prompts assemble from shared section constants.

@@ -24,6 +24,7 @@ from core.logger import log_info, log_warning, log_quiet
 from agent.code_fixes import (
     error_hint, pre_validate_code, unsupported_cq_call, vessel_floor_warning,
 )
+from agent.assembly import assemble_links
 from agent.cad_helpers import (
     extract_solid, safe_fuse, safe_cut,
     make_hollow_cylinder, make_ring, make_box_handle, make_arc_handle,
@@ -46,7 +47,7 @@ _BUILTIN_NAMES = frozenset({
     "FreeCAD", "FreeCADGui", "Part", "math", "doc", "__builtins__",
     "extract_solid", "safe_fuse", "safe_cut",
     "make_hollow_cylinder", "make_ring", "make_box_handle", "make_arc_handle", "ensure_doc",
-    "cq", "Workplane", "cq_show",
+    "cq", "Workplane", "cq_show", "assemble_links",
 })
 
 # Only these types are safe to serialize to disk for session persistence.
@@ -293,6 +294,7 @@ def _build_exec_namespace(doc) -> dict:
         "cq": _cq_module,
         "Workplane": _CQWorkplane,
         "cq_show": cq_show,
+        "assemble_links": assemble_links,
     }
     # Inject variables from previous execute_code calls (includes FreeCAD objects).
     # `doc` must stay the document resolved for THIS call. A previous undo or

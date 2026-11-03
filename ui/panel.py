@@ -702,6 +702,19 @@ class AgentPanel(QtWidgets.QDockWidget, _PanelUIMixin, _PanelStreamMixin, _Panel
         else:
             self._append_system_msg(t("undo_failed", detail=result))
 
+    def _on_mark(self):
+        """Insert the current 3D selection into the input (Phase 8.2)."""
+        from agent.annotate import read_selection_marks
+        text = read_selection_marks()
+        if not text:
+            self._append_system_msg(t("mark_empty"))
+            return
+        current = self.text_input.toPlainText().rstrip()
+        merged = f"{current}\n{text}" if current else text
+        self.text_input.setPlainText(merged)
+        from PySide6.QtGui import QTextCursor
+        self.text_input.moveCursor(QTextCursor.End)
+
     def _on_params_button(self):
         """User clicked ƒ(x) — edit parameters and rebuild deterministically (P12.2)."""
         from agent.tools import get_code_history, get_param_store

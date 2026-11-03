@@ -18,3 +18,12 @@ extend-exclude = [".zcode", "docs"]
 # log lines is noise, and the line length above is the target for new code.
 select = ["E", "W", "F"]
 ignore = ["E501"]
+
+[project]
+name = "cadagent"
+version = "1.4.0"
+description = "FreeCAD workbench. Install by placing this folder in FreeCAD's Mod directory, or with the Addon Manager via package.xml. It is not a pip library."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+dependencies = []

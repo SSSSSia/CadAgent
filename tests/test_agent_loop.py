@@ -3,7 +3,10 @@ from __future__ import annotations
 
 from core.session import ChatSession
 from agent.controller import AgentController
-from agent.loop import AgentLoop, LoopActionKind, ToolExecution
+from agent.loop import (
+    AgentLoop, CallLlmAction, ExecuteToolsAction, FinishAction,
+    LoopAction, LoopActionKind, ToolExecution,
+)
 import core.config as _config
 
 
@@ -173,7 +176,7 @@ def test_auto_final_answer_with_document_is_not_success():
     action = loop.handle_stream_done(data, False)
     assert action.kind == LoopActionKind.CALL_LLM
     assert loop.mode == "tool_calling"
-    assert action.success is False
+    assert not isinstance(action, FinishAction)
     user_text = "\n".join(
         m["content"] for m in ctrl.session.get_messages() if m["role"] == "user"
     )
@@ -935,3 +938,24 @@ class TestStoppedStreamSemantics:
         # The partial answer stays in history (it really was generated)
         assert any(m.get("content") == "partial ans"
                    for m in ctrl.session.get_messages())
+
+
+def test_loop_actions_split_by_kind():
+    call = LoopAction(kind=LoopActionKind.CALL_LLM, messages=[], status_state="thinking")
+    assert isinstance(call, CallLlmAction)
+    assert not hasattr(call, "tool_calls")
+    tools = LoopAction(
+        kind=LoopActionKind.EXECUTE_TOOLS,
+        tool_calls=[{"id": "1"}],
+        system_message="switched",
+    )
+    assert isinstance(tools, ExecuteToolsAction)
+    assert not hasattr(tools, "summary")
+    done = LoopAction(kind=LoopActionKind.FINISH, success=True, summary="ok")
+    assert isinstance(done, FinishAction)
+    assert not hasattr(done, "messages")
+    try:
+        LoopAction(kind=LoopActionKind.FINISH, messages=[])
+        assert False, "finish must reject call-llm fields"
+    except TypeError as exc:
+        assert "messages" in str(exc)

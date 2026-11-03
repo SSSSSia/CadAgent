@@ -1,5 +1,27 @@
 # Changelog
 
+## v1.4.0 (2026-11-03)
+
+The remaining roadmap items: assemblies, split loop actions, the workbench
+icon on toolbar commands, viewport marks, Addon Manager metadata, and the
+Chinese TS catalog.
+
+- **Assembly**: `assemble_links(name, links)` creates an assembly document
+  of `App::Link` objects. Each link names a source document and object,
+  plus a placement (millimetres and yaw/pitch/roll degrees).
+- **Loop actions**: `CallLlmAction`, `ExecuteToolsAction`, and `FinishAction`
+  replace the single dataclass. A field from another kind is rejected.
+- **Marks**: the Mark button writes the current 3D selection into the input
+  as `[mark] label (name) face … at (x, y, z)`.
+- **Icon**: toolbar commands use `CadAgentWorkbench.svg`.
+- **Distribution**: `package.xml` for the Addon Manager. `CONTRIBUTING.md`
+  and `adr/0001-stdlib-loop-and-translations.md`. Chinese UI text is
+  `resources/translations/cadagent_zh.ts`. A `.qm` file is optional.
+- `workplane(origin=(x, y, z))` sets a global origin. One `circle()` can be
+  revolved without `close()`.
+- Tests: 792 (mock suite). FreeCAD behavior script: 46 checks, including
+  the assembly link and the circle-revolve torus, passed on FreeCAD 1.1.1.
+
 ## v1.3.0 (2026-11-03)
 
 `Workplane("XZ")` and `Workplane("YZ")` now build geometry on those planes.

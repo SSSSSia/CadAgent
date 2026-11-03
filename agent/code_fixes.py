@@ -376,7 +376,13 @@ def error_hint(error: Exception, code: str) -> tuple[str, str | None]:
                 )
 
     elif e_type == "TypeError":
-        if "translate" in code:
+        if "workplane()" in e_str and "unexpected keyword" in e_str:
+            hints.append(
+                "Hint: workplane() accepts offset (distance along the normal) "
+                "and origin=(x, y, z) in global coordinates. "
+                "A 2-tuple origin shifts inside the plane."
+            )
+        elif "translate" in code:
             # Detect CQ-style vs FreeCAD-style code
             is_cq_code = bool(re.search(r'\bcq\.|Workplane\(|cq_show', code))
             if is_cq_code:
@@ -413,6 +419,14 @@ def error_hint(error: Exception, code: str) -> tuple[str, str | None]:
                     )
 
     # ValueError patterns — each returns independently
+    if e_type == "ValueError" and "Profile is not closed" in e_str:
+        hints.append(
+            "Hint: a line profile needs close() before revolve(). "
+            "One circle() can be revolved without close(), and it must sit "
+            "off the axis. rect() and polygon() cannot be revolved."
+        )
+        return "\n".join(hints), None
+
     if e_type == "ValueError" and "No pending" in e_str and "extrude" in e_str:
         hints.append(
             "Hint: extrude() requires 2D operations before it. "
